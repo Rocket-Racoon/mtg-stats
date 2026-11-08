@@ -872,7 +872,7 @@ wheels = [
 [[package]]
 name = "mtg-stats-api"
 version = "0.1.0"
-source = { editable = "." }
+source = { virtual = "." }
 dependencies = [
     { name = "alembic" },
     { name = "arq" },
@@ -898,26 +898,26 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "alembic", specifier = ">=1.13" },
-    { name = "arq", specifier = ">=0.26" },
-    { name = "fastapi", specifier = ">=0.115" },
+    { name = "alembic", specifier = ">=1.20" },
+    { name = "arq", specifier = ">=0.28" },
+    { name = "fastapi", specifier = ">=0.162" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
-    { name = "pydantic-settings", specifier = ">=2.4" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.3" },
+    { name = "pydantic-settings", specifier = ">=2.16" },
     { name = "pyjwt", specifier = ">=2.9" },
-    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
+    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.1,<2.2" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.54" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "factory-boy", specifier = ">=3.3" },
-    { name = "mypy", specifier = ">=1.11" },
+    { name = "mypy", specifier = ">=2.4" },
     { name = "pre-commit", specifier = ">=3.8" },
-    { name = "pytest", specifier = ">=8.3" },
-    { name = "pytest-asyncio", specifier = ">=0.24" },
-    { name = "pytest-cov", specifier = ">=5.0" },
-    { name = "ruff", specifier = ">=0.6" },
+    { name = "pytest", specifier = ">=9.2" },
+    { name = "pytest-asyncio", specifier = ">=1.4" },
+    { name = "pytest-cov", specifier = ">=7.1" },
+    { name = "ruff", specifier = ">=0.17" },
 ]
 
 [[package]]

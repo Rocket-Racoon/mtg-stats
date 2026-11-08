@@ -30,4 +30,4 @@ MTG Stats is a new Commander companion app for a private playgroup. It runs as a
 
 - Deck validation needs the playgroup context (the game's or the view's playgroup) to apply house rules.
 - Bracket assessments depend on an external API and must work, with a warning, when it is down.
-- Every new library goes through a quick approval. The approved set is the union of plan §8 and ADR-0002.
+- Every new library goes through a quick approval. The approved set is plan §8, ADR-0002 and the decisions log in `docs/backlog/OPEN-QUESTIONS.md`.

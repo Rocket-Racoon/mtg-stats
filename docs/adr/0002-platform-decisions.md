@@ -16,22 +16,25 @@ Before Phase 0, the backlog needed concrete choices for the runtime, tooling, ID
 | Area | Approved |
 |---|---|
 | Python runtime | uvicorn; **psycopg 3** with **async** SQLAlchemy; argon2-cffi; ijson; qrcode; redis-py |
-| Python test | pytest, pytest-cov, pytest-asyncio, factory_boy |
+| Python test | pytest, pytest-cov, pytest-asyncio, factory_boy; `websockets` (dev only, multi-process soak test S-6.3.4; approved after the PR #448 review) |
 | Python ops | pip-audit; the `pre-commit` framework |
 | TS client and routing | openapi-typescript + openapi-fetch (hooks written by hand); React Router (web); Expo Router (mobile) |
 | TS test and lint | Vitest, Testing Library, jsdom, jest-expo, React Native Testing Library; ESLint (typescript-eslint, React plugins); Prettier |
 | End-to-end tests | Playwright (web), Maestro (mobile) |
-| Mobile | expo-secure-store, react-native-svg, expo-keep-awake, expo-haptics; **victory-native** (with react-native-skia) for charts |
+| Mobile | expo-secure-store, react-native-svg, expo-keep-awake, expo-haptics, expo-linking and expo-constants (needed by Expo Router), expo-camera (in-app QR scanning) and expo-screen-orientation (game table orientation), all approved after the PR #448 review; **victory-native** (with react-native-skia) for charts |
 | Database | Postgres extensions `pg_trgm` and `unaccent` |
 | Services | Cloudflare Tunnel, GitHub Container Registry, an external uptime monitor |
-| **Not approved** | Sentry and other hosted error trackers; EAS Update; app stores (for now); any FX-rate or sealed-price source; turborepo/just/make |
+| **Not approved** | Sentry and other hosted error trackers; EAS Update; app stores (for now); any FX-rate or sealed-price source; a reverse proxy such as Caddy (cloudflared terminates TLS) |
 
 **Conventions**
 
 - **Primary keys are UUID v7** (B1), from a standard-library generator in `app/core/ids.py`.
 - **Cursor (keyset) paging** on every list endpoint (B2).
 - Shared TypeScript card helpers live in a new **`packages/card-utils`** (B4).
-- **Link policy** (B6, S-1.6.7): every shareable link (invites, password resets, game joins, QR codes) is an `https://` web URL. Its page offers "Open in app" through `mtgstats://`, which is also used for in-app navigation. Android App Links replace the button in Phase 5.
+- **Link policy**: S-1.6.7 refines decision B6, which on its own reads as "`mtgstats://` links in the MVP".
+  - Every shareable link (invites, password resets, game joins, QR codes) is an `https://` web URL built on the server by `public_link()`.
+  - Its page offers "Open in app" through `mtgstats://`, which is also used for in-app navigation.
+  - Universal and App Links replace the button in Phase 5 (S-11.5.6). Native builds are Android only for now, so that means Android App Links.
 
 **Process and ownership**
 
@@ -42,6 +45,8 @@ Before Phase 0, the backlog needed concrete choices for the runtime, tooling, ID
 
 ## Alternatives considered
 
+The rationale below is the orchestrator's; the decisions log records the choices but not the reasons.
+
 - **asyncpg**: rejected. psycopg 3 supports sync and async, and is the SQLAlchemy default for Postgres going forward.
 - **bigint keys**: rejected. They can be guessed in URLs, and UUID v7 keeps index locality.
 - **Offset paging**: rejected. It is unstable when rows are inserted during paging.
@@ -50,5 +55,5 @@ Before Phase 0, the backlog needed concrete choices for the runtime, tooling, ID
 ## Consequences
 
 - factory_boy is synchronous, so factories build objects and an async helper persists them (S-1.4.2).
-- iPhone users use the web app until an Apple developer account exists.
+- iPhone users use the web app. Apple will be revisited later (the "iPhone" decision, rounds 18–20).
 - CI must re-run the secret checks so a `--no-verify` commit is still caught.

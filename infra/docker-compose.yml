@@ -1,0 +1,67 @@
+# Local dev infrastructure. Run from the repo root:
+#   docker compose -f infra/docker-compose.yml up -d postgres redis
+#
+# Changing a host port (bash):        POSTGRES_PORT=5433 docker compose -f infra/docker-compose.yml up -d postgres redis
+# Changing a host port (PowerShell):  $env:POSTGRES_PORT=5433; docker compose -f infra/docker-compose.yml up -d postgres redis
+# (REDIS_PORT works the same way.) The API's database URL (S-1.3.3) must use the same port.
+#
+# Compose reads interpolation values from infra/.env (the project directory), not the
+# root .env, so credentials are passed with env_file instead of ${VAR}. Interpolation
+# is used only for non-secret values that have defaults (the ports).
+#
+# The fixed project name means all git worktrees share one set of containers and volumes,
+# so `down -v` in any worktree wipes the shared dev database.
+#
+# env_file passes the whole root .env into the postgres container. That is acceptable for
+# dev; S-1.3.3 may narrow it.
+name: mtg-stats
+
+services:
+  postgres:
+    # Debian (bookworm) for glibc text collation. CI (S-1.8.x) and prod (E-11) must use the same
+    # Debian variant so ORDER BY on text sorts identically everywhere.
+    image: postgres:16.10-bookworm
+    restart: unless-stopped
+    env_file:
+      - path: ../.env
+        required: true
+    environment:
+      # Dev only: skip the fsync in initdb so a first start is fast on slow disks.
+      POSTGRES_INITDB_ARGS: "--no-sync"
+    # Dev only. synchronous_commit=off is crash-safe (a crash can lose the last commits but
+    # never corrupts data). fsync=off and full_page_writes=off are deliberately NOT used:
+    # they can silently corrupt the database after a Docker VM kill.
+    command: ["postgres", "-c", "synchronous_commit=off"]
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # -h forces TCP: the entrypoint's temporary init server listens on the Unix socket
+      # only, so a socket probe would pass before initialization finishes.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 60s
+      start_interval: 1s
+
+  redis:
+    image: redis:7.4.6-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 60s
+      start_interval: 1s
+
+volumes:
+  postgres_data:
+  redis_data:

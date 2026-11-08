@@ -1,5 +1,6 @@
 """Project configuration tests for S-1.1.2 (uv-managed Python project)."""
 
+import os
 import re
 import shutil
 import subprocess
@@ -86,43 +87,60 @@ def test_pytest_config_enforces_strict_markers_and_discovers_tests_dir() -> None
     assert "tests" in options["testpaths"]
 
 
-def test_unregistered_marker_fails_the_run_under_project_config(tmp_path: Path) -> None:
-    (tmp_path / "test_unknown_marker.py").write_text(
-        "import pytest\n\n\n@pytest.mark.not_a_registered_marker\ndef test_x():\n    pass\n",
-        encoding="utf-8",
+def test_unregistered_marker_fails_the_run_under_project_config(
+    pytester: pytest.Pytester,
+) -> None:
+    pytester.makepyprojecttoml(PYPROJECT.read_text(encoding="utf-8"))
+    pytester.makepyfile(
+        test_unknown_marker="""
+        import pytest
+
+        @pytest.mark.not_a_registered_marker
+        def test_x():
+            pass
+        """
     )
-    result = subprocess.run(  # noqa: S603
-        [
-            sys.executable,
-            "-m",
-            "pytest",
-            "-c",
-            str(PYPROJECT),
-            "--rootdir",
-            str(tmp_path),
-            "-p",
-            "no:cacheprovider",
-            str(tmp_path),
-        ],
-        capture_output=True,
-        text=True,
-        cwd=tmp_path,
-        timeout=300,
-        check=False,
-    )
-    output = result.stdout + result.stderr
-    assert result.returncode != 0
-    assert "'not_a_registered_marker' not found in `markers` configuration option" in output
+    result = pytester.runpytest_inprocess()
+    assert result.ret != 0
+    result.stdout.fnmatch_lines(["*'not_a_registered_marker' not found in `markers`*"])
+
+
+def test_python_version_file_pins_3_12() -> None:
+    assert (API_ROOT / ".python-version").read_text(encoding="utf-8").strip().startswith("3.12")
+
+
+def test_mypy_strict_mode_is_enabled() -> None:
+    assert _load()["tool"]["mypy"]["strict"] is True
+
+
+def test_coverage_measures_the_app_package() -> None:
+    assert "app" in _load()["tool"]["coverage"]["run"]["source"]
+
+
+def test_pytest_asyncio_mode_is_auto() -> None:
+    assert _load()["tool"]["pytest"]["ini_options"]["asyncio_mode"] == "auto"
+
+
+def test_uv_project_is_not_packaged() -> None:
+    assert _load()["tool"]["uv"]["package"] is False
 
 
 def test_lockfile_exists() -> None:
     assert (API_ROOT / "uv.lock").is_file()
 
 
-@pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not on PATH")
+def _find_uv() -> str:
+    uv = shutil.which("uv") or os.environ.get("UV")
+    if uv:
+        return uv
+    if os.environ.get("CI"):
+        pytest.fail("uv not found on PATH or in $UV, but CI is set")
+    pytest.skip("uv is not available (not on PATH, $UV unset)")
+
+
 def test_lockfile_is_up_to_date_with_pyproject() -> None:
     result = subprocess.run(  # noqa: S603
-        [shutil.which("uv") or "uv", "lock", "--check"],
+        [_find_uv(), "lock", "--check"],
         capture_output=True,
         text=True,
         cwd=API_ROOT,

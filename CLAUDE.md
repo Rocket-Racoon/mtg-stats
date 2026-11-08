@@ -71,18 +71,20 @@ Definitions live in `.claude/agents/`. Architecture decisions stay with the orch
 
 Full detail lives in @docs/architecture.md. The non-negotiables:
 
-- **Domains**: `identity`, `playgroups`, `cards`, `decks`, `brackets`, `games`, `stats`, `collection` and `leagues`, each in `apps/api/app/<domain>/` with `models.py`, `schemas.py`, `router.py`, `services/`, `repository.py` and `tests/`. Architecture §4.1 maps the backlog's names ("players", "prices") onto these domains.
+- **Domains**: `system`, `identity`, `playgroups`, `cards`, `decks`, `brackets`, `games`, `stats`, `collection` and `leagues`, each in `apps/api/app/<domain>/` with `models.py`, `schemas.py`, `router.py`, `services/`, `repository.py` and `tests/`. Architecture §4.1 maps the backlog's names ("players", "prices") onto these domains.
 - **Public interface**: `services/__init__.py` is a domain's only public interface. Other domains, `workflows/` and `workers/` import only from it, never from another domain's models or repository.
 - **Dependency direction** is fixed in docs/architecture.md §4.2. The graph is transitive, **cycles are forbidden**, and `tests/architecture/test_domain_imports.py` enforces it.
-  - Every case that would need an upward call has a documented mechanism in §4.3: a workflow, a job enqueued by name, an inverted call or client composition. A new case needs a row there before any code is written.
+  - Every case that would need an upward call has a documented mechanism in §4.3, one of the five: a workflow, a job enqueued by name, an inverted call, a change of ownership or client composition. A new case needs a row there before any code is written.
   - Cross-domain workflows live in `app/workflows/` and share one transaction by passing the session.
+  - A service running in a caller's session never commits and never enqueues directly. Follow-ups use `core.jobs.enqueue_after_commit`.
+  - Auth dependencies (`current_user`, `require_site_admin`) come from `core.auth`, never from `identity`.
   - Follow-ups in a higher domain are enqueued by name (for example `stats.refresh_game_stats`), never imported.
-- **Routers stay thin**: parse, call a service, respond. Business logic lives in `services/`. Reusable queries live in `repository.py`.
+- **Routers stay thin**: parse, call a service, respond. Business logic lives in `services/`. Reusable queries live in `repository.py`, which queries only its own domain's tables.
 - **No ORM event listeners** (`@event.listens_for`) for business logic; use explicit service calls.
 - **List endpoints eager-load** the relationships they serialize (`selectinload`/`joinedload`), with a test that counts queries.
 - **Config comes from the environment only**, via pydantic-settings (`APP_ENV` = `dev` | `test` | `prod`). No secrets in code.
 - **Errors** (S-1.4.5): every error returns `{"error": {"code", "message", "details", "request_id"}}`. `code` is stable snake_case, and validation errors go in `details`. Clients switch on `code`, never on `message`.
-- **The game event log is append-only.** Corrections and undo are compensating events. The server is authoritative. The Python and TypeScript reducers must both pass `packages/game-core/vectors/`.
+- **The game event log is append-only.** Corrections and undo are compensating events. The only exceptions are the audited `games.reassign_player` and `games.delete_playgroup_data`. The server is authoritative. The Python and TypeScript reducers must both pass `packages/game-core/vectors/`.
 - **Frontends** use TanStack Query hooks written by hand over the generated `openapi-fetch` client, plus Zustand for client state. They never call `fetch` directly.
 
 ## Conventions
@@ -122,7 +124,7 @@ Full detail lives in @docs/architecture.md. The non-negotiables:
 - NEVER commit secrets, `.env` files or coverage artifacts. NEVER bypass the pre-commit hooks (`--no-verify`).
 - NEVER push directly to `main`. This is a convention, because GitHub Free can't enforce it (decision I1).
 - **Approved dependencies** are those in plan §8, ADR-0002 and the OPEN-QUESTIONS.md decisions log. Ask before adding anything else, and prefer the standard library.
-- The game event log is append-only: NEVER update or delete `game_events` rows from application code. Corrections and undo are compensating events.
+- The game event log is append-only: NEVER update or delete `game_events` rows. Corrections and undo are compensating events. The only exceptions are the audited `games.reassign_player` (guest merge) and `games.delete_playgroup_data` (playgroup deletion).
 - Every drag-and-drop interaction has a tap or keyboard alternative.
 - If a spec or acceptance criterion looks wrong, flag it and ask. Don't silently "fix" it. Docs never override a story; a conflict is raised with the user.
 

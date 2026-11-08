@@ -117,6 +117,17 @@ Status: `open` · `answered` (with the decision recorded). Answers are also copi
 | iPhone | iPhone players use the **web app**. Native internal builds are **Android only** for now, and Apple will be revisited later. |
 | Publishing | Create the private repo and publish the issues **under a GitHub account the user picks** |
 
+### 2026-11-07 — architecture review (PR #448)
+
+| Topic | Decision |
+|---|---|
+| API errors | Keep the S-1.4.5 envelope `{"error": {code, message, details, request_id}}`. RFC 9457 isn't used. |
+| Player ownership | Player lives in `identity`. Anything that needs membership lives in `playgroups`: profile visibility, the profile view, spend sharing. |
+| Domain graph | Every need for an upward call gets a documented mechanism in architecture §4.3. Story wording that changes is listed on PR #448, then edited in the Issues. |
+| Event log | `game_events` stays append-only, with **two audited exceptions**: `games.reassign_player` (guest merge) and `games.delete_playgroup_data` (playgroup deletion). |
+| Spend sharing | **Per playgroup** (S-8.3.6). The global switch in S-2.2.5 is dropped. |
+| Expo Router dependencies | **expo-linking and expo-constants approved** |
+
 ## A. Dependencies needing approval (CLAUDE.md: ask before adding)
 
 | ID | Question | Raised in | Blocks | Status |

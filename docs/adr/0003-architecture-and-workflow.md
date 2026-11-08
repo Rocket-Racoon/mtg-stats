@@ -14,13 +14,14 @@ The first draft of this ADR also picked an API error format (RFC 9457). That con
 ## Decision
 
 1. **API errors follow story S-1.4.5**: `{"error": {"code", "message", "details", "request_id"}}`, with validation errors in `details`. The RFC 9457 proposal is withdrawn.
-2. **Nine backend domains**: `identity`, `playgroups`, `cards`, `decks`, `brackets`, `games`, `stats`, `collection` and `leagues`.
+2. **Ten backend domains**: `system` (health and job runs; a leaf), `identity`, `playgroups`, `cards`, `decks`, `brackets`, `games`, `stats`, `collection` and `leagues`.
    - **Player belongs to `identity`**, together with User, profiles and privacy settings.
-   - `playgroups` owns membership (including guest membership), invites, house rules and settings.
+   - `playgroups` owns membership (including guest membership), invites, house rules and settings. Anything that needs membership also lives there: profile visibility, the profile view, and per-playgroup sharing of spend and collection value (`financials_visible_to`).
    - Architecture §4.1 maps the backlog's "players" and "prices" names onto these domains.
 3. **The dependency graph** (architecture §4.2) is transitive and acyclic, and `tests/architecture/test_domain_imports.py` enforces it.
    - Every need for an upward call is resolved in §4.3 with a workflow, a job enqueued by name, an inverted call, a change of ownership or client composition.
-   - Public services accept an optional caller session, so a workflow can span domains in one transaction.
+   - Public services accept an optional caller session, so a workflow can span domains in one transaction. A service inside a caller's session never commits and never enqueues directly; follow-up jobs use `enqueue_after_commit`.
+   - Auth dependencies live in `core.auth`. `require_site_admin` uses a checker that `identity` registers, so no domain needs to import `identity` for auth.
 4. **Task runner**: root `package.json` scripts call `pnpm -r` for TypeScript and `uv run` (from `apps/api`) for Python. `pnpm verify` runs the gate in the S-1.8.1 order, and `verify:api` and `verify:ts` run one half. turborepo, just and Make are not used.
 5. **Agent models**: `api-architect` and `code-reviewer` run on **opus**. `api-backend`, `frontend-web`, `frontend-mobile` and `test-engineer` run on **sonnet**.
 6. **Agent permissions**:
@@ -28,7 +29,9 @@ The first draft of this ADR also picked an API error format (RFC 9457). That con
    - `code-reviewer` is read-only, apart from running the verify gate.
 7. **Parallel work**: implementing agents run in **their own git worktree and branch**. The orchestrator merges after the verify gate passes and the review is done.
 8. **Branches and PRs**: **one story per PR**, on a branch named `s-<id>-<slug>`, and the PR closes the story issue. The one exception is the bootstrap PR #448 for S-1.2.1 to S-1.2.3, because those three reference each other.
-9. **Docs never override stories.** When an architecture choice conflicts with a story, the conflict goes to the product owner and the issue is updated before any code is written.
+9. **Event-log exceptions** (product-owner decision): `game_events` stays append-only, except `games.reassign_player` (guest merge, S-2.3.4) and `games.delete_playgroup_data` (playgroup deletion, S-2.6.3), which each write an audit row.
+10. **Spend and collection-value sharing is per playgroup** (product-owner decision, S-8.3.6). The global flags in S-2.2.5 are dropped.
+11. **Docs never override stories.** When an architecture choice conflicts with a story, the conflict goes to the product owner and the issue is updated before any code is written.
 
 ## Alternatives considered
 

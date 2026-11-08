@@ -465,7 +465,9 @@ Phase 3 · Priority: Must
 
 | Priority | Points | Platform | Phase | Depends on |
 |---|---|---|---|---|
-| Could | 3 | api | 3 | S-3.4.3, S-3.1.2 |
+| Won't | 3 | api | 3 | S-3.4.3, S-3.1.2 |
+
+> **Won't** (PO decision 2026-11-07): every printing already stores its latest price from the daily sync (S-3.4.1–S-3.4.4), so a same-day fetch adds little.
 
 **Acceptance criteria**
 - **Given** printings that became tracked today and have no snapshot yet **When** the hourly catch-up job runs **Then** it fetches them through Scryfall `POST /cards/collection` in groups of up to 75 ids, through the rate-limited client, and writes today's snapshots with the same five price fields.

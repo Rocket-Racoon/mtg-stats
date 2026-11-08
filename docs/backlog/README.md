@@ -67,13 +67,13 @@ IDs never change once assigned. If an item is dropped, it is marked **Won't** ra
 
 ## Totals (checked 2026-11-07, after all decisions were applied)
 
-**11 epics · 62 features · 374 stories (369 active, 5 Won't) · 1,241 tasks · 1,363 active points**
+**11 epics · 62 features · 374 stories (368 active, 6 Won't) · 1,241 tasks · 1,360 active points**
 
 | Epic | Active stories | Points |
 |---|---|---|
 | E-1 Platform Foundations | 47 | 110 |
 | E-2 Identity & Playgroups | 38 | 143 |
-| E-3 Card Data | 23 | 82 |
+| E-3 Card Data | 22 | 79 |
 | E-4 Decks & Legality | 37 | 148 |
 | E-5 Bracket Calculator | 21 | 78 |
 | E-6 Live Game Table | 58 | 232 |
@@ -88,11 +88,11 @@ IDs never change once assigned. If an item is dropped, it is marked **Won't** ra
 | 0 Foundations | 59 | 151 |
 | 1 MVP | 156 | 601 |
 | 2 Stats & activity | 44 | 199 |
-| 3 Collection & budget | 48 | 192 |
+| 3 Collection & budget | 47 | 189 |
 | 4 Leagues | 27 | 110 |
 | 5 Deployment | 35 | 110 |
 
-By priority: Must 260 stories / 955 points · Should 89 / 336 · Could 20 / 72 · Won't 5 / 14.
+By priority: Must 260 stories / 955 points · Should 89 / 336 · Could 19 / 69 · Won't 6 / 17.
 **Shortest path to the MVP** (the Must stories in phases 0–1): **180 stories, 648 points.**
 
 What the consistency check covered:

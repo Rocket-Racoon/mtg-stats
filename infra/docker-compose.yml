@@ -27,20 +27,20 @@ services:
         required: true
     environment:
       # Dev only: skip the fsync in initdb so a first start is fast on slow disks.
-      POSTGRES_INITDB_ARGS: "--no-sync"
+      POSTGRES_INITDB_ARGS: '--no-sync'
     # Dev only. synchronous_commit=off is crash-safe (a crash can lose the last commits but
     # never corrupts data). fsync=off and full_page_writes=off are deliberately NOT used:
     # they can silently corrupt the database after a Docker VM kill.
-    command: ["postgres", "-c", "synchronous_commit=off"]
+    command: ['postgres', '-c', 'synchronous_commit=off']
     ports:
-      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+      - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       # -h forces TCP: the entrypoint's temporary init server listens on the Unix socket
       # only, so a socket probe would pass before initialization finishes.
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -p 5432 -U $$POSTGRES_USER -d $$POSTGRES_DB']
       interval: 5s
       timeout: 3s
       retries: 5
@@ -51,11 +51,11 @@ services:
     image: redis:7.4.6-alpine
     restart: unless-stopped
     ports:
-      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+      - '127.0.0.1:${REDIS_PORT:-6379}:6379'
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
       timeout: 3s
       retries: 5

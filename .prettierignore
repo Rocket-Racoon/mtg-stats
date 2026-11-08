@@ -1,0 +1,11 @@
+node_modules/
+dist/
+build/
+coverage/
+.expo/
+pnpm-lock.yaml
+**/generated/
+.claude/
+docs/
+CLAUDE.md
+README.md

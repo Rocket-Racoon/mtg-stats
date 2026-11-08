@@ -268,10 +268,21 @@ def test_real_env_files_are_gitignored(path: str) -> None:
 # ------------------------------------------------------------------- negative
 
 
+def quote_agnostic(literal: str) -> re.Pattern[str]:
+    """Regex matching `literal`, where every ' or " also matches the other quote style.
+
+    A formatter (Prettier) may switch the compose file between single and double quotes; the
+    mutation targets must keep matching either way.
+    """
+    pattern = "".join("['\"]" if ch in "'\"" else re.escape(ch) for ch in literal)
+    return re.compile(pattern)
+
+
 def broken(old: str, new: str) -> str:
     text = compose_text()
-    assert old in text, f"mutation target {old!r} not found"
-    return text.replace(old, new)
+    pattern = quote_agnostic(old)
+    assert pattern.search(text), f"mutation target {old!r} not found"
+    return pattern.sub(lambda _match: new, text)
 
 
 @pytest.mark.parametrize("tag", ["16", "16-bookworm", "latest", "15.4"])

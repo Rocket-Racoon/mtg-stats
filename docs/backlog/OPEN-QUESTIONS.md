@@ -130,6 +130,14 @@ Status: `open` · `answered` (with the decision recorded). Answers are also copi
 | Phase 1 dependencies | **websockets (dev only), expo-camera and expo-screen-orientation approved** |
 | Story wording | The architecture-alignment list on PR #448 (about 100 rows) is **approved**, and the Issues are edited to match |
 
+### 2026-11-08 — Phase 0 implementation
+
+| Topic | Decision |
+|---|---|
+| `@types/node` | **Approved** as a type-only TypeScript devDependency (S-1.1.3 review). Under TypeScript 6 it loads only where a tsconfig opts in with `"types": ["node"]`, such as root tooling tests, Vite and Playwright configs, never app code. |
+| Issue titles | The imported issues keep the `[S-1.1.1] Title` form rather than S-1.2.4 AC1's `S-1.1.1 — …` example (comment on #11). |
+| SQLAlchemy | Orchestrator's reading, **pending user confirmation**: 2.1.x (`>=2.1,<2.2`) falls within the plan §8 "SQLAlchemy 2.0" approval, because it is the same 2.0-style API. Locked at 2.1.8 in PR #451. |
+
 ## A. Dependencies needing approval (CLAUDE.md: ask before adding)
 
 | ID | Question | Raised in | Blocks | Status |

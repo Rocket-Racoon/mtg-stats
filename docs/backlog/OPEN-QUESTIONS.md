@@ -136,7 +136,7 @@ Status: `open` · `answered` (with the decision recorded). Answers are also copi
 |---|---|
 | `@types/node` | **Approved** as a type-only TypeScript devDependency (S-1.1.3 review). Under TypeScript 6 it loads only where a tsconfig opts in with `"types": ["node"]`, such as root tooling tests, Vite and Playwright configs, never app code. |
 | Issue titles | The imported issues keep the `[S-1.1.1] Title` form rather than S-1.2.4 AC1's `S-1.1.1 — …` example (comment on #11). |
-| SQLAlchemy | **2.1.x** (`>=2.1,<2.2`) is within the plan §8 "SQLAlchemy 2.0" approval, since it is the same 2.0-style API (PR #451). |
+| SQLAlchemy | Orchestrator's reading, **pending user confirmation**: 2.1.x (`>=2.1,<2.2`) falls within the plan §8 "SQLAlchemy 2.0" approval, because it is the same 2.0-style API. Locked at 2.1.8 in PR #451. |
 
 ## A. Dependencies needing approval (CLAUDE.md: ask before adding)
 

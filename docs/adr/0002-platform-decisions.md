@@ -16,12 +16,12 @@ Before Phase 0, the backlog needed concrete choices for the runtime, tooling, ID
 | Area | Approved |
 |---|---|
 | Python runtime | uvicorn; **psycopg 3** with **async** SQLAlchemy; argon2-cffi; ijson; qrcode; redis-py |
-| Python test | pytest, pytest-cov, pytest-asyncio, factory_boy. (`websockets` for the multi-process soak test, S-6.3.4, is **not yet approved**.) |
+| Python test | pytest, pytest-cov, pytest-asyncio, factory_boy; `websockets` (dev only, multi-process soak test S-6.3.4; approved after the PR #448 review) |
 | Python ops | pip-audit; the `pre-commit` framework |
 | TS client and routing | openapi-typescript + openapi-fetch (hooks written by hand); React Router (web); Expo Router (mobile) |
 | TS test and lint | Vitest, Testing Library, jsdom, jest-expo, React Native Testing Library; ESLint (typescript-eslint, React plugins); Prettier |
 | End-to-end tests | Playwright (web), Maestro (mobile) |
-| Mobile | expo-secure-store, react-native-svg, expo-keep-awake, expo-haptics, expo-linking and expo-constants (needed by Expo Router; approved after the PR #448 review); **victory-native** (with react-native-skia) for charts |
+| Mobile | expo-secure-store, react-native-svg, expo-keep-awake, expo-haptics, expo-linking and expo-constants (needed by Expo Router), expo-camera (in-app QR scanning) and expo-screen-orientation (game table orientation), all approved after the PR #448 review; **victory-native** (with react-native-skia) for charts |
 | Database | Postgres extensions `pg_trgm` and `unaccent` |
 | Services | Cloudflare Tunnel, GitHub Container Registry, an external uptime monitor |
 | **Not approved** | Sentry and other hosted error trackers; EAS Update; app stores (for now); any FX-rate or sealed-price source; a reverse proxy such as Caddy (cloudflared terminates TLS) |

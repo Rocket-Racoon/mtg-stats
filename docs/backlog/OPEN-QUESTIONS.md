@@ -127,6 +127,8 @@ Status: `open` · `answered` (with the decision recorded). Answers are also copi
 | Event log | `game_events` stays append-only, with **two audited exceptions**: `games.reassign_player` (guest merge) and `games.delete_playgroup_data` (playgroup deletion). |
 | Spend sharing | **Per playgroup** (S-8.3.6). The global switch in S-2.2.5 is dropped. |
 | Expo Router dependencies | **expo-linking and expo-constants approved** |
+| Phase 1 dependencies | **websockets (dev only), expo-camera and expo-screen-orientation approved** |
+| Story wording | The architecture-alignment list on PR #448 (about 100 rows) is **approved**, and the Issues are edited to match |
 
 ## A. Dependencies needing approval (CLAUDE.md: ask before adding)
 

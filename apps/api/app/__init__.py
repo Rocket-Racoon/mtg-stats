@@ -1,0 +1,1 @@
+"""MTG Stats API."""

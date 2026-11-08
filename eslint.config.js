@@ -22,7 +22,7 @@ export default tseslint.config(
     files: ['**/*.{ts,tsx}'],
     plugins: { react, 'react-hooks': reactHooks },
     languageOptions: { globals: { ...globals.browser, ...globals.node } },
-    settings: { react: { version: '19' } },
+    settings: { react: { version: 'detect' } },
     rules: {
       ...react.configs.recommended.rules,
       ...react.configs['jsx-runtime'].rules,

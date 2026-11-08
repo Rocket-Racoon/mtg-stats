@@ -10,10 +10,10 @@
   },
   "scripts": {
     "lint": "pnpm -r lint && eslint tests eslint.config.js",
-    "format": "pnpm -r format && prettier --write --ignore-unknown --no-error-on-unmatched-pattern --ignore-path .prettierignore \"*.{json,js,yaml}\" \"infra/**/*.{yml,yaml}\" \".github/**/*.{yml,yaml}\" \"scripts/**/*.{js,ts,json}\"",
-    "format:check": "pnpm -r format:check && prettier --check --ignore-unknown --no-error-on-unmatched-pattern --ignore-path .prettierignore \"*.{json,js,yaml}\" \"infra/**/*.{yml,yaml}\" \".github/**/*.{yml,yaml}\" \"scripts/**/*.{js,ts,json}\"",
+    "format": "pnpm -r format && prettier --write --ignore-unknown --no-error-on-unmatched-pattern --ignore-path .prettierignore \"*.{json,js,yaml}\" \"infra/**/*.{yml,yaml}\" \".github/**/*.{yml,yaml}\" \"scripts/**/*.{js,ts,json}\" \"tests/**/*.ts\"",
+    "format:check": "pnpm -r format:check && prettier --check --ignore-unknown --no-error-on-unmatched-pattern --ignore-path .prettierignore \"*.{json,js,yaml}\" \"infra/**/*.{yml,yaml}\" \".github/**/*.{yml,yaml}\" \"scripts/**/*.{js,ts,json}\" \"tests/**/*.ts\"",
     "typecheck": "pnpm -r typecheck && tsc --noEmit -p tsconfig.json",
-    "test": "pnpm -r test && vitest run --dir tests --passWithNoTests"
+    "test": "pnpm -r test && vitest run --dir tests"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

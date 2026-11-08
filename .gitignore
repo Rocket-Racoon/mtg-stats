@@ -47,3 +47,6 @@ Thumbs.db
 
 # Local Claude Code settings
 .claude/settings.local.json
+
+# Claude Code agent worktrees
+.claude/worktrees/

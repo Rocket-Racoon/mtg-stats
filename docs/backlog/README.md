@@ -1,7 +1,11 @@
 # MTG Stats — Backlog
 
-Source of truth: [../plans/mtg-stats-plan.md](../plans/mtg-stats-plan.md).
-Status: **RECONCILED, awaiting approval to publish** (2026-11-07). These are local markdown drafts. Once approved, they become GitHub Issues in the private `mtg-stats` repo (sub-issues for the hierarchy, plus labels, milestones and a Project board).
+> **Snapshot, not the source of truth.** These markdown files are the original backlog as it was imported into GitHub Issues on **2026-11-07** (S-1.2.4, decision I2). **GitHub Issues in [`Rocket-Racoon/mtg-stats`](https://github.com/Rocket-Racoon/mtg-stats/issues) are the source of truth** from then on: every later change to an epic, feature, story or task is made only in Issues, never here. The import script is [`scripts/backlog_import.py`](../../scripts/backlog_import.py); it is safe to re-run and only creates what is missing.
+>
+> **One exception:** [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) is **not** frozen. It stays the living decisions log, and new product decisions are recorded there (and, for dependencies, in plan §8).
+
+Derived from: [../plans/mtg-stats-plan.md](../plans/mtg-stats-plan.md).
+Status at import: **reconciled and approved** (2026-11-07). Each epic, feature and story became an issue, with sub-issues for the hierarchy plus labels and milestones. Each Phase 2–5 epic also got a "Decisions" issue to settle before its phase starts.
 
 ## Hierarchy and IDs
 
@@ -47,7 +51,7 @@ IDs never change once assigned. If an item is dropped, it is marked **Won't** ra
 
 ## Labels (GitHub)
 
-`type:epic` `type:feature` `type:story` · `phase:0`…`phase:5` · `platform:api` `platform:web` `platform:mobile` `platform:shared` `platform:infra` · `priority:must` `priority:should` `priority:could` · `points:1`…`points:8`
+`type:epic` `type:feature` `type:story` · `phase:0`…`phase:5` · `platform:api` `platform:web` `platform:mobile` `platform:shared` `platform:infra` · `priority:must` `priority:should` `priority:could` `priority:wont` (closed as not planned) · `points:1`…`points:8`
 
 ## Epic and feature map
 

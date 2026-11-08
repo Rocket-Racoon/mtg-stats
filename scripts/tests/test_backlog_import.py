@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,7 @@ class FakeGitHub(bi.GitHub):
         self.writes: list[Write] = []
         self.preexisting: set[int] = set()
         self.created_milestones: dict[int, int] = {}  # phase -> milestone number
+        self.numbers: dict[str, int] = {}  # created issue title -> number
         self._next = 1000
 
     # -- GitHub API surface -----------------------------------------------------------
@@ -78,6 +80,7 @@ class FakeGitHub(bi.GitHub):
             self.created_milestones[phase] = self._next
             return {"number": self._next, "title": payload["title"]}
         if base == "issues":
+            self.numbers[payload["title"]] = self._next
             return {
                 "number": self._next,
                 "id": self._next + 10**6,
@@ -489,6 +492,18 @@ class TestIdempotence:
         assert [p["title"] for p in gh.posts(MILESTONES_PATH)] == ["Phase 3"]
         assert len(gh.writes) == 3
 
+    def test_duplicate_phase_milestones_raise_before_any_write(
+        self, items: list[bi.Item], full_repo: tuple[FakeGitHub, dict[str, int]]
+    ) -> None:
+        gh, _ = full_repo
+        gh.milestones = [
+            {"number": 1, "title": "Phase 2"},
+            {"number": 2, "title": "Phase 2 - Again"},
+        ]
+        with pytest.raises(RuntimeError, match="Phase 2"):
+            run_apply(gh, items)
+        assert gh.writes == []
+
     def test_milestone_titles_with_a_suffix_are_matched_by_phase_number(
         self, items: list[bi.Item], full_repo: tuple[FakeGitHub, dict[str, int]]
     ) -> None:
@@ -512,8 +527,18 @@ class TestFullImportFromEmptyRepo:
 
     def test_every_child_is_linked_under_its_parent(self, items: list[bi.Item]) -> None:
         gh = FakeGitHub()
-        run_apply(gh, items)
-        assert len(gh.link_writes()) == 62 + 374 + 4
+        plan = run_apply(gh, items)
+        links = gh.link_writes()
+        assert len(links) == 62 + 374 + 4
+        linked = {(w[1], w[2]["sub_issue_id"]) for w in links}
+        children = [i for i in items if i.parent] + plan.decisions
+        assert len(children) == len(links)
+        by_id = {i.id: i for i in items}
+        for child in children:
+            assert child.parent is not None
+            parent_no = gh.numbers[by_id[child.parent].issue_title]
+            child_no = gh.numbers[child.issue_title if child.kind != "decisions" else child.title]
+            assert (f"{ISSUES_PATH}/{parent_no}/sub_issues", child_no + 10**6) in linked
         assert sum(1 for w in gh.writes if w[0] == "PATCH") == 6
 
     def test_epic_issues_are_in_their_phase_milestone(self, items: list[bi.Item]) -> None:
@@ -598,9 +623,69 @@ class TestDecisions:
         monkeypatch.setattr(bi, "BACKLOG_DIR", tmp_path)
         assert "None open" in bi.decisions_item(by_id["E-8"]).body
 
-    def test_real_decisions_bodies_say_none_open(self, by_id: dict[str, bi.Item]) -> None:
-        for epic_id in DECISIONS_EPICS:
-            assert "None open" in bi.decisions_item(by_id[epic_id]).body
+    def test_empty_open_questions_section_and_no_open_rows_says_none_open(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "E08-x.md").write_text(
+            "# E-8 — Player activity\n\n| Phase(s) | 2 |\n\n"
+            "## F-8.1 — Feat\n\nPhase 2 · x\n\n## Open questions\n\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "OPEN-QUESTIONS.md").write_text(
+            OPEN_QUESTIONS_HEADER + "| Z8 | Settled | E-8 | 2 | answered |\n", encoding="utf-8"
+        )
+        monkeypatch.setattr(bi, "BACKLOG_DIR", tmp_path)
+        epic = next(i for i in bi.parse_backlog() if i.id == "E-8")
+        assert epic.open_questions == ""
+        assert "None open" in bi.decisions_item(epic).body
+
+
+# --------------------------------------------------------------------------- AC5: README
+
+
+class TestReadmeNotice:
+    @pytest.fixture
+    def readme(self) -> str:
+        return (Path(bi.__file__).resolve().parents[1] / "docs/backlog/README.md").read_text(
+            encoding="utf-8"
+        )
+
+    def test_readme_calls_the_files_a_snapshot_with_the_import_date(self, readme: str) -> None:
+        assert re.search(r"snapshot", readme, re.IGNORECASE)
+        assert re.search(r"imported into GitHub Issues on\s+\**2026-11-07", readme, re.IGNORECASE)
+
+    def test_readme_says_github_issues_are_the_source_of_truth(self, readme: str) -> None:
+        assert re.search(r"GitHub Issues.{0,200}are the source of truth", readme, re.I | re.S)
+
+    def test_readme_says_later_changes_are_made_only_in_issues(self, readme: str) -> None:
+        assert re.search(r"later change.{0,120}made only in Issues", readme, re.I | re.S)
+
+
+# --------------------------------------------------------------------------- real parent_of
+
+
+class TestParentOf:
+    @staticmethod
+    def _fake_run(
+        monkeypatch: pytest.MonkeyPatch, returncode: int, stdout: str, stderr: str
+    ) -> None:
+        def run(cmd: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess(cmd, returncode, stdout=stdout, stderr=stderr)
+
+        monkeypatch.setattr(subprocess, "run", run)
+
+    def test_404_means_no_parent(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._fake_run(monkeypatch, 1, "", "gh: No parent issue found (HTTP 404)")
+        assert bi.GitHub(REPO).parent_of(5) is None
+
+    def test_parent_number_is_returned(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._fake_run(monkeypatch, 0, '{"number": 7}', "")
+        assert bi.GitHub(REPO).parent_of(5) == 7
+
+    def test_other_failures_are_raised(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._fake_run(monkeypatch, 1, "", "gh: Server Error (HTTP 500)")
+        with pytest.raises(RuntimeError, match="500"):
+            bi.GitHub(REPO).parent_of(5)
 
 
 # --------------------------------------------------------------------------- CLI

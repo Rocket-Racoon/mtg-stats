@@ -1,7 +1,9 @@
 # MTG Stats — Backlog
 
-Source of truth: [../plans/mtg-stats-plan.md](../plans/mtg-stats-plan.md).
-Status: **RECONCILED, awaiting approval to publish** (2026-11-07). These are local markdown drafts. Once approved, they become GitHub Issues in the private `mtg-stats` repo (sub-issues for the hierarchy, plus labels, milestones and a Project board).
+> **Snapshot, not the source of truth.** These markdown files are the original backlog as it was imported into GitHub Issues on **2026-11-07** (S-1.2.4, decision I2). **GitHub Issues in [`Rocket-Racoon/mtg-stats`](https://github.com/Rocket-Racoon/mtg-stats/issues) are the source of truth** from then on: every later change to an epic, feature, story or task is made only in Issues, never here. The import script is [`scripts/backlog_import.py`](../../scripts/backlog_import.py); it is safe to re-run and only creates what is missing.
+
+Derived from: [../plans/mtg-stats-plan.md](../plans/mtg-stats-plan.md).
+Status at import: **reconciled and approved** (2026-11-07). Each epic, feature and story became an issue (sub-issues for the hierarchy, plus labels, milestones and a Project board).
 
 ## Hierarchy and IDs
 

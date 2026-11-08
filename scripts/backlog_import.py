@@ -230,7 +230,7 @@ def open_register_questions(epic_id: str) -> list[str]:
 def decisions_item(epic: Item) -> Item:
     questions = open_register_questions(epic.id)
     epic_section = epic.open_questions
-    if not epic_section.lower().startswith("none open"):
+    if epic_section and not epic_section.lower().startswith("none open"):
         questions.append(epic_section)
     listing = (
         "\n".join(questions)

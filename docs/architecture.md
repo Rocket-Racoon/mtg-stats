@@ -274,7 +274,7 @@ Ending a game runs `game_ended`, then the host confirms the summary (which is au
 
 ## 7. Background jobs
 
-All jobs are **idempotent** and **enqueued by name**: `core.jobs.enqueue("<owner>.<job>", **kwargs)`, or `enqueue_after_commit` inside a transaction. Every run writes a `job_runs` row (S-1.9.4), and `/api/v1/health/ops` reports stale or failed jobs to the uptime monitor. **Each job's name is defined by its owning story.** The table lists the main ones:
+All jobs are **idempotent** and **enqueued by name**: `core.jobs.enqueue("<owner>.<job>", **kwargs)`, or `enqueue_after_commit` inside a transaction. Every run writes a `job_runs` row (S-1.9.4), and `/api/v1/health/ops` reports stale or failed jobs to the uptime monitor. **Each job's name is defined by its owning story.** When a story gives a bare name, the job is registered and enqueued with its owner's prefix: `rebuild_stats` is `stats.rebuild_stats` and `abandon_idle_games` is `games.abandon_idle_games`. The table lists the main ones:
 
 | Job | Trigger | Owner | Story |
 |---|---|---|---|

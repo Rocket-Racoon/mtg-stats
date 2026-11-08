@@ -1,0 +1,50 @@
+# Local dev infrastructure. Run from the repo root:
+#   docker compose -f infra/docker-compose.yml up -d postgres redis
+# Compose reads interpolation values from infra/.env (the project directory), not the
+# root .env, so credentials are passed with env_file instead of ${VAR}. Interpolation
+# is used only for non-secret values that have defaults.
+name: mtg-stats
+
+services:
+  postgres:
+    image: postgres:16.10-alpine
+    restart: unless-stopped
+    env_file:
+      - path: ../.env
+        required: true
+    environment:
+      # Dev only: skip the fsync in initdb so a first start is fast on slow disks.
+      POSTGRES_INITDB_ARGS: "--no-sync"
+    # Dev only: durability is traded for speed (fsync off also applies to the entrypoint's
+    # temporary init server, whose shutdown checkpoint otherwise dominates cold-start time).
+    # A clean stop/start keeps the data; do not copy these flags to production.
+    command: ["postgres", "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off"]
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  redis:
+    image: redis:7.4.6-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 2s
+
+volumes:
+  postgres_data:
+  redis_data:

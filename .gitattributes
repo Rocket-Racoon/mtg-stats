@@ -17,3 +17,6 @@
 *.woff binary
 *.woff2 binary
 *.pdf binary
+
+# Shell scripts must keep LF (they run inside Linux containers)
+*.sh text eol=lf

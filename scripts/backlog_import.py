@@ -43,13 +43,17 @@ EPIC_RE = re.compile(r"^# (E-\d+) — (.+)$")
 FEATURE_RE = re.compile(r"^## (F-\d+\.\d+) — (.+)$")
 STORY_RE = re.compile(r"^#### (S-\d+\.\d+\.\d+) — (.+)$")
 OPEN_QUESTIONS_RE = re.compile(r"^## Open questions\s*$")
-TITLE_ID_RE = re.compile(r"^\[([EFS]-[\d.]+)\] ")
+# Matches both "[S-1.1.1] Title" (the form used at import) and "S-1.1.1 — Title".
+TITLE_ID_RE = re.compile(r"^\[?([EFS]-\d+(?:\.\d+)*)\]?(?:\s|$)")
 DECISIONS_TITLE_RE = re.compile(r"^Decisions: (E-\d+) ")
 FIELD_ROW_RE = re.compile(
     r"^\|\s*(Must|Should|Could|Won't)\s*\|\s*(\d+)\s*\|([^|]*)\|\s*(\d)\s*\|([^|]*)\|\s*$"
 )
 EPIC_PHASE_RE = re.compile(r"^\|\s*(?:\*\*)?Phase\(s\)(?:\*\*)?\s*\|\s*(\d)")
-FEATURE_PHASE_RE = re.compile(r"Phase\W*?(\d)")
+# The feature's phase field line, in any of the backlog's spellings: "**Phase** 0 · …",
+# "**Phase:** 1 · …" or "Phase 1 · …". Prose that merely mentions a phase must not match.
+FEATURE_PHASE_RE = re.compile(r"^\*{0,2}Phase\*{0,2}:?\*{0,2}\s*(\d)")
+MILESTONE_RE = re.compile(r"^Phase (\d)\b")
 
 LABEL_COLORS = {
     "type": "5319e7",
@@ -89,6 +93,7 @@ class Plan:
     issues: list[Item] = field(default_factory=list)
     decisions: list[Item] = field(default_factory=list)
     links: list[tuple[str, str]] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- parsing
@@ -160,8 +165,9 @@ def parse_epic_file(path: Path) -> list[Item]:
             )
             items.append(epic)
         elif kind == "feature":
-            phase_line = next((ln for ln in body_lines if "Phase" in ln), "")
-            phase_match = FEATURE_PHASE_RE.search(phase_line)
+            phase_match = next(
+                (m for ln in body_lines if (m := FEATURE_PHASE_RE.match(ln.strip()))), None
+            )
             if epic is None or phase_match is None:
                 raise ValueError(f"{path.name}: {item_id} has no epic or no phase line")
             phase = int(phase_match.group(1))
@@ -289,8 +295,83 @@ class GitHub:
                 return
             page += 1
 
+    def parent_of(self, number: int) -> int | None:
+        """Number of the issue's parent, or None when it is not anyone's sub-issue."""
+        try:
+            parent = self.api(self.repo_path(f"issues/{number}/parent"))
+        except RuntimeError as error:
+            if "404" in str(error) or "Not Found" in str(error):
+                return None
+            raise
+        return int(parent["number"])
+
     def repo_path(self, suffix: str) -> str:
         return f"repos/{self.repo}/{suffix}"
+
+
+def index_milestones(gh: GitHub) -> dict[int, dict[str, Any]]:
+    """Existing milestones keyed by phase number (titles start with "Phase <n>")."""
+    milestones: dict[int, dict[str, Any]] = {}
+    for milestone in gh.paginate(gh.repo_path("milestones?state=all")):
+        match = MILESTONE_RE.match(milestone["title"])
+        if match:
+            phase = int(match.group(1))
+            if phase in milestones:
+                raise RuntimeError(f"two milestones claim Phase {phase}")
+            milestones[phase] = milestone
+    return milestones
+
+
+def index_issues(gh: GitHub) -> dict[str, dict[str, Any]]:
+    """Existing issues keyed by backlog ID (or "Decisions E-<n>"); duplicates abort the run."""
+    issues: dict[str, dict[str, Any]] = {}
+    for issue in gh.paginate(gh.repo_path("issues?state=all")):
+        if "pull_request" in issue:
+            continue
+        if match := TITLE_ID_RE.match(issue["title"]):
+            key = match.group(1)
+        elif match := DECISIONS_TITLE_RE.match(issue["title"]):
+            key = f"Decisions {match.group(1)}"
+        else:
+            continue
+        if key in issues:
+            raise RuntimeError(
+                f"two issues claim {key}: #{issues[key]['number']} and #{issue['number']}"
+            )
+        issues[key] = issue
+    return issues
+
+
+def plan_links(
+    items: list[Item], gh: GitHub, issues: dict[str, dict[str, Any]], plan: Plan
+) -> None:
+    """Add the missing sub-issue links to the plan. Only orphans are linked, never re-parented."""
+    children: dict[str, list[str]] = {}
+    for item in items:
+        if item.parent:
+            children.setdefault(item.parent, []).append(item.id)
+    for parent_id, child_ids in children.items():
+        linked: set[int] = set()
+        if parent_id in issues:
+            number = issues[parent_id]["number"]
+            linked = {
+                sub["number"] for sub in gh.paginate(gh.repo_path(f"issues/{number}/sub_issues"))
+            }
+        for child_id in child_ids:
+            child = issues.get(child_id)
+            if child is None:
+                plan.links.append((parent_id, child_id))  # created by this run, so no parent yet
+                continue
+            if child["number"] in linked:
+                continue
+            current = gh.parent_of(child["number"])
+            if current is None:
+                plan.links.append((parent_id, child_id))
+            else:
+                plan.warnings.append(
+                    f"{child_id} (#{child['number']}) is under #{current}, not under "
+                    f"{parent_id} as in the snapshot; left alone"
+                )
 
 
 def build_plan(
@@ -303,48 +384,25 @@ def build_plan(
     wanted_labels = sorted({label for item in items for label in item.labels})
     plan.labels = [label for label in wanted_labels if label not in existing_labels]
 
-    milestones: dict[int, dict[str, Any]] = {}
-    for milestone in gh.paginate(gh.repo_path("milestones?state=all")):
-        match = re.match(r"Phase (\d)", milestone["title"])
-        if match:
-            milestones[int(match.group(1))] = milestone
+    milestones = index_milestones(gh)
     plan.milestones = sorted({item.phase for item in items} - milestones.keys())
 
-    issues: dict[str, dict[str, Any]] = {}
-    for issue in gh.paginate(gh.repo_path("issues?state=all")):
-        if "pull_request" in issue:
-            continue
-        match = TITLE_ID_RE.match(issue["title"]) or DECISIONS_TITLE_RE.match(issue["title"])
-        if not match:
-            continue
-        key = match.group(1) if TITLE_ID_RE.match(issue["title"]) else f"Decisions {match.group(1)}"
-        if key in issues:
-            raise RuntimeError(
-                f"two issues claim {key}: #{issues[key]['number']} and #{issue['number']}"
-            )
-        issues[key] = issue
-
+    issues = index_issues(gh)
     plan.issues = [item for item in items if item.id not in issues]
     for epic in (i for i in items if i.kind == "epic" and i.phase in DECISIONS_PHASES):
         decisions = decisions_item(epic)
         if decisions.id not in issues:
             plan.decisions.append(decisions)
 
-    children: dict[str, list[str]] = {}
-    for item in items + plan.decisions:
-        if item.parent:
-            children.setdefault(item.parent, []).append(item.id)
-    for parent_id, child_ids in children.items():
-        linked: set[int] = set()
-        if parent_id in issues:
-            number = issues[parent_id]["number"]
-            linked = {
-                sub["number"] for sub in gh.paginate(gh.repo_path(f"issues/{number}/sub_issues"))
-            }
-        for child_id in child_ids:
-            child = issues.get(child_id)
-            if child is None or child["number"] not in linked:
-                plan.links.append((parent_id, child_id))
+    plan_links(items + plan.decisions, gh, issues, plan)
+
+    for item_id, issue in issues.items():
+        labels = {label["name"] for label in issue.get("labels", [])}
+        if issue["state"] == "open" and "priority:wont" in labels:
+            plan.warnings.append(
+                f"{item_id} (#{issue['number']}) is labelled priority:wont but still open; "
+                "close it as not planned"
+            )
     return plan, issues, milestones
 
 
@@ -411,6 +469,9 @@ def report(plan: Plan, items: list[Item]) -> None:
     print(f"missing sub-issue links: {len(plan.links)}")
     for parent_id, child_id in plan.links:
         print(f"  {child_id} under {parent_id}")
+    print(f"warnings: {len(plan.warnings)}")
+    for warning in plan.warnings:
+        print(f"  {warning}")
 
 
 def main(argv: list[str] | None = None) -> int:

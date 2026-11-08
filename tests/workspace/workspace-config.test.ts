@@ -23,6 +23,8 @@ function workspaceDirs(): string[] {
   for (const line of lines) {
     if (/^packages\s*:/.test(line)) {
       inPackages = true;
+    } else if (/^\s*(#.*)?$/.test(line)) {
+      continue; // blank and comment lines do not end the list
     } else if (/^\S/.test(line)) {
       inPackages = false;
     } else if (inPackages) {
@@ -50,9 +52,17 @@ function parseTsconfig(file: string): Record<string, unknown> {
   return config as Record<string, unknown>;
 }
 
+const STRICT_FAMILY = [
+  'noImplicitAny',
+  'noImplicitThis',
+  'useUnknownInCatchVariables',
+  'alwaysStrict',
+];
+
+/** Any strict* flag or other member of the strict family explicitly set to false. */
 const disabledStrictFlags = (opts: Record<string, unknown>): string[] =>
   Object.entries(opts)
-    .filter(([k, v]) => k.startsWith('strict') && v === false)
+    .filter(([k, v]) => (k.startsWith('strict') || STRICT_FAMILY.includes(k)) && v === false)
     .map(([k]) => k);
 
 const dirs = workspaceDirs();
@@ -79,7 +89,7 @@ describe('tsconfig strictness (criterion 3)', () => {
     expect(opts.noUncheckedIndexedAccess).toBe(true);
   });
 
-  it('base config disables no strict* sub-flag', () => {
+  it('base config disables no strict-family flag', () => {
     const opts = parseTsconfig('tsconfig.base.json').compilerOptions as Record<string, unknown>;
     expect(disabledStrictFlags(opts)).toEqual([]);
   });
@@ -138,12 +148,15 @@ describe('root script wiring (criterion 4)', () => {
 
   const rootScripts = (readJson('package.json').scripts ?? {}) as Record<string, string>;
 
-  it.each(['lint', 'format:check', 'typecheck', 'test'])(
+  it.each(['lint', 'format', 'format:check', 'typecheck', 'test'])(
     'root %s runs the recursive script and cannot swallow failures',
     (name) => {
       const script = rootScripts[name] ?? '';
-      expect(script.startsWith(`pnpm -r ${name}`)).toBe(true);
-      for (const banned of ['--no-bail', '|| true', '--silent']) {
+      const prefix = `pnpm -r ${name}`;
+      // `pnpm -r <name>` must be followed by `&&` or the end of the script.
+      expect(script.startsWith(prefix)).toBe(true);
+      expect(script.slice(prefix.length)).toMatch(/^(\s*$|\s+&&\s)/);
+      for (const banned of ['--no-bail', '--silent', ';', '||']) {
         expect(script).not.toContain(banned);
       }
     },

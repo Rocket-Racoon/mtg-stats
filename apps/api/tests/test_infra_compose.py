@@ -114,7 +114,9 @@ def check_postgres_tcp_probe(text: str) -> None:
     assert match, "postgres healthcheck test not found"
     probe = match.group(1)
     assert "pg_isready" in probe
-    assert re.search(r"pg_isready\b[^\]]*\s-h\s+\S+", probe), "pg_isready must pass -h (TCP)"
+    assert re.search(r"pg_isready\b[^\]]*\s-h\s+(127\.0\.0\.1|localhost)\b", probe), (
+        "pg_isready must probe a TCP host with -h"
+    )
 
 
 # ---------------------------------------------------------------- checks (AC2)
@@ -169,9 +171,20 @@ def check_no_hardcoded_password(text: str) -> None:
 def check_env_file(text: str) -> None:
     block = service_block(text, "postgres")
     assert re.search(r"^\s+env_file:\s*$", block, re.M), "postgres has no env_file"
-    assert re.search(r"path:\s*\.\./\.env\s*$", block, re.M) or "- ../.env" in block, (
+    assert re.search(r"^\s*-\s*(path:\s*)?\.\./\.env\s*$", block, re.M), (
         "postgres env_file must point at the root .env"
     )
+    assert re.search(r"^\s*required:\s*true\s*$", block, re.M), "env_file must be required"
+
+
+def check_postgres_bookworm(text: str) -> None:
+    assert image_of(text, "postgres").endswith("-bookworm")
+
+
+def check_unsafe_durability_absent(text: str) -> None:
+    stripped = strip_comments(text)
+    assert not re.search(r"fsync\s*=\s*off", stripped)
+    assert not re.search(r"full_page_writes\s*=\s*off", stripped)
 
 
 # ------------------------------------------------------------------- positive
@@ -325,3 +338,39 @@ def test_check_rejects_init_sql_without_test_db() -> None:
 def test_check_rejects_env_file_pointing_elsewhere() -> None:
     with pytest.raises(AssertionError):
         check_env_file(broken("path: ../.env", "path: ./.env"))
+
+
+def test_postgres_image_is_bookworm_variant() -> None:
+    check_postgres_bookworm(compose_text())
+
+
+def test_compose_does_not_disable_fsync_or_full_page_writes() -> None:
+    check_unsafe_durability_absent(compose_text())
+
+
+def test_check_rejects_unix_socket_postgres_probe() -> None:
+    text = broken("pg_isready -h 127.0.0.1", "pg_isready -h /var/run/postgresql")
+    with pytest.raises(AssertionError):
+        check_postgres_tcp_probe(text)
+
+
+def test_check_rejects_env_example_as_env_file() -> None:
+    with pytest.raises(AssertionError):
+        check_env_file(broken("path: ../.env", "path: ../.env.example"))
+
+
+def test_check_rejects_optional_env_file() -> None:
+    with pytest.raises(AssertionError):
+        check_env_file(broken("required: true", "required: false"))
+
+
+def test_check_rejects_alpine_postgres() -> None:
+    with pytest.raises(AssertionError):
+        check_postgres_bookworm(broken("16.10-bookworm", "16.10-alpine"))
+
+
+@pytest.mark.parametrize("flag", ["fsync=off", "full_page_writes=off"])
+def test_check_rejects_unsafe_durability_flags(flag: str) -> None:
+    text = broken('"synchronous_commit=off"]', f'"synchronous_commit=off", "-c", "{flag}"]')
+    with pytest.raises(AssertionError):
+        check_unsafe_durability_absent(text)

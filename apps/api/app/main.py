@@ -1,9 +1,9 @@
 """FastAPI app factory."""
 
 from fastapi import APIRouter, FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import Settings, get_settings
+from app.core.cors import OriginGatedCORSMiddleware
 
 API_PREFIX = "/api/v1"
 
@@ -19,13 +19,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     if settings.cors_allowed_origins:
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=settings.cors_allowed_origins,
-            allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
-        )
+        app.add_middleware(OriginGatedCORSMiddleware, allowed_origins=settings.cors_allowed_origins)
     api_router = APIRouter(prefix=API_PREFIX)
     # Domain routers are included on this router as their stories land.
     app.include_router(api_router)

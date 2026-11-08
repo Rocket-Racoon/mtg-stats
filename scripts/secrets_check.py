@@ -19,7 +19,7 @@ Rules
     (RSA, EC, OPENSSH, ENCRYPTED, ...).
 
 ``inline-password``
-    A connection string with an inline password, ``scheme://user:password@host`` (the ``@`` must
+    A connection string with an inline password, ``scheme://user:<password>@host`` (the ``@`` must
     be followed by a host character, so prose such as ``user:pass@`` alone is ignored). Not a
     finding when the password is a placeholder: empty, ``CHANGE_ME``, or starting with ``$``, ``{``,
     ``<`` or ``%`` (variable interpolation or template).
@@ -34,6 +34,8 @@ Rules
     * env-like, YAML and INI files: any value, quoted or not (trailing ``# comment`` ignored);
     * TOML, Python, TS/JS: a quoted string only. An unquoted right-hand side is an expression
       (``settings.JWT_SECRET``, ``os.environ["X_TOKEN"]``, ``getenv(...)``), not a literal.
+    * a quoted literal needs a matching closing quote: ``"X_KEY="`` (the quote closes an enclosing
+      string) is not an assignment.
 
     Not a finding: an empty value, ``CHANGE_ME``, or a value that is a placeholder or reference
     (starts with ``$``, ``{``, ``<``, ``!``, ``*``, ``&``, ``|``, ``>`` or ``%``; or contains
@@ -117,7 +119,7 @@ def _literal(raw: str, kind: str) -> str | None:
     raw = raw.strip()
     if raw[:1] in ("'", '"', "`"):
         end = raw.find(raw[0], 1)
-        return raw[1:end] if end != -1 else raw[1:]
+        return raw[1:end] if end != -1 else None
     if kind == "quoted":
         return None
     return re.split(r"\s+#", raw, maxsplit=1)[0].strip().rstrip(",").strip()

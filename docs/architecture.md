@@ -77,7 +77,8 @@ flowchart TB
 - **Services** own transactions and permission checks beyond "logged in". They reach other domains only through those domains' public interfaces.
 - **Unit of work**: a public service function accepts an optional caller `AsyncSession`. When it's given, the function joins the caller's transaction instead of opening its own. Workflows use this to span several domains in **one transaction**.
   - A service running in a caller's session **never commits and never enqueues directly**.
-  - Every follow-up job goes through `core.jobs.enqueue_after_commit(session, name, **kwargs)`. The job is queued only when the outermost transaction commits, and dropped on rollback.
+  - Every follow-up runs after the outermost transaction commits, through `core.db.after_commit(session, callback)`, and is dropped on rollback.
+  - `core.jobs.enqueue_after_commit(session, name, **kwargs)` is built on that hook, and so is WebSocket pub/sub publishing (game events, `draft_changed`).
 - **Repositories** query only their own domain's tables. A read that needs another domain's data goes through that domain's `services`.
 - Repositories hold the queries that are reused. Every list query eager-loads what it serializes.
 - **Models** may carry behavior about their own fields (a fat model is fine). Workflows that touch several models belong in services.
@@ -90,14 +91,14 @@ flowchart TB
 | Domain | Owns (main models) | Epics |
 |---|---|---|
 | `system` | health endpoints (`live`, `ready`, `jobs`, `ops`), `job_runs`, the admin 5xx error list. It is the reference example of the domain layout (S-1.4.4). | E-1, E-11 |
-| `identity` | User, **Player** (one per user; guest players have no user), player profile fields (display name, avatar, validated through `cards`), credentials (argon2id), refresh tokens and sessions, password-reset tokens and their audit, site admin role (it registers the site-admin check with `core.auth`), user preferences (currency, time-zone override) | E-2 (F-2.1, F-2.2, F-2.3 player records) |
+| `identity` | User, **Player** (one per user; guest players have no user), player profile fields (display name, avatar, validated through `cards`), credentials (argon2id), refresh tokens and sessions, password-reset tokens and their audit, site admin role (it registers the site-admin check with `core.auth`), user preferences (time-zone override) | E-2 (F-2.1, F-2.2, F-2.3 player records) |
 | `playgroups` | Playgroup, Membership (player, role: owner/admin/member/guest), former memberships, Invite and invite suggestion, HouseRules (bans, allowances, game defaults), PlaygroupSettings (`time_zone`, `low_sample_games`, staples threshold), **profile privacy and `profile_visibility()`** (S-2.2.5), the **player profile view** `GET /players/{id}` (S-2.2.3), **per-playgroup spend and collection-value sharing** `financials_visible_to()` (S-8.3.6), and the admin password-reset routes (S-2.1.9) | E-2 (F-2.2 views, F-2.4, F-2.5), E-8 (sharing) |
 | `cards` | Card (`oracle_id`), Printing (Scryfall `id`, latest prices on every printing), Legality, PriceSnapshot, sync state | E-3 |
 | `decks` | Deck, DeckVersion (with a `used_in_game` flag that `games` sets), DeckCard, import sources and cache, validation results, sorting-board drafts | E-4 |
-| `brackets` | RuleSet (versioned), rule categories and card lists, BracketAssessment, Spellbook combo cache, bracket-change notices; also serves the **draft bracket preview** endpoint (S-4.7.5) | E-5 |
+| `brackets` | RuleSet (versioned), rule categories and card lists, BracketAssessment, Spellbook combo cache, bracket-change notices; also serves the **draft bracket preview** endpoint (S-4.7.5), `GET /decks/{id}/versions/{n}/bracket` (T-5.3.4.3) and the batch read `latest_assessments(deck_ids)` for deck lists (S-5.3.4) | E-5 |
 | `games` | Game, GameSeat, GameEvent (append-only, with two audited exceptions, §6.1), **guest game tokens** (S-2.3.2), results, result amendments (audit), spectators, join codes and QR, **`can_view_game()`** for former members (S-2.4.4), `invite_from_game` (S-6.7.7) | E-6 |
 | `stats` | per-seat fact table, daily card aggregates, activity and meta queries, dashboard layouts and widget catalog | E-7, E-8 |
-| `collection` | CollectionItem (exact printing), CopyAssignment (copy ↔ deck card), Purchase and PurchaseLine, sealed openings, valuation | E-9 |
+| `collection` | CollectionItem (exact printing), CopyAssignment (collection item ↔ **deck**, per printing and quantity; keyed by deck, because deck versions are immutable), Purchase and PurchaseLine, sealed openings, valuation and the **valuation currency** setting (S-9.5.6) | E-9 |
 | `leagues` | Season, roster entries (join/leave times), scoring systems (versioned), standings, achievements, matchmaking; also serves the **season-filtered stats** endpoints (S-10.3.8) | E-10 |
 
 `core/` isn't a domain. It holds shared plumbing only and **never imports a domain**.
@@ -167,27 +168,32 @@ Each row is a need from the backlog that would otherwise require an upward call.
 
 | Need | Story | Mechanism |
 |---|---|---|
-| Registration locks the invite, then creates the User and Player and consumes the invite, in one transaction | S-2.1.3, S-2.3.3 | **Workflow** `workflows/registration.py`. In one session, in this order: `playgroups.lock_invite` (check it, `SELECT … FOR UPDATE`), `identity.create_user_with_player`, then `playgroups.consume_invite` (use count and membership). A guest claim continues into `workflows/guest_merge.py`. |
-| Auth dependencies need the database | S-2.1.4, S-2.1.11 | **`core.auth`** + a registered protocol (see §4.1). `cards` and `system` use them without importing `identity`. |
+| Registration locks the invite, then creates the User and Player and consumes the invite, in one transaction | S-2.1.3, S-2.3.3 | **Workflow** `workflows/registration.py`. In one session, in this order: `playgroups.lock_invite` (check it, `SELECT … FOR UPDATE`), `identity.create_user_with_player`, then `playgroups.consume_invite` (use count and membership). When the new account claims a guest, it keeps the guest's player id, so no merge runs. The workflow enqueues `stats.rebuild_games_for_players` after commit (S-2.3.3, S-7.1.7). Claiming into an *existing* account goes through `workflows/guest_merge.py`. |
+| Auth dependencies need the database | S-2.1.4, S-2.1.11 | **Ownership**: the dependencies live in `core.auth`, with a site-admin checker that `identity` registers (see §4.1). `cards` and `system` use them without importing `identity`. |
 | Admin password reset combines membership rules with the reset token | S-2.1.9 | **Ownership**: the routes are in `playgroups`, which checks the rules and then calls `identity.issue_reset_token` (a downward call). |
 | Profile visibility and the profile view need "shares a playgroup" | S-2.2.3, S-2.2.5 | **Ownership**: `profile_visibility()` and `GET /players/{id}` are in `playgroups`. They read the profile from `identity`. |
 | A guest token must stop working after its game ends or is abandoned | S-2.3.2 | **Ownership**: guest game tokens and the `get_game_actor` dependency live in `games`. |
 | Former members can view games they played | S-2.4.4 | **Ownership**: `games.can_view_game(player_id, game_id)` is built on `playgroups.former_playgroups`. |
-| Invite non-members after a game | S-2.4.6, S-6.7.7 | **Inverted call**: the `games` service `invite_from_game` works out which seats are non-members and passes `(playgroup_id, player_ids)` to `playgroups.invite_status_for_seats` / `invite_after_game`. |
+| Invite non-members after a game | S-2.4.6, S-6.7.7 | **Inverted call**: the `games` service `invite_from_game` works out which seats are non-members and passes `(playgroup_id, player_ids, played_on)` to `playgroups.invite_status_for_seats` / `invite_after_game`. |
 | Per-playgroup sharing of spend and collection value | S-8.3.6, S-9.4.1, S-9.5.x, S-9.6.1 | **Ownership**: `financials_visible_to()` is in `playgroups` (per membership). `collection` and `stats` call it. S-2.2.5's global flags are dropped (product-owner decision). |
 | Price history only for printings that are owned or in a deck, plus the follow-ups after the sync | S-3.4.2, S-3.4.3, S-3.1.5, S-4.5.1, S-5.1.8, S-9.5.3 | **Workflow job** `workflows.scryfall_daily_sync`:<br>1. Gets the tracked printing IDs from `decks` and `collection`.<br>2. Calls `cards.run_bulk_sync(tracked_printing_ids=…)`, which writes the snapshots in the same pass.<br>3. After commit, enqueues by name `decks.revalidate_all`, `brackets.check_game_changers` and `collection.refresh_valuations`. |
-| Saving a deck version records the assigned copy's printing and reports the copies released; archiving or deleting releases them all | S-4.1.6, S-9.6.6, S-9.6.7 | **Workflow** `workflows/deck_save.py` serves every save, archive and delete endpoint (import, editing, sorting-board commit). In one session:<br>1. `collection.claim_copies_for_deck` returns the printing for each deck card.<br>2. `decks.save_version(printings=…)` splits lines by printing.<br>3. `collection.release_surplus` returns the copies released, which go in the save response.<br><br>Archiving or deleting calls `collection.release_for_deck`. Before Phase 3 the collection calls return nothing. `decks` never imports `collection`. |
-| A deck used in a recorded game is archived, not deleted | S-4.4.2, S-2.6.2 | **Downward call**: at `game_started`, `games` calls `decks.mark_version_used`. `decks` archives instead of deleting when the flag is set. |
+| Saving a deck version records the assigned copy's printing and reports the copies released; archiving or deleting releases them all | S-4.1.6, S-9.6.6, S-9.6.7 | **Workflow** `workflows/deck_save.py` serves every save, archive and delete endpoint (import, editing, sorting-board commit). In one session:<br>0. Create the Deck, or lock it if it exists, so a new deck has an id before claiming.<br>1. `collection.claim_copies_for_deck` returns the printing for each deck card.<br>2. `decks.save_version(printings=…)` splits lines by printing.<br>3. `collection.release_surplus` returns the copies released, which go in the save response.<br><br>Archiving or deleting calls `collection.release_for_deck`. Before Phase 3 the collection calls return nothing. `decks` never imports `collection`. |
+| A deck used in a recorded game is archived, not deleted | S-4.4.2, S-2.6.2 | **Plain downward call** (listed because the story wording implied an upward one): at `game_started`, `games` calls `decks.mark_version_used`. `decks` archives instead of deleting when the flag is set. |
 | Draft bracket preview on the sorting board | S-4.7.5 | **Ownership**: the endpoint is implemented by the `brackets` router (same URL) and calls `decks` for the draft and validation. |
 | Bracket assessment when a deck version is saved | S-5.3.x | **Job by name**: `brackets.assess_deck_version`, enqueued after commit by `workflows/deck_save.py`. |
 | Results saved or amended must refresh stats and standings | S-6.7.4, S-6.7.6 | **Jobs by name**, after commit: `stats.refresh_game_stats` and `leagues.recompute_for_game`. |
 | A playgroup time-zone change must rebuild the card aggregates | S-2.4.7, T-7.5.1.4 | **Job by name**: `stats.rebuild_card_aggregates`, enqueued after commit by `playgroups`. |
 | Season filter on stats | S-10.3.8 | **Inverted call**: `stats` queries accept an optional `game_ids` filter. The season-filtered endpoints are in the `leagues` router, which passes `leagues.counted_game_ids(season)`. |
 | The profile spend widget shows collection figures | S-8.3.4 | **Client composition**: the widget calls `collection` endpoints. The stats widget catalog only declares the widget. |
-| Merging a guest into an account | S-2.3.4, S-7.1.7, S-10.3.7 | **Workflow** `workflows/guest_merge.py`, in one session: `identity`, `playgroups`, `games.reassign_player` (an audited event-log exception), `leagues`. After commit it enqueues `stats.rebuild_games_for_players`. |
+| Merging a guest into an account | S-2.3.4, S-2.3.5, S-7.1.7, S-10.3.7 | **Workflow** `workflows/guest_merge.py`, in one session: `identity`, `playgroups`, `games.reassign_player` (an audited event-log exception), `leagues`. After commit it enqueues `stats.rebuild_games_for_players` and `leagues.recompute_for_players`. Its router also serves the merge preview, built on `games.find_shared_games`. |
+| Deck lists show each deck's bracket badge | S-5.3.4, S-5.4.1 | **Client composition**: clients fetch `GET /decks`, then one batch call to a `brackets` endpoint backed by `brackets.latest_assessments(deck_ids)` (one query per page). `decks` never imports `brackets`. |
+| Profile shows games played and win rate; "Former playgroups" lists the games played there | S-2.2.3, S-2.4.4 | **Client composition**: the profile view (`playgroups`) returns profile data only. The client adds the stats player summary (S-8.3.1) and `GET /players/me/games` (S-7.3.6). |
+| Playgroup delete confirmation shows how many games will be deleted | S-2.6.3 | **Ownership**: the delete preview is served by the `workflows/data_rights.py` router, which asks `games` for the count. |
 | Data export, account deletion, playgroup deletion | S-2.6.1–S-2.6.3 | **Workflow** `workflows/data_rights.py`. It calls each domain's `export_user_data` / `delete_user_data`. Playgroup deletion runs as the job `workflows.delete_playgroup`, which uses `games.delete_playgroup_data` (an audited event-log exception). |
 
-**The five mechanisms** are a workflow, a job enqueued by name, an inverted call, a change of ownership and client composition. A new case needs a row here before any code is written.
+**The five mechanisms** are a workflow, a job enqueued by name, an inverted call, a change of ownership and client composition. A new case needs a row here before any code is written. A plain downward call needs no mechanism; it gets a row only where a story's wording suggested an upward call.
+
+**Jobs by name**: any domain may enqueue a job of any domain or of `workflows` by name (for example `playgroups` enqueues `workflows.delete_playgroup`), because enqueueing imports nothing.
 
 **Workflows**:
 - Each workflow module may define its own FastAPI router, registered in `main.py`, and its own arq jobs. It may import any domain's `services`.
@@ -274,29 +280,33 @@ Ending a game runs `game_ended`, then the host confirms the summary (which is au
 
 ## 7. Background jobs
 
-All jobs are **idempotent** and **enqueued by name**: `core.jobs.enqueue("<owner>.<job>", **kwargs)`, or `enqueue_after_commit` inside a transaction. Every run writes a `job_runs` row (S-1.9.4), and `/api/v1/health/ops` reports stale or failed jobs to the uptime monitor. **Each job's name is defined by its owning story.** When a story gives a bare name, the job is registered and enqueued with its owner's prefix: `rebuild_stats` is `stats.rebuild_stats` and `abandon_idle_games` is `games.abandon_idle_games`. The table lists the main ones:
+All jobs are **idempotent** and **enqueued by name**: `core.jobs.enqueue("<owner>.<job>", **kwargs)`, or `enqueue_after_commit` inside a transaction. Every run writes a `job_runs` row (S-1.9.4), and `/api/v1/health/ops` reports stale or failed jobs to the uptime monitor.
+
+**The names below are canonical.** Stories that name a job differently are updated to these names (see the story-wording list on PR #448).
 
 | Job | Trigger | Owner | Story |
 |---|---|---|---|
-| Daily Scryfall sync: streams the bulk files with ijson, upserts cards and printings, updates the latest prices on every printing, and writes snapshots for tracked printings in the same pass | daily, 09:00 UTC | `workflows` → `cards` | S-3.1.x, S-3.4.2, S-3.4.3 |
-| `thin_price_snapshots`: thin history older than 2 years to weekly | weekly cron | `cards` | S-3.4.7 |
-| `lookup_printings`: cached on-demand Scryfall lookups (including foreign-language printings) | on demand | `cards` | S-3.2.5 |
-| Deck URL import fetch, plus the `preview_ready` notification | on demand | `decks` | S-4.2.x, S-4.3.x |
-| `brackets.assess_deck_version` (includes the Spellbook query, 7-day cache) | deck version saved | `brackets` | S-5.2.x, S-5.3.x |
-| `decks.revalidate_all`, after legality changes | after the daily sync | `decks` | S-3.1.5, S-4.5.1 |
-| `brackets.check_game_changers`, comparing Scryfall's flag with the active rule set | after the daily sync | `brackets` | S-5.1.8 |
-| Reassess decks and create notices when a rule set is published | rule set published | `brackets` | S-5.3.5 |
-| Collection CSV import | on demand | `collection` | F-9.2 |
+| `workflows.scryfall_daily_sync`: streams the bulk files with ijson, upserts cards and printings, updates the latest prices on every printing, and writes snapshots for tracked printings in the same pass | daily, 09:00 UTC (cron) | `workflows` → `cards` | S-3.1.6, S-3.1.7, S-3.4.2, S-3.4.3 |
+| `cards.thin_price_snapshots`: thin history older than 2 years to weekly | weekly cron | `cards` | S-3.4.7 |
+| `cards.lookup_printings`: cached on-demand Scryfall lookups (including foreign-language printings) | on demand | `cards` | S-3.2.5 |
+| `decks.import_deck_from_url`, with the `preview_ready` notification | on demand | `decks` | S-4.2.3, S-4.3.x |
+| `decks.revalidate_all`: re-validate decks after legality changes | after the daily sync | `decks` | S-3.1.5, S-4.5.1 |
+| `brackets.assess_deck_version`, including the Spellbook query with a 7-day cache | deck version saved | `brackets` | S-5.2.x, S-5.3.4 |
+| `brackets.reassess_all`: re-assess in batches and create notices | rule set published | `brackets` | S-5.3.4, S-5.3.5 |
+| `brackets.check_game_changers`: compare Scryfall's flag with the active rule set | after the daily sync; rule set published | `brackets` | S-5.1.8 |
+| `collection.import_csv` | on demand | `collection` | F-9.2 |
 | `collection.refresh_valuations` | after the daily sync | `collection` | S-9.5.3 |
 | `stats.refresh_game_stats`: rebuild one game's fact rows | results saved or amended | `stats` | S-7.1.1 |
-| `rebuild_stats`: full rebuild | weekly + CLI | `stats` | S-7.1.6 |
+| `stats.rebuild_stats`: full rebuild | weekly + CLI | `stats` | S-7.1.6 |
 | `stats.rebuild_card_aggregates` | playgroup time-zone change | `stats` | T-7.5.1.4 |
-| `stats.rebuild_games_for_players` | after a guest merge or claim | `stats` | S-2.3.4, S-7.1.7 |
-| Season rescore after a scoring change | scoring system edited | `leagues` | T-10.2.7.2 |
+| `stats.rebuild_games_for_players` | after a guest claim or merge | `stats` | S-2.3.3, S-2.3.4, S-7.1.7 |
+| `leagues.recompute_for_game` | results saved or amended | `leagues` | S-10.1.2, F-10.3 |
+| `leagues.recompute_for_players` | after a guest merge | `leagues` | S-10.3.7 |
+| `leagues.rescore_season` | scoring system edited | `leagues` | T-10.2.7.2 |
+| `games.abandon_idle_games`: lobbies idle for 2 h, games idle for 24 h | every 10 min | `games` | S-6.2.9 |
 | `workflows.delete_playgroup` | owner deletes a playgroup | `workflows` | S-2.6.3 |
-| `leagues.recompute_for_game` | results saved or amended | `leagues` | F-10.3 |
-| `abandon_idle_games`: lobbies idle for 2 h, games idle for 24 h | every 10 min | `games` | S-6.2.9 |
-| Refresh-token cleanup, `job_runs` purge, worker heartbeat | daily / per minute | `identity`, `workers` | F-2.1, S-1.9.x |
+| `identity.cleanup_refresh_tokens` | daily | `identity` | F-2.1 |
+| `system.purge_job_runs`, `system.heartbeat` | daily / every minute | `system` | S-1.9.x |
 | `db_backup`: **external** job. It runs in the Compose `backup` service (pg_dump + GnuPG), not in the arq worker | daily | infra | S-11.3.2 |
 
 ## 8. Domain model (overview)
@@ -321,8 +331,8 @@ erDiagram
   GAME_SEAT }o--o| DECK_VERSION : "deck used"
   USER ||--o{ COLLECTION_ITEM : owns
   COLLECTION_ITEM }o--|| PRINTING : "exact printing"
-  COLLECTION_ITEM ||--o| COPY_ASSIGNMENT : "assigned via"
-  DECK_CARD ||--o{ COPY_ASSIGNMENT : "copies"
+  COLLECTION_ITEM ||--o{ COPY_ASSIGNMENT : "assigned via"
+  DECK ||--o{ COPY_ASSIGNMENT : "uses copies"
   USER ||--o{ PURCHASE : logs
   PURCHASE ||--o{ PURCHASE_LINE : lines
   PRINTING ||--o{ PRICE_SNAPSHOT : history

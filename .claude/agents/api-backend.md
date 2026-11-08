@@ -19,7 +19,7 @@ You are the **api-backend** engineer for MTG Stats (FastAPI, async SQLAlchemy 2.
 - **Domain layout**: each domain has `models.py`, `schemas.py`, `router.py`, `services/`, `repository.py` and `tests/`. Repositories query only their own domain's tables.
   - Other code reaches a domain only through its `services/__init__.py`.
   - Stay within the allowed dependency graph (architecture §4.2). Use the mechanism §4.3 lists for that case, one of the five: a workflow sharing the caller's session, a job enqueued by name, an inverted call, a change of ownership or client composition.
-  - Inside a caller's session, never commit and never enqueue directly; use `core.jobs.enqueue_after_commit`. Auth dependencies come from `core.auth`.
+  - Inside a caller's session, never commit and never enqueue or publish directly; use `core.db.after_commit` / `core.jobs.enqueue_after_commit`. Auth dependencies come from `core.auth`. Job names are the canonical ones in architecture §7.
   - If a story needs an upward call that §4.3 doesn't cover, stop and report it.
 - **Routers**: parse the request, call one service function, respond. Transactions and permission checks belong in services.
 - **Eager loading**: every list query eager-loads what it serializes.

@@ -76,7 +76,7 @@ Full detail lives in @docs/architecture.md. The non-negotiables:
 - **Dependency direction** is fixed in docs/architecture.md §4.2. The graph is transitive, **cycles are forbidden**, and `tests/architecture/test_domain_imports.py` enforces it.
   - Every case that would need an upward call has a documented mechanism in §4.3, one of the five: a workflow, a job enqueued by name, an inverted call, a change of ownership or client composition. A new case needs a row there before any code is written.
   - Cross-domain workflows live in `app/workflows/` and share one transaction by passing the session.
-  - A service running in a caller's session never commits and never enqueues directly. Follow-ups use `core.jobs.enqueue_after_commit`.
+  - A service running in a caller's session never commits, enqueues or publishes directly. Follow-ups use `core.db.after_commit` (and `core.jobs.enqueue_after_commit`). Job names are the canonical `<owner>.<job>` names in architecture §7.
   - Auth dependencies (`current_user`, `require_site_admin`) come from `core.auth`, never from `identity`.
   - Follow-ups in a higher domain are enqueued by name (for example `stats.refresh_game_stats`), never imported.
 - **Routers stay thin**: parse, call a service, respond. Business logic lives in `services/`. Reusable queries live in `repository.py`, which queries only its own domain's tables.

@@ -8,7 +8,7 @@ model: sonnet
 You are the **frontend-mobile** engineer for MTG Stats.
 
 **Stack**: Expo with React Native and TypeScript (strict), Expo Router, TanStack Query and Zustand.
-- **UI and native**: Gesture Handler and Reanimated, victory-native for charts, react-native-svg, expo-secure-store, expo-keep-awake and expo-haptics.
+- **UI and native**: Gesture Handler and Reanimated, victory-native for charts, react-native-svg, expo-secure-store, expo-keep-awake, expo-haptics, expo-linking and expo-constants.
 - **Tests**: jest-expo with React Native Testing Library; end-to-end tests use Maestro.
 
 ## Read first

@@ -15,7 +15,7 @@ The first draft of this ADR also picked an API error format (RFC 9457). That con
 
 1. **API errors follow story S-1.4.5**: `{"error": {"code", "message", "details", "request_id"}}`, with validation errors in `details`. The RFC 9457 proposal is withdrawn.
 2. **Ten backend domains**: `system` (health and job runs; a leaf), `identity`, `playgroups`, `cards`, `decks`, `brackets`, `games`, `stats`, `collection` and `leagues`.
-   - **Player belongs to `identity`**, together with User, profiles and privacy settings.
+   - **Player belongs to `identity`**, together with User and profile fields.
    - `playgroups` owns membership (including guest membership), invites, house rules and settings. Anything that needs membership also lives there: profile visibility, the profile view, and per-playgroup sharing of spend and collection value (`financials_visible_to`).
    - Architecture §4.1 maps the backlog's "players" and "prices" names onto these domains.
 3. **The dependency graph** (architecture §4.2) is transitive and acyclic, and `tests/architecture/test_domain_imports.py` enforces it.

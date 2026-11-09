@@ -22,6 +22,22 @@ Planning is complete; implementation has not started. Phase 0 (Foundations) is n
 
 Once imported, **GitHub Issues** is the source of truth for the backlog. Issues are titled with their backlog ID, for example `[S-6.4.2]`.
 
+## Setup
+
+After cloning, install dependencies and the git hooks (required):
+
+```bash
+uv sync --project apps/api       # Python deps
+pnpm install                     # TypeScript deps
+pnpm hooks:install               # = uv run --project apps/api pre-commit install
+```
+
+The hooks run on staged files at every `git commit`: the secrets check, `detect-private-key`, `check-added-large-files` (500 KB), `end-of-file-fixer`, Ruff (check and format) on Python, and Prettier and ESLint on TypeScript. Run them on everything with `uv run --project apps/api pre-commit run --all-files`.
+
+Install the hook from the main checkout: git worktrees share one `.git/hooks`, so branches that lack `.pre-commit-config.yaml` fail to commit until this config is on `main`.
+
+**Never commit with `--no-verify`.** CI re-runs the secrets check and fails the branch.
+
 ## Planned layout
 
 ```

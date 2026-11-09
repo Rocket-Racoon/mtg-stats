@@ -5,7 +5,7 @@ share one module-scoped temp repo that is built and scanned once per mode. Separ
 only where a test needs a distinct index and working-tree state.
 """
 
-# ruff: noqa: S101, S603, S607
+# ruff: noqa: S603, S607
 
 from __future__ import annotations
 

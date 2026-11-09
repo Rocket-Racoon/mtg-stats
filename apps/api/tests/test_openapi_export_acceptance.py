@@ -23,7 +23,7 @@ from app.core.openapi import (
     route_domain,
 )
 from app.scripts import export_openapi
-from app.scripts.export_openapi import DEFAULT_OUTPUT, main
+from app.scripts.export_openapi import default_output, main
 
 API_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = API_DIR.parents[1]
@@ -167,12 +167,12 @@ def test_bad_arguments_exit_with_code_2() -> None:
 
 
 def test_default_output_path_is_packages_api_client_openapi_json() -> None:
-    assert DEFAULT_OUTPUT == REPO_ROOT / "packages" / "api-client" / "openapi.json"
+    assert default_output() == REPO_ROOT / "packages" / "api-client" / "openapi.json"
 
 
 def test_committed_spec_matches_the_current_app() -> None:
-    assert DEFAULT_OUTPUT.is_file()
-    assert main(["--output", str(DEFAULT_OUTPUT), "--check"]) == 0
+    assert default_output().is_file()
+    assert main(["--output", str(default_output()), "--check"]) == 0
 
 
 def test_root_package_script_runs_the_export_from_apps_api() -> None:
@@ -250,10 +250,10 @@ def test_tagged_route_gets_tag_underscore_function() -> None:
 
 def test_tag_is_slugged_and_lowercased() -> None:
     probe = _new_app()
-    router = APIRouter(tags=["Play Groups"])
+    router = APIRouter(tags=["  PlayGroups "])
     router.add_api_route("/pg", _search_in_module_a(), methods=["GET"])
     probe.include_router(router)
-    assert probe.openapi()["paths"]["/pg"]["get"]["operationId"] == "play_groups_search"
+    assert probe.openapi()["paths"]["/pg"]["get"]["operationId"] == "playgroups_search"
 
 
 def test_first_tag_wins_when_several_are_given() -> None:
@@ -377,4 +377,45 @@ def test_nested_include_duplicate_message_shows_full_paths() -> None:
 
 
 def test_default_output_is_resolved_lazily() -> None:
-    assert export_openapi.default_output() == DEFAULT_OUTPUT
+    assert default_output().name == "openapi.json"
+
+
+def test_default_output_raises_when_no_workspace_marker_above(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(export_openapi, "__file__", str(tmp_path / "a" / "b.py"))
+    with pytest.raises(FileNotFoundError, match=r"pnpm-workspace.yaml"):
+        default_output()
+
+
+def test_system_domain_package_wins_over_a_non_domain_tag() -> None:
+    probe = _new_app()
+    endpoint = _search_in_module_a()
+    endpoint.__module__ = "app.system.router"
+    router = APIRouter(tags=["health"])
+    router.add_api_route("/health/live", endpoint, methods=["GET"])
+    probe.include_router(router)
+    assert probe.openapi()["paths"]["/health/live"]["get"]["operationId"] == "system_search"
+
+
+@pytest.mark.parametrize("tag", ["!!!", "health", "Unknown Thing"])
+def test_tag_that_is_not_a_domain_falls_back_to_system(tag: str) -> None:
+    probe = _new_app()
+    router = APIRouter(tags=[tag])
+    router.add_api_route("/t", _search_in_module_a(), methods=["GET"])
+    probe.include_router(router)
+    assert probe.openapi()["paths"]["/t"]["get"]["operationId"] == "system_search"
+
+
+def test_backstop_catches_fastapi_duplicate_warning_when_collector_finds_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("app.core.openapi.collect_operation_ids", lambda _app: {})
+    with pytest.raises(DuplicateOperationIdError, match="Duplicate Operation ID"):
+        assert_unique_operation_ids(_duplicate_probe())
+
+
+def test_warning_is_not_reported_again_when_collector_found_duplicates() -> None:
+    with pytest.raises(DuplicateOperationIdError) as info:
+        assert_unique_operation_ids(_duplicate_probe())
+    assert "Duplicate Operation ID" not in str(info.value)

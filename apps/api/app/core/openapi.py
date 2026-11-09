@@ -9,7 +9,7 @@ a tag:
 1. the endpoint's module is ``app.<domain>.…`` with ``<domain>`` one of the architecture §4.1
    domains (``app.decks.router`` gives ``decks``);
 2. otherwise (core, workflows, workers, tests, probes), the route's first tag (an ``Enum`` tag
-   uses its ``.value``), slugged to snake_case;
+   uses its ``.value``), slugged to snake_case, but only if it is itself one of those domains;
 3. otherwise ``system``.
 
 FastAPI calls the generator with an effective route context for routes added through
@@ -30,6 +30,7 @@ from fastapi.routing import APIRoute, iter_route_contexts
 SYSTEM_DOMAIN = "system"
 DOMAINS = frozenset(
     {
+        "system",
         "identity",
         "playgroups",
         "cards",
@@ -61,7 +62,7 @@ def route_domain(route: APIRoute) -> str:
     if route.tags:
         first = route.tags[0]
         tag = _slug(str(first.value if isinstance(first, Enum) else first))
-        if tag:
+        if tag in DOMAINS:
             return tag
     return SYSTEM_DOMAIN
 
@@ -92,7 +93,9 @@ def collect_operation_ids(app: FastAPI) -> dict[str, list[str]]:
 def assert_unique_operation_ids(app: FastAPI) -> None:
     """Raise :class:`DuplicateOperationIdError` naming both routes on a shared operation ID.
 
-    Fails closed: FastAPI's own duplicate warning while building the schema also counts.
+    Fails closed: FastAPI's own duplicate warning while building the schema also counts, unless
+    the collector already found duplicates. This rebuilds the app's cached OpenAPI schema, so
+    call it at build or export time, never on a serving app.
     """
     problems = [
         f"operationId {op_id!r} used by: {' and '.join(routes)}"
@@ -103,6 +106,7 @@ def assert_unique_operation_ids(app: FastAPI) -> None:
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         app.openapi()
-    problems.extend(str(w.message) for w in caught if _DUPLICATE_WARNING in str(w.message))
+    if not problems:
+        problems.extend(str(w.message) for w in caught if _DUPLICATE_WARNING in str(w.message))
     if problems:
         raise DuplicateOperationIdError("duplicate operation IDs: " + "; ".join(problems))

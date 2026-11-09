@@ -15,7 +15,6 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any
 from unittest import mock
 
 from app.core.config import WORKSPACE_MARKER, Settings, get_settings
@@ -32,13 +31,6 @@ def default_output() -> Path:
             return directory / "packages" / "api-client" / "openapi.json"
     msg = f"{WORKSPACE_MARKER} not found above {__file__}; pass --output"
     raise FileNotFoundError(msg)
-
-
-def __getattr__(name: str) -> Any:
-    """Resolve ``DEFAULT_OUTPUT`` on first access so importing never needs the monorepo."""
-    if name == "DEFAULT_OUTPUT":
-        return default_output()
-    raise AttributeError(name)
 
 
 def render_spec() -> str:

@@ -14,8 +14,8 @@ class OriginGatedCORSMiddleware:
     ``access-control-allow-credentials`` (and answers preflights with 400 plus CORS headers)
     for disallowed origins. AC4 of S-1.4.1 requires no CORS headers at all, so requests with
     no ``Origin`` or a disallowed one go straight to the app, untouched. Every HTTP response
-    still carries ``Vary: Origin`` (added once), so shared caches never serve one origin's
-    response to another.
+    still carries ``Vary: Origin``, collapsed into a single header of unique tokens (or just
+    ``*``), so shared caches never serve one origin's response to another.
     """
 
     def __init__(self, app: ASGIApp, allowed_origins: Sequence[str]) -> None:
@@ -38,13 +38,15 @@ class OriginGatedCORSMiddleware:
         async def send_with_vary(message: Message) -> None:
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
-                existing = {
-                    token.strip().lower()
-                    for line in headers.getlist("vary")
-                    for token in line.split(",")
-                }
-                if "origin" not in existing and "*" not in existing:
-                    headers.append("Vary", "Origin")
+                tokens: dict[str, str] = {}
+                for line in headers.getlist("vary"):
+                    for token in line.split(","):
+                        if token.strip():
+                            tokens.setdefault(token.strip().lower(), token.strip())
+                tokens.setdefault("origin", "Origin")
+                if "vary" in headers:
+                    del headers["vary"]
+                headers["Vary"] = "*" if "*" in tokens else ", ".join(tokens.values())
             await send(message)
 
         origin = next((v for k, v in scope["headers"] if k == b"origin"), None)

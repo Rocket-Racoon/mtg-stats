@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter } from 'react-router';
@@ -7,7 +8,11 @@ import { routes } from './routes';
 
 function renderAt(path: string) {
   const router = createMemoryRouter(routes, { initialEntries: [path] });
-  render(<RouterProvider router={router} />);
+  render(
+    <StrictMode>
+      <RouterProvider router={router} />
+    </StrictMode>,
+  );
   return router;
 }
 
@@ -133,6 +138,16 @@ describe('focus after navigation (S-1.6.2)', () => {
     await user.click(screen.getByRole('link', { name: 'Games' }));
     expect(document.activeElement).toBe(screen.getByRole('main'));
     expect(document.activeElement?.id).toBe('main');
+  });
+
+  it('does not move focus when only the search params change, but does on a pathname change', async () => {
+    const router = renderAt('/games');
+    const toggle = screen.getByRole('button', { name: 'Menu' });
+    toggle.focus();
+    await act(() => router.navigate('/games?x=1'));
+    expect(toggle).toHaveFocus();
+    await act(() => router.navigate('/decks'));
+    expect(screen.getByRole('main')).toHaveFocus();
   });
 });
 

@@ -18,15 +18,15 @@ export function App() {
   }
   const toggleRef = useRef<HTMLButtonElement>(null);
   const mainRef = useRef<HTMLElement>(null);
-  const lastFocusedKey = useRef(location.key);
+  const lastFocusedPath = useRef(location.pathname);
 
-  // After navigating (not on first load) move focus to the page so it never drops to <body>.
+  // After a pathname change (not first load, not search-param changes) move focus to the page so it never drops to <body>.
   useEffect(() => {
-    if (lastFocusedKey.current !== location.key) {
-      lastFocusedKey.current = location.key;
-      mainRef.current?.focus();
+    if (lastFocusedPath.current !== location.pathname) {
+      lastFocusedPath.current = location.pathname;
+      mainRef.current?.focus({ preventScroll: true });
     }
-  }, [location.key]);
+  }, [location.pathname]);
 
   // Escape closes the menu only when it comes from the toggle or the nav.
   function onKeyDown(event: KeyboardEvent) {

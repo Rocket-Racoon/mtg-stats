@@ -9,6 +9,7 @@ This file governs the MTG Stats monorepo: a FastAPI API, a React (Vite) web app 
 uv sync                                   # Python deps (apps/api)
 pnpm install                              # TypeScript deps (all workspaces)
 docker compose -f infra/docker-compose.yml up -d postgres redis
+pnpm hooks:install                        # pre-commit hooks (S-1.8.7); run once from the main checkout
 
 # Run
 pnpm dev:api                              # uv run uvicorn app.main:app --reload (apps/api)
@@ -25,7 +26,7 @@ pnpm --filter @mtg-stats/api-client generate
 
 # Verify gate (S-1.8.1). `pnpm verify` runs these in order and stops at the first failure.
 # `pnpm verify:api` and `pnpm verify:ts` run one half.
-#  1. secrets check (the pre-commit secret hooks, re-run)
+#  1. pnpm secrets:check                   # scripts/secrets_check.py over all tracked files
 #  2. uv run ruff check . && uv run ruff format --check .
 #  3. uv run mypy --strict app/
 #  4. uv run pytest --cov=app --cov-fail-under=85
@@ -122,6 +123,8 @@ Full detail lives in @docs/architecture.md. The non-negotiables:
 - NEVER run `alembic upgrade`/`downgrade`, a data wipe or any destructive command against a non-dev database.
 - NEVER edit an applied migration. Data migrations need a real `downgrade`, or an explicit no-op with a comment explaining why.
 - NEVER commit secrets, `.env` files or coverage artifacts. NEVER bypass the pre-commit hooks (`--no-verify`).
+  - The hooks (`.pre-commit-config.yaml`, S-1.8.7) run on staged files: the secrets check (first, fail-fast), `detect-private-key`, `check-added-large-files` (500 KB), `end-of-file-fixer`, `ruff check --fix` and `ruff format`, Prettier and ESLint.
+  - Never run `pre-commit install` inside an agent worktree: worktrees share one `.git/hooks`.
 - NEVER push directly to `main`. This is a convention, because GitHub Free can't enforce it (decision I1).
 - **Approved dependencies** are those in plan §8, ADR-0002 and the OPEN-QUESTIONS.md decisions log. Ask before adding anything else, and prefer the standard library.
 - The game event log is append-only: NEVER update or delete `game_events` rows. Corrections and undo are compensating events. The only exceptions are the audited `games.reassign_player` (guest merge) and `games.delete_playgroup_data` (playgroup deletion).

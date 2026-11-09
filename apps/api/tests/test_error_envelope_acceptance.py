@@ -411,9 +411,10 @@ def test_builtin_domain_errors_have_documented_code_and_status(
     assert cls.status_code == status
 
 
-def test_services_never_reference_http_exception() -> None:
+def find_http_exception_refs(root: Path) -> list[str]:
+    """Return files under any ``services`` dir below ``root`` that mention HTTPException."""
     offenders: list[str] = []
-    for path in APP_ROOT.glob("**/services/**/*.py"):
+    for path in root.glob("**/services/**/*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             names: list[str] = []
@@ -424,8 +425,13 @@ def test_services_never_reference_http_exception() -> None:
             elif isinstance(node, ast.Attribute):
                 names = [node.attr]
             if "HTTPException" in names:
-                offenders.append(str(path.relative_to(APP_ROOT)))
-    assert offenders == []
+                offenders.append(str(path.relative_to(root)))
+                break
+    return offenders
+
+
+def test_services_never_reference_http_exception() -> None:
+    assert find_http_exception_refs(APP_ROOT) == []
 
 
 # ---------------------------------------------------------------- OpenAPI

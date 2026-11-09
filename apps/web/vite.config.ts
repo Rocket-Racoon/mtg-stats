@@ -33,6 +33,7 @@ export default defineConfig(({ command, mode }) => {
     envDir,
     plugins: [react()],
     define: { 'import.meta.env.VITE_API_BASE_URL': JSON.stringify(apiBaseUrl) },
+    appType: 'spa',
     server: { port: 5173, strictPort: true },
     test: {
       include: ['src/**/*.test.{ts,tsx}', 'tests/**/*.test.ts'],

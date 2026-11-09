@@ -6,8 +6,8 @@ from app.core.config import Settings, get_settings
 from app.core.cors import OriginGatedCORSMiddleware
 from app.core.errors import ERROR_RESPONSES, UnhandledErrorMiddleware, register_exception_handlers
 from app.core.logging import configure_logging
-from app.core.request_id import RequestIDMiddleware
 from app.core.openapi import generate_operation_id
+from app.core.request_id import RequestIDMiddleware
 
 API_PREFIX = "/api/v1"
 

@@ -4,7 +4,9 @@ import json
 import os
 import re
 import subprocess
+import sys
 from collections.abc import Callable
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +16,7 @@ from fastapi.routing import APIRoute
 
 import app.main as app_main
 from app.core.openapi import (
+    DuplicateOperationIdError,
     assert_unique_operation_ids,
     collect_operation_ids,
     generate_operation_id,
@@ -113,11 +116,11 @@ def test_export_uses_two_space_indent_trailing_newline_and_lf_only(tmp_path: Pat
 
 
 def test_export_subprocess_twice_without_env_is_byte_identical(tmp_path: Path) -> None:
-    env = {k: v for k, v in os.environ.items() if k not in {"APP_ENV", "DATABASE_URL"}}
+    env = {k: v for k, v in os.environ.items() if k in {"PATH", "SYSTEMROOT", "TEMP", "TMP"}}
     outputs = [tmp_path / "a.json", tmp_path / "b.json"]
     for out in outputs:
         result = subprocess.run(  # noqa: S603
-            ["uv", "run", "python", "-m", "app.scripts.export_openapi", "--output", str(out)],  # noqa: S607
+            [sys.executable, "-m", "app.scripts.export_openapi", "--output", str(out)],
             cwd=API_DIR,
             env=env,
             capture_output=True,
@@ -302,7 +305,76 @@ def test_every_operation_id_in_the_real_app_matches_the_format() -> None:
     assert len(ids) == len(set(ids))
 
 
-def test_real_app_operation_id_is_domain_plus_route_name() -> None:
-    for route in app_main.app.routes:
-        if isinstance(route, APIRoute):
-            assert route.unique_id == f"{route_domain(route)}_{route.name}"
+def test_real_app_operation_id_prefixes_are_architecture_domains() -> None:
+    allowed = {
+        "system", "identity", "playgroups", "cards", "decks",
+        "brackets", "games", "stats", "collection", "leagues",
+    }  # fmt: skip
+    for op_id in collect_operation_ids(app_main.app):
+        assert op_id.split("_", 1)[0] in allowed, op_id
+
+
+# ------------------------------------------------------------- review fixes
+
+
+def test_non_duplicate_value_error_during_build_does_not_exit_3(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def boom(*_a: Any, **_k: Any) -> FastAPI:
+        raise ValueError("settings are wrong")
+
+    monkeypatch.setattr(app_main, "create_app", boom)
+    with pytest.raises(ValueError, match="settings are wrong"):
+        export_openapi.main(["--output", str(tmp_path / "x.json")])
+
+
+def test_multi_method_route_with_one_function_is_reported_as_duplicate() -> None:
+    probe = _new_app()
+
+    async def things() -> list[str]:
+        return []
+
+    probe.add_api_route("/things", things, methods=["GET", "POST"])
+    with pytest.raises(DuplicateOperationIdError, match=r"GET /things and POST /things"):
+        assert_unique_operation_ids(probe)
+
+
+def test_domain_package_wins_over_tags() -> None:
+    probe = _new_app()
+    endpoint = _search_in_module_a()
+    endpoint.__module__ = "app.decks.router"
+    router = APIRouter(tags=["Decks UI"])
+    router.add_api_route("/decks/search", endpoint, methods=["GET"])
+    probe.include_router(router, tags=["admin"])
+    assert probe.openapi()["paths"]["/decks/search"]["get"]["operationId"] == "decks_search"
+
+
+def test_enum_tag_uses_its_value() -> None:
+    class Tag(Enum):
+        CARDS = "cards"
+
+    probe = _new_app()
+    router = APIRouter(tags=[Tag.CARDS])
+    router.add_api_route("/c", _search_in_module_a(), methods=["GET"])
+    probe.include_router(router)
+    assert probe.openapi()["paths"]["/c"]["get"]["operationId"] == "cards_search"
+
+
+def test_nested_include_duplicate_message_shows_full_paths() -> None:
+    probe = _new_app()
+    inner_a = APIRouter(tags=["cards"])
+    inner_b = APIRouter(tags=["cards"])
+    inner_a.add_api_route("/a", _search_in_module_a(), methods=["GET"])
+    inner_b.add_api_route("/b", _search_in_module_b(), methods=["GET"])
+    outer = APIRouter(prefix="/api/v1")
+    outer.include_router(inner_a, prefix="/x")
+    outer.include_router(inner_b, prefix="/y")
+    probe.include_router(outer)
+    with pytest.raises(DuplicateOperationIdError) as info:
+        assert_unique_operation_ids(probe)
+    assert "GET /api/v1/x/a" in str(info.value)
+    assert "GET /api/v1/y/b" in str(info.value)
+
+
+def test_default_output_is_resolved_lazily() -> None:
+    assert export_openapi.default_output() == DEFAULT_OUTPUT

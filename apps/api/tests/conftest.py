@@ -5,5 +5,6 @@ import os
 pytest_plugins = ["pytester"]
 
 # `app.main` builds `app = create_app()` at import time, which needs valid settings.
-os.environ.setdefault("APP_ENV", "test")
-os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://u:p@localhost:5432/mtg_stats_test")
+# Forced, not defaulted, so a shell with APP_ENV=dev cannot leak into the run.
+os.environ["APP_ENV"] = "test"
+os.environ["DATABASE_URL"] = "postgresql+psycopg://u:CHANGE_ME@localhost:5432/mtg_stats_test"

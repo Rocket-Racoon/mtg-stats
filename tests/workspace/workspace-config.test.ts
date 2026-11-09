@@ -66,7 +66,16 @@ const disabledStrictFlags = (opts: Record<string, unknown>): string[] =>
     .map(([k]) => k);
 
 const dirs = workspaceDirs();
-const tsconfigFiles = ['tsconfig.json', ...dirs.map((d) => `${d}/tsconfig.json`)];
+/** Every tsconfig*.json in each workspace (e.g. tsconfig.tooling.json), plus the root one. */
+const tsconfigFiles = [
+  'tsconfig.json',
+  ...dirs.flatMap((d) =>
+    readdirSync(join(root, d))
+      .filter((f) => /^tsconfig.*\.json$/.test(f))
+      .sort()
+      .map((f) => `${d}/${f}`),
+  ),
+];
 
 describe('workspace discovery', () => {
   it('finds web, mobile and the three shared packages', () => {

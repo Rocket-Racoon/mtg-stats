@@ -50,5 +50,17 @@ class RequestIDMiddleware:
             await self._app(scope, receive, send_with_id)
         finally:
             ms = round((time.perf_counter() - start) * 1000, 1)
-            logger.info("%s %s -> %s (%sms)", scope["method"], scope["path"], status, ms)
+            logger.info(
+                "%s %s -> %s (%sms)",
+                scope["method"],
+                scope["path"],
+                status,
+                ms,
+                extra={
+                    "method": scope["method"],
+                    "path": scope["path"],
+                    "status": status,
+                    "duration_ms": ms,
+                },
+            )
             request_id_var.reset(token)

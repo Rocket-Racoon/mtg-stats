@@ -199,9 +199,8 @@ def test_error_response_is_declared_in_openapi(client: TestClient) -> None:
     assert "ErrorResponse" in spec["components"]["schemas"]
     post = spec["paths"]["/t/body"]["post"]["responses"]
     for status in ("401", "403", "404", "409", "422", "429", "500"):
-        assert post[status]["content"]["application/json"]["schema"]["$ref"].endswith(
-            "/ErrorResponse"
-        )
+        ref = post[status]["content"]["application/json"]["schema"]["$ref"]
+        assert ref.endswith("/ValidationErrorResponse" if status == "422" else "/ErrorResponse")
 
 
 def test_register_handlers_on_bare_app() -> None:

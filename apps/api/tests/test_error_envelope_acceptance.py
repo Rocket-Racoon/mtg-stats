@@ -451,8 +451,8 @@ def test_openapi_probe_route_lists_error_response_for_422_and_500(
     responses = spec["paths"]["/p/422"]["post"]["responses"]
     for status in ("401", "403", "404", "409", "422", "429", "500"):
         ref = responses[status]["content"]["application/json"]["schema"]["$ref"]
-        assert ref.endswith("/ErrorResponse")
+        assert ref.endswith("/ValidationErrorResponse" if status == "422" else "/ErrorResponse")
 
 
 def test_error_responses_constant_covers_all_documented_statuses() -> None:
-    assert set(ERROR_RESPONSES) == {401, 403, 404, 409, 422, 429, 500}
+    assert set(ERROR_RESPONSES) == {401, 403, 404, 409, 422, 429, 500, "4XX", "5XX"}

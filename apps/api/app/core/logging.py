@@ -20,6 +20,8 @@ game_id_var: ContextVar[str | None] = ContextVar("game_id", default=None)
 
 _CONTEXT_VARS = {"request_id": request_id_var, "job_id": job_id_var, "game_id": game_id_var}
 _HANDLER_MARK = "_mtg_stats_json_handler"
+# Keys a caller may pass via ``extra={...}``; anything else is dropped.
+_EXTRA_KEYS = ("method", "path", "status", "duration_ms", "game_id")
 _UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
 
 
@@ -70,6 +72,11 @@ class JsonFormatter(logging.Formatter):
             value = var.get()
             if value is not None:
                 payload[key] = value
+        for key in _EXTRA_KEYS:
+            if key in record.__dict__ and key not in payload:
+                payload[key] = record.__dict__[key]
+        if record.stack_info:
+            payload["stack_info"] = record.stack_info
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
         return json.dumps(payload, default=str, ensure_ascii=False)
@@ -90,7 +97,7 @@ class _StderrHandler(logging.StreamHandler):  # type: ignore[type-arg]
         """Ignore assignments; the stream is always the live ``sys.stderr``."""
 
 
-def configure_logging(level: int = logging.INFO) -> None:
+def configure_logging(level: int | str = logging.INFO) -> None:
     """Route all logging, uvicorn's included, through the JSON formatter. Idempotent."""
     root = logging.getLogger()
     root.handlers = [h for h in root.handlers if not getattr(h, _HANDLER_MARK, False)]

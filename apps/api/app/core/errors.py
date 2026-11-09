@@ -5,8 +5,9 @@ Services raise :class:`DomainError` subclasses, never FastAPI's ``HTTPException`
 """
 
 import logging
+import re
 from http import HTTPStatus
-from typing import Any
+from typing import Any, ClassVar
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -38,16 +39,61 @@ class ErrorResponse(BaseModel):
     error: ErrorBody
 
 
+class ValidationField(BaseModel):
+    """One failing field of a request."""
+
+    loc: list[str | int] = Field(
+        description="Raw location, including the leading body/query/path/header part."
+    )
+    path: str = Field(description="Dotted form of loc, for display.")
+    message: str
+
+
+class ValidationDetails(BaseModel):
+    """``details`` of a ``validation_error``."""
+
+    fields: list[ValidationField]
+
+
+class ValidationErrorBody(ErrorBody):
+    """Error body of a 422 ``validation_error``."""
+
+    details: ValidationDetails  # type: ignore[assignment]
+
+
+class ValidationErrorResponse(BaseModel):
+    """Envelope of a 422 response."""
+
+    error: ValidationErrorBody
+
+
+_SNAKE_CASE = re.compile(r"[a-z][a-z0-9_]*")
+
+
 class DomainError(Exception):
     """Base class for errors a service raises on purpose; carries a code and HTTP status."""
 
     code: str = "domain_error"
     status_code: int = 400
     default_message: str = "The operation was rejected."
+    default_headers: ClassVar[dict[str, str] | None] = None
 
-    def __init__(self, message: str | None = None, *, details: dict[str, Any] | None = None):
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Reject a ``code`` that is not snake_case."""
+        super().__init_subclass__(**kwargs)
+        if not _SNAKE_CASE.fullmatch(cls.code):
+            raise TypeError(f"{cls.__name__}.code {cls.code!r} must match ^[a-z][a-z0-9_]*$")
+
+    def __init__(
+        self,
+        message: str | None = None,
+        *,
+        details: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ):
         self.message = message or self.default_message
         self.details = details
+        self.headers = headers if headers is not None else self.default_headers
         super().__init__(self.message)
 
 
@@ -81,6 +127,7 @@ class AuthenticationError(DomainError):
     code = "unauthenticated"
     status_code = 401
     default_message = "Authentication is required."
+    default_headers: ClassVar[dict[str, str] | None] = {"WWW-Authenticate": "Bearer"}
 
 
 class RateLimitedError(DomainError):
@@ -89,6 +136,18 @@ class RateLimitedError(DomainError):
     code = "rate_limited"
     status_code = 429
     default_message = "Too many requests."
+
+    def __init__(
+        self,
+        message: str | None = None,
+        *,
+        retry_after: int | None = None,
+        details: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ):
+        if retry_after is not None:
+            headers = {**(headers or {}), "Retry-After": str(retry_after)}
+        super().__init__(message, details=details, headers=headers)
 
 
 _HTTP_CODES = {
@@ -105,9 +164,16 @@ _HTTP_CODES = {
 }
 
 # Declared on the app so OpenAPI (and the generated client) type every error body.
+# 4XX and 5XX cover the rest; the explicit codes stay so each documented status is typed and
+# described in the generated client (a range key alone gives no per-status entry).
 ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
-    status: {"model": ErrorResponse, "description": HTTPStatus(status).phrase}
-    for status in (401, 403, 404, 409, 422, 429, 500)
+    **{
+        status: {"model": ErrorResponse, "description": HTTPStatus(status).phrase}
+        for status in (401, 403, 404, 409, 429, 500)
+    },
+    422: {"model": ValidationErrorResponse, "description": "Validation Error"},
+    "4XX": {"model": ErrorResponse, "description": "Client error"},
+    "5XX": {"model": ErrorResponse, "description": "Server error"},
 }
 
 
@@ -129,7 +195,11 @@ def error_response(
 
 def _validation_details(exc: RequestValidationError) -> dict[str, Any]:
     fields = [
-        {"path": ".".join(str(part) for part in err["loc"]), "message": str(err["msg"])}
+        {
+            "loc": list(err["loc"]),
+            "path": ".".join(str(part) for part in err["loc"]),
+            "message": str(err["msg"]),
+        }
         for err in exc.errors()
     ]
     return {"fields": fields}
@@ -137,18 +207,27 @@ def _validation_details(exc: RequestValidationError) -> dict[str, Any]:
 
 async def _domain_handler(_: Request, exc: Exception) -> JSONResponse:
     assert isinstance(exc, DomainError)  # noqa: S101
-    return error_response(exc.status_code, exc.code, exc.message, exc.details)
+    return error_response(exc.status_code, exc.code, exc.message, exc.details, exc.headers)
 
 
 async def _http_handler(_: Request, exc: Exception) -> JSONResponse:
     assert isinstance(exc, StarletteHTTPException)  # noqa: S101
+    headers = dict(exc.headers or {})
+    if exc.status_code >= 500:  # never echo `detail` of a server error
+        if exc.status_code == 503:
+            return error_response(
+                503, "service_unavailable", "Service temporarily unavailable.", headers=headers
+            )
+        return error_response(
+            exc.status_code, "internal_error", INTERNAL_ERROR_MESSAGE, headers=headers
+        )
     code = _HTTP_CODES.get(exc.status_code, "http_error")
     try:
         phrase = HTTPStatus(exc.status_code).phrase
     except ValueError:
         phrase = "Error"
     message = exc.detail if isinstance(exc.detail, str) and exc.detail else phrase
-    return error_response(exc.status_code, code, message, headers=dict(exc.headers or {}))
+    return error_response(exc.status_code, code, message, headers=headers)
 
 
 async def _validation_handler(_: Request, exc: Exception) -> JSONResponse:
@@ -194,6 +273,9 @@ class UnhandledErrorMiddleware:
         except Exception:
             logger.exception("Unhandled exception")
             if started:
+                # Headers are already sent, so no envelope is possible. Re-raising lets the
+                # server drop the connection; uvicorn.error then logs the traceback a second
+                # time (same request_id), which is expected.
                 raise
             response = error_response(500, "internal_error", INTERNAL_ERROR_MESSAGE)
             await response(scope, receive, send)

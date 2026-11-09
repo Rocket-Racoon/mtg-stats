@@ -15,7 +15,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     """Build the app: routers under ``/api/v1``, OpenAPI and docs there too, and CORS."""
     if settings is None:
         settings = get_settings()
-    configure_logging()
+    configure_logging(settings.log_level)
     app = FastAPI(
         responses=ERROR_RESPONSES,
         title="MTG Stats API",

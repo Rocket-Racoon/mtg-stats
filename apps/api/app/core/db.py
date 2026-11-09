@@ -113,14 +113,15 @@ class AppSession(AsyncSession):
     Guarantees:
 
     - ``commit`` commits and then runs the registered callbacks in order, as one inner task.
-    - If the commit fails, or ``rollback``/``close`` is called with no commit in progress, the
+    - If the commit fails, or ``rollback``/``close`` is called, the
       callbacks are dropped.
     - Cancelling the caller of ``commit`` (``task.cancel()`` or an anyio cancel scope) does not
       interrupt that inner task. ``commit`` keeps waiting until the commit and all callbacks have
       finished, and only then re-raises ``CancelledError``. A commit failure after cancellation is
       logged, since the caller can no longer receive it.
-    - ``rollback`` and ``close`` first wait for any commit in progress. They never drop callbacks
-      that belong to it and never touch the session while it is committing.
+    - An ``AppSession`` must not be used concurrently by two tasks (SQLAlchemy does not support
+      it); ``commit`` never returns while its inner task runs, so ``rollback`` and ``close``
+      cannot overlap a commit in normal use.
 
     Callbacks belong to the session, not to a savepoint.
     """
@@ -158,38 +159,15 @@ class AppSession(AsyncSession):
             except Exception:
                 logger.exception("after_commit callback failed")
 
-    async def _wait_for_pending_commit(self) -> bool:
-        """Wait for a commit in progress; return True if one was pending.
-
-        Cancellation is deferred, not swallowed: it is re-raised after the commit is done.
-        """
-        task = self._pending_commit
-        if task is None or task.done():
-            self._pending_commit = None
-            return False
-        cancelled = await _wait_until_done(task)
-        if cancelled:
-            raise asyncio.CancelledError
-        return True
-
     async def rollback(self) -> None:
-        """Roll back and drop the after-commit callbacks (after any commit in progress ends)."""
-        if await self._wait_for_pending_commit():
-            return  # the commit finished its transaction; nothing is left to roll back
+        """Roll back and drop the after-commit callbacks."""
         self.info.pop(_AFTER_COMMIT_INFO_SLOT, None)
         await super().rollback()
 
     async def close(self) -> None:
-        """Close and drop callbacks that never ran (after any commit in progress ends)."""
-        cancelled = False
-        try:
-            await self._wait_for_pending_commit()
-        except asyncio.CancelledError:
-            cancelled = True  # still close the session, then report the cancellation
+        """Close and drop any after-commit callbacks that never ran."""
         self.info.pop(_AFTER_COMMIT_INFO_SLOT, None)
         await super().close()
-        if cancelled:
-            raise asyncio.CancelledError
 
 
 async def _wait_until_done(task: asyncio.Task[None]) -> bool:

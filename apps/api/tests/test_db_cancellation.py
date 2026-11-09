@@ -6,6 +6,7 @@ cancelled mid-flight against Postgres. The table is committed for real and dropp
 
 import asyncio
 import contextlib
+import logging
 import uuid
 from collections.abc import AsyncIterator
 
@@ -22,6 +23,19 @@ SessionContext = contextlib.asynccontextmanager(get_session)
 @pytest.fixture
 async def slow_table(db_engine: AsyncEngine) -> AsyncIterator[str]:
     """A committed table whose deferred insert trigger sleeps 0.5 s at commit time."""
+    async for name in _make_table(db_engine, fail=False):
+        yield name
+
+
+@pytest.fixture
+async def failing_table(db_engine: AsyncEngine) -> AsyncIterator[str]:
+    """Like ``slow_table`` but the trigger raises after sleeping, so the commit fails."""
+    async for name in _make_table(db_engine, fail=True):
+        yield name
+
+
+async def _make_table(db_engine: AsyncEngine, *, fail: bool) -> AsyncIterator[str]:
+    body = "PERFORM pg_sleep(0.5); " + ("RAISE EXCEPTION 'boom'; " if fail else "") + "RETURN NULL;"
     name = f"acc_cancel_{uuid.uuid4().hex[:12]}"
     function = f"{name}_fn"
     async with db_engine.begin() as conn:
@@ -29,7 +43,7 @@ async def slow_table(db_engine: AsyncEngine) -> AsyncIterator[str]:
         await conn.execute(
             text(
                 f"CREATE FUNCTION {function}() RETURNS trigger LANGUAGE plpgsql AS "
-                f"$$ BEGIN PERFORM pg_sleep(0.5); RETURN NULL; END $$"
+                f"$$ BEGIN {body} END $$"
             )
         )
         await conn.execute(
@@ -93,3 +107,23 @@ async def test_anyio_cancel_scope_during_commit_completes_commit_and_callbacks(
     await task  # the scope absorbs the cancellation; no IllegalStateChangeError escapes
     assert scopes[0].cancelled_caught
     await _assert_committed(db_engine, slow_table, calls)
+
+
+async def test_commit_failure_after_cancel_is_logged_and_nothing_runs(
+    db_engine: AsyncEngine, failing_table: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    committing, calls = asyncio.Event(), []
+    with caplog.at_level(logging.ERROR, logger="app.core.db"):
+        task = asyncio.create_task(_handler(failing_table, committing, calls))
+        await committing.wait()
+        await asyncio.sleep(0.2)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    records = [r for r in caplog.records if "commit failed after its caller" in r.getMessage()]
+    assert len(records) == 1
+    assert calls == []
+    async with db_engine.connect() as conn:
+        count = (await conn.execute(text(f"SELECT count(*) FROM {failing_table}"))).scalar_one()  # noqa: S608
+    assert count == 0
+    assert get_engine().pool.checkedout() == 0  # type: ignore[attr-defined]

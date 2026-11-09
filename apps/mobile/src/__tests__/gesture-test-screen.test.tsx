@@ -188,7 +188,9 @@ describe('GestureTestScreen (AC3 logic layer)', () => {
   it('snaps back to the previous target when the drag is cancelled, committing nothing', async () => {
     await renderScreen();
     await pressMove();
-    await advance(1000);
+    // Start the drag mid-animation: the snap-back must land on the committed target (MOVE_STEP),
+    // not on where the drag began.
+    await advance(150);
     const gesture = pan();
     await act(async () => {
       gesture.begin();

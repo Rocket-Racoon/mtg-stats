@@ -19,7 +19,10 @@ import { scheduleOnUI } from 'react-native-worklets';
  *  - The tap alternative (Move button, accessibility `activate` action) hops to the UI thread with
  *    scheduleOnUI, reads `target` there and calls the same commitMove. The UI thread runs these
  *    in FIFO order, so quick taps accumulate and never lose a step.
- *  - A tap during a drag is ignored on purpose (`isDragging`): the finger owns the box.
+ *  - A tap during a drag is ignored on purpose (`isDragging`): the finger owns the box. "During a
+ *    drag" is evaluated when the job runs on the UI thread, not at press time, so a press made just
+ *    before activation can still be ignored. And a tap whose animation is still running when a drag
+ *    starts is overwritten by the drop: quick taps only accumulate between taps, not across a drag.
  *  - Use scheduleOnRN only for JS-side effects. None are needed here; persisting the position or
  *    calling the API would go there, after commitMove.
  *

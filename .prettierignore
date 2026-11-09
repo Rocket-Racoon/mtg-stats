@@ -5,6 +5,7 @@ coverage/
 .expo/
 pnpm-lock.yaml
 **/generated/
+packages/api-client/openapi.json
 .claude/
 docs/
 CLAUDE.md

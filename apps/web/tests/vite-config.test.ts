@@ -98,3 +98,34 @@ describe('vite build (slow, S-1.6.1 AC2 success path)', () => {
     }
   }, 60_000);
 });
+
+describe('vite config: SPA fallback (S-1.6.2 AC4)', () => {
+  it('resolves appType spa', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', '');
+    const cfg = await resolve('serve', 'development');
+    expect(cfg.appType).toBe('spa');
+  });
+
+  it('serves the index HTML for /decks and an unknown path, not a 404', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', '');
+    const server = await createServer({
+      configFile,
+      root: webRoot,
+      server: { port: 0, strictPort: false, hmr: false, watch: null },
+      logLevel: 'silent',
+    });
+    try {
+      await server.listen();
+      const base = (server.resolvedUrls?.local[0] as string).replace(/\/$/, '');
+      for (const path of ['/decks', '/nope/deeper']) {
+        const res = await fetch(base + path, { headers: { accept: 'text/html' } });
+        expect(res.status).toBe(200);
+        const html = await res.text();
+        expect(html).toContain('<div id="root"></div>');
+        expect(html).toContain('/src/main.tsx');
+      }
+    } finally {
+      await server.close();
+    }
+  }, 30_000);
+});

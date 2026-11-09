@@ -8,28 +8,40 @@ import './App.css';
  * between 768 and 1023px, and a toggle menu below 768px (see App.css).
  */
 export function App() {
-  // The menu is open only for the path it was opened on, so navigating closes it.
-  const [openAt, setOpenAt] = useState<string | null>(null);
-  const { pathname } = useLocation();
-  const open = openAt === pathname;
+  const [open, setOpen] = useState(false);
+  const location = useLocation();
+  // Close the menu on every location change ("store the previous value" pattern).
+  const [prevKey, setPrevKey] = useState(location.key);
+  if (prevKey !== location.key) {
+    setPrevKey(location.key);
+    setOpen(false);
+  }
   const toggleRef = useRef<HTMLButtonElement>(null);
-  const navRef = useRef<HTMLElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  const lastFocusedKey = useRef(location.key);
 
-  // Move focus into the menu when it opens.
+  // After navigating (not on first load) move focus to the page so it never drops to <body>.
   useEffect(() => {
-    if (open) navRef.current?.querySelector<HTMLElement>('a')?.focus();
-  }, [open]);
+    if (lastFocusedKey.current !== location.key) {
+      lastFocusedKey.current = location.key;
+      mainRef.current?.focus();
+    }
+  }, [location.key]);
 
+  // Escape closes the menu only when it comes from the toggle or the nav.
   function onKeyDown(event: KeyboardEvent) {
     if (event.key === 'Escape' && open) {
-      setOpenAt(null);
+      setOpen(false);
       toggleRef.current?.focus();
     }
   }
 
   return (
-    <div className="shell" onKeyDown={onKeyDown}>
-      <header className="shell-header">
+    <div className="shell">
+      <a className="skip-link" href="#main">
+        Skip to main content
+      </a>
+      <header className="shell-header" onKeyDown={onKeyDown}>
         <h1>MTG Stats</h1>
         <button
           ref={toggleRef}
@@ -38,30 +50,36 @@ export function App() {
           aria-expanded={open}
           aria-controls="primary-nav"
           onClick={() => {
-            setOpenAt(open ? null : pathname);
+            setOpen((v) => !v);
           }}
         >
-          {open ? 'Close menu' : 'Menu'}
+          Menu
         </button>
       </header>
       <nav
         id="primary-nav"
-        ref={navRef}
         className="shell-nav"
         aria-label="Primary"
         data-open={open}
+        onKeyDown={onKeyDown}
       >
         <ul>
           {NAV_ITEMS.map((item) => (
             <li key={item.to}>
-              <NavLink to={item.to} end={item.end}>
+              <NavLink
+                to={item.to}
+                end={item.end}
+                onClick={() => {
+                  setOpen(false);
+                }}
+              >
                 {item.label}
               </NavLink>
             </li>
           ))}
         </ul>
       </nav>
-      <main className="shell-main">
+      <main id="main" ref={mainRef} tabIndex={-1} className="shell-main">
         <Outlet />
       </main>
       <footer className="shell-footer">

@@ -1,0 +1,4 @@
+extend = "../apps/api/pyproject.toml"
+
+[lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]

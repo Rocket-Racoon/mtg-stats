@@ -1,9 +1,49 @@
-# Install once per clone:  pnpm hooks:install
+# Install once, from the main checkout:  pnpm hooks:install
 # (= uv run --project apps/api pre-commit install). Never commit with --no-verify;
-# CI re-runs the secrets check and fails the branch anyway (S-1.8.2).
+# CI will re-run the secrets check and fail the branch anyway, once S-1.8.2 lands.
 minimum_pre_commit_version: '3.8'
 default_stages: [pre-commit]
+# The secrets check runs first; if it fails nothing else runs, so no later hook can echo a secret.
+fail_fast: true
 repos:
+  - repo: local
+    hooks:
+      - id: secrets-check
+        name: secrets check
+        entry: uv run --frozen --project apps/api python scripts/secrets_check.py --staged
+        language: system
+        pass_filenames: false
+        always_run: true
+      # Ruff: the locked version from apps/api/uv.lock. Config: apps/api/pyproject.toml, and
+      # scripts/ruff.toml (which extends it) for scripts/. Concise output never prints source lines.
+      - id: ruff-check
+        name: ruff check --fix
+        entry: uv run --frozen --project apps/api ruff check --output-format=concise --force-exclude --fix
+        language: system
+        types: [python]
+        files: ^(apps/api|scripts)/
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --frozen --project apps/api ruff format --force-exclude
+        language: system
+        types: [python]
+        files: ^(apps/api|scripts)/
+      # Prettier and ESLint: the repo's own pinned versions, root configs, run with node directly.
+      - id: prettier
+        name: prettier --write
+        entry: node node_modules/prettier/bin/prettier.cjs --write --ignore-unknown --no-error-on-unmatched-pattern --ignore-path .prettierignore
+        language: system
+        require_serial: true
+        files: \.(js|jsx|ts|tsx|mts|cts|json|ya?ml|css|html|md)$
+        exclude: ^docs/backlog/
+      - id: eslint
+        name: eslint --fix
+        entry: node node_modules/eslint/bin/eslint.js --fix --no-warn-ignored --cache --cache-location node_modules/.cache/eslint/
+        language: system
+        require_serial: true
+        files: \.(ts|tsx|js|mjs|cjs)$
+        exclude: ^docs/backlog/
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
@@ -11,39 +51,4 @@ repos:
       - id: check-added-large-files
         args: ['--maxkb=500']
       - id: end-of-file-fixer
-        exclude: ^docs/backlog/
-
-  - repo: local
-    hooks:
-      - id: secrets-check
-        name: secrets check
-        entry: uv run --project apps/api python scripts/secrets_check.py --staged
-        language: system
-        pass_filenames: false
-        always_run: true
-      # Ruff: the locked version from apps/api/uv.lock, one config for api and scripts.
-      - id: ruff-check
-        name: ruff check --fix
-        entry: uv run --project apps/api ruff check --config apps/api/pyproject.toml --fix
-        language: system
-        types: [python]
-        files: ^(apps/api|scripts)/
-      - id: ruff-format
-        name: ruff format
-        entry: uv run --project apps/api ruff format --config apps/api/pyproject.toml
-        language: system
-        types: [python]
-        files: ^(apps/api|scripts)/
-      # Prettier and ESLint: the repo's own pinned versions, root configs.
-      - id: prettier
-        name: prettier --write
-        entry: pnpm exec prettier --write --ignore-unknown --no-error-on-unmatched-pattern --ignore-path .prettierignore
-        language: system
-        files: \.(ts|tsx|js|mjs|cjs|json|ya?ml)$
-        exclude: ^docs/backlog/
-      - id: eslint
-        name: eslint --fix
-        entry: pnpm exec eslint --fix --no-warn-ignored
-        language: system
-        files: \.(ts|tsx|js|mjs|cjs)$
         exclude: ^docs/backlog/

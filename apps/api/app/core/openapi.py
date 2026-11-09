@@ -8,6 +8,8 @@ package of the endpoint's module (``app.<domain>.router`` gives ``<domain>``); o
 
 import re
 from collections import defaultdict
+from collections.abc import Iterable, Iterator
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
@@ -38,13 +40,26 @@ def generate_operation_id(route: APIRoute) -> str:
     return f"{route_domain(route)}_{route.name}"
 
 
-def collect_operation_ids(app: FastAPI) -> dict[str, list[str]]:
-    """Map each operation ID to the ``METHOD path`` routes that use it."""
-    found: dict[str, list[str]] = defaultdict(list)
-    for route in app.routes:
+def _walk_routes(routes: Iterable[Any]) -> Iterator[tuple[str, str, str]]:
+    """Yield ``(operation_id, methods, full_path)`` for every API route, at any depth.
+
+    FastAPI 0.162 keeps included routers as ``_IncludedRouter`` objects in ``app.routes``; their
+    ``effective_candidates()`` resolve the prefix and operation ID per route, nested ones included.
+    """
+    for route in routes:
         if isinstance(route, APIRoute):
-            label = f"{','.join(sorted(route.methods or []))} {route.path}"
-            found[route.unique_id].append(label)
+            yield route.unique_id, ",".join(sorted(route.methods or [])), route.path
+        elif hasattr(route, "effective_candidates"):
+            yield from _walk_routes(route.effective_candidates())
+        elif isinstance(getattr(route, "original_route", None), APIRoute) and route.unique_id:
+            yield route.unique_id, ",".join(sorted(route.methods or [])), route.path
+
+
+def collect_operation_ids(app: FastAPI) -> dict[str, list[str]]:
+    """Map each operation ID to the ``METHOD path`` routes that use it (full paths)."""
+    found: dict[str, list[str]] = defaultdict(list)
+    for op_id, methods, path in _walk_routes(app.routes):
+        found[op_id].append(f"{methods} {path}")
     return dict(found)
 
 

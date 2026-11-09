@@ -29,12 +29,14 @@ After cloning, install dependencies and the git hooks (required):
 ```bash
 uv sync --project apps/api       # Python deps
 pnpm install                     # TypeScript deps
-pnpm hooks:install               # = uv run --project apps/api pre-commit install
+pnpm hooks:install               # = uv run --frozen --project apps/api pre-commit install
 ```
 
 The hooks run on staged files at every `git commit`: the secrets check, `detect-private-key`, `check-added-large-files` (500 KB), `end-of-file-fixer`, Ruff (check and format) on Python, and Prettier and ESLint on TypeScript. Run them on everything with `uv run --project apps/api pre-commit run --all-files`.
 
 Install the hook from the main checkout. Worktrees share one hooks directory, so the installed hook is active in every worktree, and branches that lack `.pre-commit-config.yaml` fail to commit until this config is on `main`. On such old branches only, set `PRE_COMMIT_ALLOW_NO_CONFIG=1` to let the commit through (this is not `--no-verify`; don't use it on branches that have the config). Each worktree's first commit builds its own `.venv` (about 10-20 s).
+
+Each worktree needs `pnpm install` before you commit TS, JSON, YAML or Markdown files covered by Prettier.
 
 **Never commit with `--no-verify`.** CI will re-run the secrets check and fail the branch, once S-1.8.2 lands.
 

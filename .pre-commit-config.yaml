@@ -3,8 +3,6 @@
 # CI will re-run the secrets check and fail the branch anyway, once S-1.8.2 lands.
 minimum_pre_commit_version: '3.8'
 default_stages: [pre-commit]
-# The secrets check runs first; if it fails nothing else runs, so no later hook can echo a secret.
-fail_fast: true
 repos:
   - repo: local
     hooks:
@@ -14,6 +12,8 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+        # A finding stops everything, so no later hook can echo the secret. Other hooks all report.
+        fail_fast: true
       # Ruff: the locked version from apps/api/uv.lock. Config: apps/api/pyproject.toml, and
       # scripts/ruff.toml (which extends it) for scripts/. Concise output never prints source lines.
       - id: ruff-check
@@ -34,8 +34,9 @@ repos:
         entry: node node_modules/prettier/bin/prettier.cjs --write --ignore-unknown --no-error-on-unmatched-pattern --ignore-path .prettierignore
         language: system
         require_serial: true
-        files: \.(js|jsx|ts|tsx|mts|cts|json|ya?ml|css|html|md)$
-        exclude: ^docs/backlog/
+        files: \.(js|jsx|mjs|cjs|ts|tsx|mts|cts|json|ya?ml|css|html|md)$
+        # Mirrors .prettierignore, so docs-only commits don't need node_modules.
+        exclude: ^(docs|\.claude)/|^(CLAUDE|README)\.md$|^pnpm-lock\.yaml$|(^|/)generated/
       - id: eslint
         name: eslint --fix
         entry: node node_modules/eslint/bin/eslint.js --fix --no-warn-ignored --cache --cache-location node_modules/.cache/eslint/

@@ -139,7 +139,8 @@ def test_secrets_check_runs_first_and_the_config_fails_fast() -> None:
     assert isinstance(hooks, dict)
     assert first_repo["repo"] == "local"
     assert next(iter(hooks)) == "secrets-check"
-    assert re.search(r"^fail_fast:\s*true\s*$", CONFIG.read_text(encoding="utf-8"), re.MULTILINE)
+    assert hooks["secrets-check"]["fail_fast"] is True
+    assert not re.search(r"^fail_fast:", CONFIG.read_text(encoding="utf-8"), re.MULTILINE)
 
 
 def test_prettier_is_a_local_hook_scoped_to_ts_and_js_files() -> None:
@@ -335,6 +336,7 @@ def test_fresh_clone_with_documented_setup_enforces_hooks_on_commit(tmp_path: Pa
     env_out = refused_env.stdout + refused_env.stderr
     assert refused_env.returncode != 0, env_out
     assert ".env" in env_out
+    assert "tracked-env-file" in env_out
     _git(clone, "reset", "-q")
     (clone / ".env").unlink()
 

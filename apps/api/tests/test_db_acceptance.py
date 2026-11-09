@@ -4,31 +4,35 @@ Alembic autogenerate itself arrives with S-1.4.3; AC2 is covered here by renderi
 constraint names from the metadata, which is what autogenerate consumes.
 """
 
+import json
+import os
+import subprocess
+import sys
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable, MutableMapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Annotated
+from typing import Any
 
 import factory
 import httpx
 import pytest
-from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from fastapi import APIRouter, FastAPI, HTTPException
 from sqlalchemy import MetaData, insert, select, text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import IntegrityError, StatementError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.schema import CreateIndex, CreateTable
+from starlette.types import Receive, Scope, Send
 
 from app.core import db
 from app.core.db import (
     NAMING_CONVENTION,
+    AppSession,
     Base,
+    SessionDep,
     after_commit,
-    commit_session,
-    get_session,
-    rollback_session,
 )
 from app.core.ids import uuid7
 from app.main import API_PREFIX, create_app
@@ -37,10 +41,8 @@ from tests.sample_models import Part, SampleBase, Widget, WidgetFactory
 
 # ---------------------------------------------------------------- AC1: session dependency
 
-SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
-
-class _Recording(AsyncSession):
+class _Recording(AppSession):
     """Session that records itself and how often ``close`` was awaited."""
 
     registry: list["_Recording"] = []  # noqa: RUF012
@@ -67,7 +69,12 @@ async def probe(db_engine: AsyncEngine, monkeypatch: pytest.MonkeyPatch) -> Asyn
     """A probe app plus a unique real table (it escapes the rollback fixture, so it is dropped)."""
     table = f"acc_probe_{uuid.uuid4().hex[:12]}"
     async with db_engine.begin() as conn:
-        await conn.execute(text(f'create table "{table}" (id text primary key)'))
+        await conn.execute(
+            text(
+                f'create table "{table}" (id text primary key, v text, '
+                f'constraint "{table}_v_uq" unique (v) deferrable initially deferred)'
+            )
+        )
 
     _Recording.registry = []
     factory = async_sessionmaker(db_engine, class_=_Recording, expire_on_commit=False)
@@ -92,6 +99,16 @@ async def probe(db_engine: AsyncEngine, monkeypatch: pytest.MonkeyPatch) -> Asyn
     async def crash(session: SessionDep) -> None:
         await _insert(session, "crash")
         raise RuntimeError("boom")
+
+    @router.post("/probe/deferred")
+    async def deferred(session: SessionDep) -> dict[str, str]:
+        # Both inserts succeed now; the deferred unique constraint fails at COMMIT.
+        for key in ("d1", "d2"):
+            await session.execute(
+                text(f'insert into "{table}" values (:i, :v)'),  # noqa: S608
+                {"i": key, "v": "same"},
+            )
+        return {"id": "deferred"}
 
     app = create_app()
     app.include_router(router)
@@ -156,6 +173,56 @@ async def test_each_request_gets_its_own_session(probe: Probe) -> None:
     assert _Recording.registry[0] is not _Recording.registry[1]
 
 
+async def test_commit_failure_at_commit_time_returns_error_envelope_and_leaves_no_row(
+    probe: Probe,
+) -> None:
+    """A deferred constraint fails inside the dependency's commit, before the response is sent."""
+    response = await _post(probe.app, f"{API_PREFIX}/probe/deferred")
+    assert response.status_code == 500
+    error = response.json()["error"]
+    assert set(error) == {"code", "message", "details", "request_id"}
+    assert error["code"] == "internal_error"
+    assert await _ids_from_separate_connection(probe.engine, probe.table) == []
+    (session,) = _Recording.registry
+    assert session.close_calls >= 1
+
+
+async def test_row_is_committed_before_the_response_starts(probe: Probe) -> None:
+    seen_at_response_start: list[list[str]] = []
+
+    async def spying_app(scope: Scope, receive: Receive, send: Send) -> None:
+        async def spying_send(message: MutableMapping[str, Any]) -> None:
+            if message["type"] == "http.response.start":
+                seen_at_response_start.append(
+                    await _ids_from_separate_connection(probe.engine, probe.table)
+                )
+            await send(message)
+
+        await probe.app(scope, receive, spying_send)
+
+    transport = httpx.ASGITransport(app=spying_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as client:
+        response = await client.post(f"{API_PREFIX}/probe/ok")
+    assert response.status_code == 200
+    assert seen_at_response_start == [["ok"]]
+
+
+async def test_real_get_sessionmaker_builds_app_sessions_without_expire_on_commit() -> None:
+    db.get_engine.cache_clear()
+    db.get_sessionmaker.cache_clear()
+    try:
+        factory = db.get_sessionmaker()
+        assert factory.class_ is AppSession
+        assert factory.kw["expire_on_commit"] is False
+        async with factory() as session:
+            assert isinstance(session, AppSession)
+            assert (await session.execute(text("select 1"))).scalar_one() == 1
+    finally:
+        await db.dispose_engine()
+    assert db.get_engine.cache_info().currsize == 0
+    assert db.get_sessionmaker.cache_info().currsize == 0
+
+
 def test_engine_is_async_psycopg3(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(db, "get_engine", db.get_engine.__wrapped__)  # uncached: no global state
     engine = db.get_engine()
@@ -170,7 +237,7 @@ def test_alembic_files_if_present_use_the_psycopg_driver() -> None:
     files = [p for p in root.glob("alembic*") if p.is_file()]
     files += list((root / "alembic").rglob("*.py"))
     if not files:
-        pytest.skip("Alembic is configured in S-1.4.3")
+        pytest.skip("deferred to S-1.4.3 (#20) by product-owner decision")
     joined = "\n".join(p.read_text(encoding="utf-8") for p in files)
     assert "psycopg2" not in joined
     assert "asyncpg" not in joined
@@ -216,22 +283,78 @@ def test_constraint_and_index_names_follow_the_convention() -> None:
     assert {n.split("_", 1)[0] for n in names} == {"pk", "fk", "uq", "ck", "ix"}
 
 
-def test_names_and_ddl_are_identical_on_every_run() -> None:
-    first = (_constraint_names(SampleBase.metadata), _ddl(SampleBase.metadata))
-    second = (_constraint_names(SampleBase.metadata), _ddl(SampleBase.metadata))
-    assert first == second
+def _per_table_names(metadata: MetaData) -> dict[str, list[str]]:
+    return {
+        table.name: sorted(
+            [str(c.name) for c in table.constraints] + [str(i.name) for i in table.indexes]
+        )
+        for table in metadata.tables.values()
+    }
+
+
+def _per_table_ddl(metadata: MetaData) -> dict[str, list[str]]:
+    """DDL lines per table, sorted: constraint order inside CREATE TABLE is not the contract."""
+    dialect = postgresql.dialect()
+    out: dict[str, list[str]] = {}
+    for table in metadata.tables.values():
+        lines = str(CreateTable(table).compile(dialect=dialect)).splitlines()
+        for index in table.indexes:
+            lines += str(CreateIndex(index).compile(dialect=dialect)).splitlines()
+        out[table.name] = sorted(line.strip().rstrip(",") for line in lines if line.strip())
+    return out
 
 
 def test_names_and_ddl_are_identical_in_fresh_metadata_copies() -> None:
     def fresh() -> MetaData:
         copy = MetaData(naming_convention=NAMING_CONVENTION)
-        for table in SampleBase.metadata.sorted_tables:
+        for table in SampleBase.metadata.tables.values():
             table.to_metadata(copy)
         return copy
 
     a, b = fresh(), fresh()
-    assert _constraint_names(a) == _constraint_names(b) == _constraint_names(SampleBase.metadata)
-    assert _ddl(a) == _ddl(b) == _ddl(SampleBase.metadata)
+    assert _per_table_names(a) == _per_table_names(b) == _per_table_names(SampleBase.metadata)
+    assert _per_table_ddl(a) == _per_table_ddl(b) == _per_table_ddl(SampleBase.metadata)
+
+
+_RENDER_SCRIPT = """
+import json
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.schema import CreateIndex, CreateTable
+from tests.sample_models import SampleBase
+
+dialect = postgresql.dialect()
+out = {}
+for name, table in sorted(SampleBase.metadata.tables.items()):
+    lines = str(CreateTable(table).compile(dialect=dialect)).splitlines()
+    for index in table.indexes:
+        lines += str(CreateIndex(index).compile(dialect=dialect)).splitlines()
+    out[name] = {
+        "names": sorted(
+            [str(c.name) for c in table.constraints] + [str(i.name) for i in table.indexes]
+        ),
+        "ddl": sorted(line.strip().rstrip(",") for line in lines if line.strip()),
+    }
+print(json.dumps(out, sort_keys=True))
+"""
+
+
+def test_names_and_ddl_are_identical_across_processes_with_different_hash_seeds() -> None:
+    api_root = Path(__file__).resolve().parents[1]
+    outputs = []
+    for seed in ("0", "1", "12345"):
+        env = {**os.environ, "PYTHONHASHSEED": seed, "APP_ENV": "test"}
+        result = subprocess.run(  # noqa: S603
+            [sys.executable, "-c", _RENDER_SCRIPT],
+            cwd=api_root,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        outputs.append(result.stdout)
+    assert outputs[0] == outputs[1] == outputs[2]
+    assert "pk_sample_widgets" in json.loads(outputs[0])["sample_widgets"]["names"]
 
 
 # ---------------------------------------------------------------- AC3: UUID v7 ids
@@ -371,33 +494,63 @@ async def test_aware_non_utc_datetime_is_stored_and_read_back_as_utc(
 
 
 # ---------------------------------------------------------------- AC5: test isolation
-# Two tests insert the same unique value into the same table. If either saw the other's row it
-# would fail on the pre-insert count. The module-level list records execution order so a run can
-# prove both orders were exercised (see the run commands in the story report).
-
-_ORDER: list[str] = []
 
 
-async def _insert_shared_value_and_count(session: AsyncSession, label: str) -> None:
-    _ORDER.append(label)
-    before = (await session.execute(text("select count(*) from sample_widgets"))).scalar_one()
-    assert before == 0
+async def _rolled_back_run(
+    engine: AsyncEngine, work: Callable[[AppSession], Awaitable[Any]]
+) -> Any:
+    """Run ``work`` in a session inside a transaction that is rolled back, as the fixture does."""
+    async with engine.connect() as connection:
+        transaction = await connection.begin()
+        session = async_sessionmaker(
+            connection,
+            class_=AppSession,
+            join_transaction_mode="create_savepoint",
+            expire_on_commit=False,
+        )()
+        try:
+            await connection.run_sync(SampleBase.metadata.create_all)
+            return await work(session)
+        finally:
+            await session.close()
+            await transaction.rollback()
+
+
+async def _row_count(session: AsyncSession) -> int:
+    return (await session.execute(text("select count(*) from sample_widgets"))).scalar_one()
+
+
+async def _table_exists_elsewhere(engine: AsyncEngine) -> bool:
+    async with engine.connect() as conn:
+        found = (await conn.execute(text("select to_regclass('public.sample_widgets')"))).scalar()
+    return found is not None
+
+
+async def _insert_shared_value_and_count(session: AppSession) -> tuple[int, int]:
+    before = await _row_count(session)
     session.add(Widget(name="shared-unique-value"))
     await session.flush()
-    after = (await session.execute(text("select count(*) from sample_widgets"))).scalar_one()
-    assert after == 1
+    return before, await _row_count(session)
 
 
-async def test_isolation_first_insert_of_shared_value(sample_schema: AsyncSession) -> None:
-    await _insert_shared_value_and_count(sample_schema, "A")
+async def test_isolation_second_run_does_not_see_the_first_runs_row(db_engine: AsyncEngine) -> None:
+    """Same unique value, same table, two rolled-back runs back to back: each sees only its own."""
+    first = await _rolled_back_run(db_engine, _insert_shared_value_and_count)
+    second = await _rolled_back_run(db_engine, _insert_shared_value_and_count)
+    assert first == (0, 1)
+    assert second == (0, 1)
 
 
-async def test_isolation_second_insert_of_shared_value(sample_schema: AsyncSession) -> None:
-    await _insert_shared_value_and_count(sample_schema, "B")
+async def test_isolation_first_insert_of_shared_value(sample_schema: AppSession) -> None:
+    assert await _insert_shared_value_and_count(sample_schema) == (0, 1)
+
+
+async def test_isolation_second_insert_of_shared_value(sample_schema: AppSession) -> None:
+    assert await _insert_shared_value_and_count(sample_schema) == (0, 1)
 
 
 async def test_isolation_shared_value_really_collides_within_one_session(
-    sample_schema: AsyncSession,
+    sample_schema: AppSession,
 ) -> None:
     sample_schema.add(Widget(name="shared-unique-value"))
     await sample_schema.flush()
@@ -406,17 +559,22 @@ async def test_isolation_shared_value_really_collides_within_one_session(
         await sample_schema.flush()
 
 
-async def test_isolation_sample_tables_do_not_persist_after_a_test(db_engine: AsyncEngine) -> None:
-    async with db_engine.connect() as conn:
-        exists = (await conn.execute(text("select to_regclass('public.sample_widgets')"))).scalar()
-    assert exists is None
+async def test_rows_and_tables_vanish_after_the_transaction_is_rolled_back(
+    db_engine: AsyncEngine,
+) -> None:
+    async def insert(session: AppSession) -> int:
+        await create(session, WidgetFactory, name="vanishes")
+        return await _row_count(session)
+
+    assert await _rolled_back_run(db_engine, insert) == 1
+    assert not await _table_exists_elsewhere(db_engine)
 
 
 # ---------------------------------------------------------------- AC6: factories
 
 
 async def test_create_returns_instance_in_the_session_with_visible_row(
-    sample_schema: AsyncSession,
+    sample_schema: AppSession,
 ) -> None:
     widget = await create(sample_schema, WidgetFactory, name="from-factory")
     assert isinstance(widget, Widget)
@@ -426,37 +584,29 @@ async def test_create_returns_instance_in_the_session_with_visible_row(
     assert found[0] is widget
 
 
-async def test_create_batch_adds_all_rows_to_the_session(sample_schema: AsyncSession) -> None:
+async def test_create_batch_adds_all_rows_to_the_session(sample_schema: AppSession) -> None:
     class SequencedWidgetFactory(WidgetFactory):
         name = factory.Sequence(lambda n: f"batch-{n}")
 
     widgets = await create_batch(sample_schema, SequencedWidgetFactory, 3)
     assert len(widgets) == 3
     assert all(w in sample_schema for w in widgets)
+    assert await _row_count(sample_schema) == 3
 
 
-async def test_factory_row_is_visible_then_rolled_back_with_the_session(
-    db_engine: AsyncEngine, db_session: AsyncSession
+async def test_factory_row_is_visible_in_the_session_then_gone_after_rollback(
+    db_engine: AsyncEngine,
 ) -> None:
-    connection = await db_session.connection()
-    await connection.run_sync(SampleBase.metadata.create_all)
-    await create(db_session, WidgetFactory, name="rolled-back")
-    count = (await db_session.execute(text("select count(*) from sample_widgets"))).scalar_one()
-    assert count == 1
-    # Nothing is visible from another connection while the test transaction is open.
-    async with db_engine.connect() as other:
-        exists = (await other.execute(text("select to_regclass('public.sample_widgets')"))).scalar()
-    assert exists is None
+    async def create_and_look(session: AppSession) -> tuple[int, bool]:
+        await create(session, WidgetFactory, name="rolled-back")
+        return await _row_count(session), await _table_exists_elsewhere(db_engine)
 
-
-async def test_factory_rows_are_gone_in_a_later_test(db_engine: AsyncEngine) -> None:
-    async with db_engine.connect() as conn:
-        exists = (await conn.execute(text("select to_regclass('public.sample_widgets')"))).scalar()
-    assert exists is None
+    assert await _rolled_back_run(db_engine, create_and_look) == (1, False)
+    assert not await _table_exists_elsewhere(db_engine)
 
 
 async def test_factory_instance_can_be_referenced_by_a_foreign_key_in_the_same_session(
-    sample_schema: AsyncSession,
+    sample_schema: AppSession,
 ) -> None:
     widget = await create(sample_schema, WidgetFactory, name="parent")
     part = Part(widget_id=widget.id)
@@ -465,12 +615,37 @@ async def test_factory_instance_can_be_referenced_by_a_foreign_key_in_the_same_s
     assert part.widget_id == widget.id
 
 
-# ---------------------------------------------------------------- after_commit
+# ---------------------------------------------------------------- client fixture (rolled back)
 
 
-async def test_after_commit_callbacks_run_after_successful_commit_in_order(
-    db_session: AsyncSession,
+async def test_route_write_through_the_client_fixture_is_rolled_back(
+    api_app: FastAPI,
+    client: httpx.AsyncClient,
+    sample_schema: AppSession,
+    db_engine: AsyncEngine,
 ) -> None:
+    router = APIRouter(prefix=API_PREFIX)
+
+    @router.post("/probe/widgets")
+    async def add_widget(session: SessionDep) -> dict[str, str]:
+        widget = Widget(name="via-route")
+        session.add(widget)
+        await session.flush()
+        return {"id": str(widget.id)}
+
+    api_app.include_router(router)
+    response = await client.post(f"{API_PREFIX}/probe/widgets")
+    assert response.status_code == 200
+    # The route's write (committed as a savepoint release) is visible in the test's session...
+    assert await _row_count(sample_schema) == 1
+    # ...but nothing reached the database for other connections: even the table is uncommitted.
+    assert not await _table_exists_elsewhere(db_engine)
+
+
+# ---------------------------------------------------------------- AppSession / after_commit
+
+
+async def test_bare_commit_runs_after_commit_callbacks_in_order(db_session: AppSession) -> None:
     events: list[str] = []
 
     async def second() -> None:
@@ -480,45 +655,53 @@ async def test_after_commit_callbacks_run_after_successful_commit_in_order(
     after_commit(db_session, second)
     after_commit(db_session, lambda: events.append("three"))
     assert events == []  # nothing runs before the commit
-    await commit_session(db_session)
+    await db_session.commit()
     assert events == ["one", "two", "three"]
 
 
-async def test_after_commit_callbacks_run_only_once(db_session: AsyncSession) -> None:
+async def test_after_commit_callbacks_run_only_once(db_session: AppSession) -> None:
     events: list[str] = []
     after_commit(db_session, lambda: events.append("x"))
-    await commit_session(db_session)
-    await commit_session(db_session)
+    await db_session.commit()
+    await db_session.commit()
     assert events == ["x"]
 
 
-async def test_after_commit_callbacks_are_dropped_on_rollback(db_session: AsyncSession) -> None:
+async def test_rollback_drops_after_commit_callbacks(db_session: AppSession) -> None:
     events: list[str] = []
     after_commit(db_session, lambda: events.append("x"))
-    await rollback_session(db_session)
-    await commit_session(db_session)
+    await db_session.rollback()
+    await db_session.commit()
     assert events == []
 
 
-async def test_after_commit_callbacks_are_dropped_when_the_commit_fails(
-    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+async def test_close_drops_after_commit_callbacks(db_session: AppSession) -> None:
+    events: list[str] = []
+    after_commit(db_session, lambda: events.append("x"))
+    await db_session.close()
+    await db_session.commit()
+    assert events == []
+
+
+async def test_callbacks_are_dropped_when_the_commit_fails(
+    db_session: AppSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     events: list[str] = []
     after_commit(db_session, lambda: events.append("x"))
 
-    async def boom() -> None:
+    async def boom(self: AsyncSession) -> None:
         raise RuntimeError("commit failed")
 
-    monkeypatch.setattr(db_session, "commit", boom)
-    with pytest.raises(RuntimeError, match="commit failed"):
-        await commit_session(db_session)
-    monkeypatch.undo()
-    await commit_session(db_session)
+    with monkeypatch.context() as patch:
+        patch.setattr(AsyncSession, "commit", boom)
+        with pytest.raises(RuntimeError, match="commit failed"):
+            await db_session.commit()
+    await db_session.commit()
     assert events == []
 
 
 async def test_failing_after_commit_callback_does_not_block_the_rest(
-    db_session: AsyncSession,
+    db_session: AppSession,
 ) -> None:
     events: list[str] = []
 
@@ -532,5 +715,13 @@ async def test_failing_after_commit_callback_does_not_block_the_rest(
     after_commit(db_session, bad)
     after_commit(db_session, bad_async)
     after_commit(db_session, lambda: events.append("last"))
-    await commit_session(db_session)
+    await db_session.commit()
     assert events == ["first", "last"]
+
+
+async def test_after_commit_on_a_plain_async_session_raises_type_error(
+    db_engine: AsyncEngine,
+) -> None:
+    async with AsyncSession(db_engine) as plain:
+        with pytest.raises(TypeError, match="AppSession"):
+            after_commit(plain, lambda: None)

@@ -1,6 +1,10 @@
 """Unit tests for ``app.core.db`` internals (the AC tests are written separately)."""
 
+import os
+import subprocess
+import sys
 from datetime import UTC, datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from sqlalchemy import select
@@ -8,9 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.schema import CreateIndex, CreateTable
 
 from app.core import db
-from app.core.db import after_commit, commit_session, rollback_session
+from app.core.db import AppSession, after_commit
+from tests.conftest import TEST_DATABASE_URL
 from tests.factories import create
 from tests.sample_models import Part, SampleBase, Widget, WidgetFactory
+
+API_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _constraint_and_index_names() -> set[str]:
@@ -43,7 +50,21 @@ def test_naming_convention_is_conventional_and_stable_across_renders() -> None:
 
 
 def test_importing_db_does_not_create_an_engine() -> None:
-    assert db.get_engine.cache_info().currsize == 0
+    code = (
+        "import app.core.db as db; "
+        "assert db.get_engine.cache_info().currsize == 0; "
+        "assert db.get_sessionmaker.cache_info().currsize == 0"
+    )
+    env = {**os.environ, "APP_ENV": "test", "DATABASE_URL": TEST_DATABASE_URL}
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", code],
+        cwd=API_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 async def test_engine_is_lazy_uses_psycopg_and_dispose_resets_it() -> None:
@@ -55,7 +76,7 @@ async def test_engine_is_lazy_uses_psycopg_and_dispose_resets_it() -> None:
     await db.dispose_engine()  # safe when nothing exists
 
 
-async def test_ids_and_timestamps_are_filled_on_insert(sample_schema: AsyncSession) -> None:
+async def test_ids_and_timestamps_are_filled_on_insert(sample_schema: AppSession) -> None:
     widget = await create(sample_schema, WidgetFactory)
     assert isinstance(widget, Widget)
     assert widget.id.version == 7
@@ -64,7 +85,7 @@ async def test_ids_and_timestamps_are_filled_on_insert(sample_schema: AsyncSessi
 
 
 async def test_updated_at_changes_on_update_and_created_at_does_not(
-    sample_schema: AsyncSession,
+    sample_schema: AppSession,
 ) -> None:
     widget = await create(sample_schema, WidgetFactory, name="a")
     assert isinstance(widget, Widget)
@@ -75,7 +96,7 @@ async def test_updated_at_changes_on_update_and_created_at_does_not(
     assert widget.updated_at > updated
 
 
-async def test_timestamps_round_trip_as_utc(sample_schema: AsyncSession) -> None:
+async def test_timestamps_round_trip_as_utc(sample_schema: AppSession) -> None:
     local = datetime(2026, 1, 1, 12, tzinfo=timezone(timedelta(hours=5)))
     widget = await create(sample_schema, WidgetFactory, created_at=local)
     sample_schema.expunge(widget)
@@ -95,7 +116,7 @@ def test_column_type_rejects_a_naive_datetime() -> None:
 
 
 async def test_after_commit_runs_callbacks_in_order_after_commit(
-    sample_schema: AsyncSession,
+    sample_schema: AppSession,
 ) -> None:
     calls: list[str] = []
 
@@ -105,22 +126,22 @@ async def test_after_commit_runs_callbacks_in_order_after_commit(
     after_commit(sample_schema, lambda: calls.append("first"))
     after_commit(sample_schema, second)
     assert calls == []
-    await commit_session(sample_schema)
+    await sample_schema.commit()
     assert calls == ["first", "second"]
-    await commit_session(sample_schema)
+    await sample_schema.commit()
     assert calls == ["first", "second"]
 
 
-async def test_after_commit_callbacks_are_dropped_on_rollback(sample_schema: AsyncSession) -> None:
+async def test_after_commit_callbacks_are_dropped_on_rollback(sample_schema: AppSession) -> None:
     calls: list[str] = []
     after_commit(sample_schema, lambda: calls.append("x"))
-    await rollback_session(sample_schema)
-    await commit_session(sample_schema)
+    await sample_schema.rollback()
+    await sample_schema.commit()
     assert calls == []
 
 
 async def test_after_commit_failure_does_not_stop_later_callbacks(
-    sample_schema: AsyncSession,
+    sample_schema: AppSession,
 ) -> None:
     calls: list[str] = []
 
@@ -129,21 +150,21 @@ async def test_after_commit_failure_does_not_stop_later_callbacks(
 
     after_commit(sample_schema, boom)
     after_commit(sample_schema, lambda: calls.append("later"))
-    await commit_session(sample_schema)
+    await sample_schema.commit()
     assert calls == ["later"]
 
 
 async def test_after_commit_callbacks_are_dropped_when_commit_fails(
-    sample_schema: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    sample_schema: AppSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls: list[str] = []
     after_commit(sample_schema, lambda: calls.append("x"))
 
-    async def failing_commit() -> None:
+    async def failing_commit(self: AsyncSession) -> None:
         raise RuntimeError("commit failed")
 
-    monkeypatch.setattr(sample_schema, "commit", failing_commit)
+    monkeypatch.setattr(AsyncSession, "commit", failing_commit)
     with pytest.raises(RuntimeError):
-        await commit_session(sample_schema)
+        await sample_schema.commit()
     assert calls == []
     assert db._AFTER_COMMIT_INFO_SLOT not in sample_schema.info

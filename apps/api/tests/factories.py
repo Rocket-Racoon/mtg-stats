@@ -19,7 +19,7 @@ class BaseFactory(factory.Factory):  # type: ignore[misc]
 
 
 async def create[T](
-    session: AsyncSession, factory_class: type[factory.Factory], **kwargs: Any
+    session: AsyncSession, factory_class: type[factory.Factory[T]], **kwargs: Any
 ) -> T:
     """Build one instance with ``factory_class``, add it to ``session`` and flush."""
     instance: T = factory_class.build(**kwargs)
@@ -29,7 +29,7 @@ async def create[T](
 
 
 async def create_batch[T](
-    session: AsyncSession, factory_class: type[factory.Factory], size: int, **kwargs: Any
+    session: AsyncSession, factory_class: type[factory.Factory[T]], size: int, **kwargs: Any
 ) -> list[T]:
     """Build ``size`` instances, add them to ``session`` and flush once."""
     instances: list[T] = factory_class.build_batch(size, **kwargs)

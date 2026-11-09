@@ -1,20 +1,16 @@
 """Unit tests for the request-scoped session dependency (commit, rollback, close)."""
 
-from typing import Annotated
-
 import httpx
 import pytest
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from app.core import db
-from app.core.db import after_commit, get_session
-
-SessionDep = Annotated[AsyncSession, Depends(get_session)]
+from app.core.db import AppSession, SessionDep, after_commit
 
 
-class _SpySession(AsyncSession):
+class _SpySession(AppSession):
     created: list["_SpySession"] = []  # noqa: RUF012
     commits = 0
     rollbacks = 0

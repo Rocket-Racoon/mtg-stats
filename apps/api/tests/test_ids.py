@@ -31,6 +31,9 @@ def test_uuid7_sorts_in_creation_order_within_one_millisecond() -> None:
 
 
 def test_uuid7_counter_overflow_advances_the_timestamp(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Patch the generator state too, so monkeypatch restores it and nothing leaks to other tests.
+    monkeypatch.setattr(ids_module, "_last_ms", ids_module._last_ms)
+    monkeypatch.setattr(ids_module, "_counter", ids_module._counter)
     frozen = ids_module._last_ms + 10_000_000
     monkeypatch.setattr(ids_module.time, "time_ns", lambda: frozen * 1_000_000)
     ids = [uuid7() for _ in range(5000)]

@@ -139,7 +139,7 @@ def test_secrets_check_runs_first_and_the_config_fails_fast() -> None:
     assert isinstance(hooks, dict)
     assert first_repo["repo"] == "local"
     assert next(iter(hooks)) == "secrets-check"
-    assert hooks["secrets-check"]["fail_fast"] is True
+    assert hooks["secrets-check"]["fail_fast"] == "true"
     assert not re.search(r"^fail_fast:", CONFIG.read_text(encoding="utf-8"), re.MULTILINE)
 
 

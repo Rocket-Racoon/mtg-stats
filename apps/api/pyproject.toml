@@ -51,9 +51,7 @@ extend-immutable-calls = [
 ]
 
 [tool.ruff.lint.pep8-naming]
-classmethod-decorators = [
-    "pydantic.field_validator", "pydantic.model_validator", "sqlalchemy.orm.declared_attr",
-]
+classmethod-decorators = ["sqlalchemy.orm.declared_attr"]
 
 [tool.ruff.lint.pylint]
 max-returns = 10

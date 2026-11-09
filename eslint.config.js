@@ -20,13 +20,17 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   {
     files: ['**/*.{ts,tsx}'],
-    plugins: { react, 'react-hooks': reactHooks },
+    plugins: { 'react-hooks': reactHooks },
     languageOptions: { globals: { ...globals.browser, ...globals.node } },
-    settings: { react: { version: 'detect' } },
+    rules: { ...reactHooks.configs.recommended.rules },
+  },
+  {
+    files: ['apps/web/**/*.{ts,tsx}', 'apps/mobile/**/*.{ts,tsx}'],
+    plugins: { react },
+    settings: { react: { version: '19.3' } },
     rules: {
       ...react.configs.recommended.rules,
       ...react.configs['jsx-runtime'].rules,
-      ...reactHooks.configs.recommended.rules,
     },
   },
   {

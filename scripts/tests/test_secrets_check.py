@@ -109,6 +109,8 @@ ASSIGNMENT_FORMS = [
     ("app/settings.py", '{n} = rb"{v}"'),
     ("web/src/config.ts", 'const {n} = "{v}";'),
     ("web/src/config.ts", '  "{n}": "{v}",'),
+    ("web/src/config.mts", "const {n} = '{v}'"),
+    ("web/src/config.cts", "const {n} = '{v}'"),
     ("config.json", '  "{n}": "{v}",'),
     ("config.json", '{{"{n}": "{v}"}}'),
     ("scripts/run.sh", "export {n}={v}"),
@@ -229,6 +231,41 @@ NEGATIVE_LINES = [
 @pytest.mark.parametrize(("path", "template"), NEGATIVE_LINES)
 def test_placeholders_references_and_prose_are_clean(path: str, template: str) -> None:
     assert rules(path, template.format(n="JWT_SECRET") + "\n") == []
+
+
+LITERAL_NEGATIVES = [
+    ("a.md", "    jwt_secret: SecretStr"),
+    ("a.md", '    jwt_secret: str = ""'),
+    ("a.md", '    JWT_SECRET: str = "CHANGE_ME"'),
+    ("a.md", '    jwt_secret: SecretStr = Field(validation_alias="JWT_SECRET")'),
+    ("a.md", "  JWT_SECRET: str;"),
+    ("a.md", "    idempotency_key: str"),
+    ("a.md", "primary_key=True,"),
+    ("a.md", "JWT_SECRET: required in prod"),
+    ("a.md", "api_token=abc"),
+    ("a.mts", "  api_key: string;"),
+    ("a.cts", "  api_key: string;"),
+    ("a.py", 'cache_key = f"cards:{oracle_id}"'),
+    ("a.py", "cache_key: str = f'cards:{oracle_id}'"),
+]
+
+
+@pytest.mark.parametrize(("path", "line"), LITERAL_NEGATIVES)
+def test_annotations_lowercase_names_and_fstring_references_are_clean(path: str, line: str) -> None:
+    assert rules(path, line + "\n") == []
+
+
+def test_fstring_without_braces_is_still_a_literal() -> None:
+    assert rules("a.py", f'API_KEY = f"{SECRET_VALUE}"\n') == [(1, "secret-assignment")]
+
+
+@pytest.mark.parametrize("path", ["a.mts", "a.cts"])
+def test_mts_and_cts_quoted_literal_is_flagged(path: str) -> None:
+    assert rules(path, f"const API_KEY = '{SECRET_VALUE}'\n") == [(1, "secret-assignment")]
+
+
+def test_markdown_line_start_env_assignment_is_still_flagged() -> None:
+    assert rules("a.md", f"X_TOKEN={SECRET_VALUE}\n") == [(1, "secret-assignment")]
 
 
 @pytest.mark.parametrize(
@@ -502,6 +539,34 @@ def test_staged_type_change_to_a_symlink_does_not_crash(tmp_path: Path) -> None:
 
 
 @requires_git
+def test_default_mode_does_not_scan_a_symlink_entry_even_if_the_file_is_regular(
+    tmp_path: Path,
+) -> None:
+    """Index mode 120000 with a regular file on disk (core.symlinks=false): not scanned."""
+    repo = init_repo(tmp_path)
+    write(repo, "link.yaml", f"A_TOKEN: {SECRET_VALUE}\n", add=False)
+    blob = git(repo, "hash-object", "-w", "--stdin", stdin=b"target.yaml").decode().strip()
+    git(repo, "update-index", "--add", "--cacheinfo", f"120000,{blob},link.yaml")
+    assert run_main(repo) == Result(0, "", "")
+
+
+@requires_git
+def test_default_mode_does_not_follow_a_real_symlink(tmp_path: Path) -> None:
+    outside = tmp_path / "outside.yaml"
+    outside.write_text(f"A_TOKEN: {SECRET_VALUE}\n", encoding="utf-8")
+    repo = init_repo(tmp_path / "repo")
+    try:
+        (repo / "link.yaml").symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("cannot create symlinks here (Windows without developer mode)")
+    git(repo, "-c", "core.symlinks=true", "add", "link.yaml")
+    mode = git(repo, "ls-files", "-s", "link.yaml").split()[0]
+    if mode != b"120000":
+        pytest.skip("git did not record a symlink (core.symlinks=false)")
+    assert run_main(repo) == Result(0, "", "")
+
+
+@requires_git
 def test_binary_file_is_skipped(tmp_path: Path) -> None:
     repo = init_repo(tmp_path)
     write(repo, "blob.env", f"A_KEY={SECRET_VALUE}\n".encode() + b"\0\1\2")
@@ -614,30 +679,58 @@ def test_env_example_declares_every_api_settings_variable() -> None:
     assert settings_variable_names() - env_example_names() == set()
 
 
-def grep_names(root: Path, pattern: str, *, skip_dirs: tuple[str, ...] = ()) -> set[str]:
-    regex = re.compile(pattern)
-    found: set[str] = set()
+TS_PATTERNS = ("*.ts", "*.tsx", "*.mts", "*.cts")
+VITE_DOT = r"import\.meta\.env\.(VITE_\w+)"
+VITE_BRACKET = r"import\.meta\.env\[\s*[\"'](VITE_\w+)[\"']\s*\]"
+
+
+def source_files(
+    root: Path, patterns: tuple[str, ...], skip_dirs: tuple[str, ...] = ()
+) -> list[Path]:
     if not root.is_dir():
-        return found
-    for ext in ("*.ts", "*.tsx"):
-        for file in root.rglob(ext):
-            if any(part in skip_dirs for part in file.relative_to(root).parts):
-                continue
-            found.update(regex.findall(file.read_text(encoding="utf-8", errors="replace")))
+        return []
+    return [
+        file
+        for pattern in patterns
+        for file in root.rglob(pattern)
+        if not any(part in skip_dirs for part in file.relative_to(root).parts)
+    ]
+
+
+def grep_names(files: list[Path], *patterns: str) -> set[str]:
+    found: set[str] = set()
+    for file in files:
+        if not file.is_file():
+            continue
+        text = file.read_text(encoding="utf-8", errors="replace")
+        for pattern in patterns:
+            found.update(re.findall(pattern, text))
     return found
 
 
+def test_grep_patterns_find_dot_and_bracket_forms(tmp_path: Path) -> None:
+    file = tmp_path / "a.ts"
+    file.write_text(
+        "const a = import.meta.env.VITE_ONE;\n"
+        "const b = import.meta.env['VITE_TWO'];\n"
+        'const c = import.meta.env[ "VITE_THREE" ];\n',
+        encoding="utf-8",
+    )
+    assert grep_names([file], VITE_DOT, VITE_BRACKET) == {"VITE_ONE", "VITE_TWO", "VITE_THREE"}
+
+
 def test_env_example_declares_every_vite_variable_the_web_app_reads() -> None:
-    used = grep_names(REPO_ROOT / "apps" / "web" / "src", r"import\.meta\.env\.(VITE_\w+)")
+    web = REPO_ROOT / "apps" / "web"
+    used = grep_names(source_files(web / "src", TS_PATTERNS), VITE_DOT, VITE_BRACKET)
+    used |= grep_names(list(web.glob("vite.config.*")), r"\b(VITE_\w+)")
     assert used - env_example_names() == set()
 
 
 def test_env_example_declares_every_expo_variable_the_mobile_app_reads() -> None:
-    used = grep_names(
-        REPO_ROOT / "apps" / "mobile",
-        r"process\.env\.(EXPO_PUBLIC_\w+)",
-        skip_dirs=("node_modules", ".expo"),
-    )
+    mobile = REPO_ROOT / "apps" / "mobile"
+    files = source_files(mobile, TS_PATTERNS, skip_dirs=("node_modules", ".expo"))
+    used = grep_names(files, r"process\.env\.(EXPO_PUBLIC_\w+)")
+    used |= grep_names(list(mobile.glob("app.config.*")), r"process\.env\.(\w+)")
     assert used - env_example_names() == set()
 
 

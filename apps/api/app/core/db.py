@@ -39,7 +39,7 @@ NAMING_CONVENTION = {
 }
 
 AfterCommitCallback = Callable[[], Awaitable[None] | None]
-_AFTER_COMMIT_KEY = "after_commit_callbacks"
+_AFTER_COMMIT_INFO_SLOT = "after_commit_callbacks"
 
 
 class UtcDateTime(TypeDecorator[datetime]):
@@ -122,12 +122,12 @@ def after_commit(session: AsyncSession, callback: AfterCommitCallback) -> None:
     use this instead of enqueueing or publishing directly. A failing callback is logged and does
     not stop the others, because the transaction is already committed.
     """
-    session.info.setdefault(_AFTER_COMMIT_KEY, []).append(callback)
+    session.info.setdefault(_AFTER_COMMIT_INFO_SLOT, []).append(callback)
 
 
 def discard_after_commit(session: AsyncSession) -> None:
     """Drop registered callbacks without running them."""
-    session.info.pop(_AFTER_COMMIT_KEY, None)
+    session.info.pop(_AFTER_COMMIT_INFO_SLOT, None)
 
 
 async def commit_session(session: AsyncSession) -> None:
@@ -137,7 +137,7 @@ async def commit_session(session: AsyncSession) -> None:
     except BaseException:
         discard_after_commit(session)
         raise
-    callbacks: list[AfterCommitCallback] = session.info.pop(_AFTER_COMMIT_KEY, [])
+    callbacks: list[AfterCommitCallback] = session.info.pop(_AFTER_COMMIT_INFO_SLOT, [])
     for callback in callbacks:
         try:
             result: Any = callback()

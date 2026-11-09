@@ -146,4 +146,4 @@ async def test_after_commit_callbacks_are_dropped_when_commit_fails(
     with pytest.raises(RuntimeError):
         await commit_session(sample_schema)
     assert calls == []
-    assert db._AFTER_COMMIT_KEY not in sample_schema.info
+    assert db._AFTER_COMMIT_INFO_SLOT not in sample_schema.info

@@ -54,44 +54,85 @@ function parse(text: string, media: string | null, out: Block[]): void {
 const blocks: Block[] = [];
 parse(css, null, blocks);
 const allRules = blocks.flatMap((b) => b.rules.map((r) => ({ ...r, media: b.media })));
-const inMedia = (re: RegExp) => allRules.filter((r) => r.media !== null && re.test(r.media));
 const selectors = (r: { selector: string }) => r.selector.split(',').map((s) => s.trim());
 
-describe('focus ring (S-1.6.2 AC3, static)', () => {
-  const rules = allRules.filter((r) => selectors(r).some((s) => /(^|\s)a:focus-visible$/.test(s)));
+// Media queries are matched in both the range form `(width >= 768px)` and the legacy
+// `(min-width: 768px)` form, so harmless rewrites do not break these checks.
+const num = '(\\d+(?:\\.\\d+)?)';
+function minBound(media: string): number | null {
+  const m =
+    new RegExp(`\\(\\s*min-width:\\s*${num}px\\s*\\)`).exec(media) ??
+    new RegExp(`\\(\\s*width\\s*>=\\s*${num}px\\s*\\)`).exec(media);
+  return m ? Number(m[1]) : null;
+}
+/** Exclusive upper bound: `max-width: 767px` and `max-width: 767.98px` both give 768. */
+function maxExclusive(media: string): number | null {
+  const legacy = new RegExp(`\\(\\s*max-width:\\s*${num}px\\s*\\)`).exec(media);
+  if (legacy) return Math.floor(Number(legacy[1])) + 1;
+  const range = new RegExp(`\\(\\s*width\\s*<\\s*${num}px\\s*\\)`).exec(media);
+  return range ? Number(range[1]) : null;
+}
+const atLeast = (n: number) => allRules.filter((r) => r.media !== null && minBound(r.media) === n);
+const below = (n: number) =>
+  allRules.filter((r) => r.media !== null && maxExclusive(r.media) === n);
 
-  it('has a :focus-visible rule that applies to nav links', () => {
+const toPx = (v: string): number | null => {
+  const m = /^(\d+(?:\.\d+)?)(px|rem|em)?$/.exec(v);
+  if (!m) return null;
+  return Number(m[1]) * (m[2] === 'rem' || m[2] === 'em' ? 16 : 1);
+};
+
+// These are static smoke checks on the stylesheet text. They do not prove AC2: real layout at
+// 360px, 768px and 1024px, and the painted focus ring, are Playwright (S-1.8.5) or manual checks.
+describe('focus ring (S-1.6.2 AC3, static smoke)', () => {
+  // Matches a bare `a` in the selector, including inside :where(...) / :is(...).
+  const targetsLinks = (s: string) =>
+    /:focus-visible/.test(s) && /(^|[\s(,>+~])a(?=[\s,):[.#]|$)/.test(s);
+  const rules = allRules.filter((r) => selectors(r).some(targetsLinks));
+
+  it('has a :focus-visible rule that applies to links', () => {
     expect(rules.length).toBeGreaterThan(0);
   });
 
   it('sets a visible outline of at least 2px', () => {
-    const outline = rules.map((r) => r.decls.get('outline') ?? '').find((v) => v !== '');
-    expect(outline).toBeDefined();
-    expect(outline).not.toMatch(/\bnone\b/);
-    const width = /(\d+(?:\.\d+)?)px/.exec(outline as string);
-    expect(width).not.toBeNull();
-    expect(Number((width as RegExpExecArray)[1])).toBeGreaterThanOrEqual(2);
+    const widths = rules.flatMap((r) => {
+      const long = r.decls.get('outline-width');
+      const short = (r.decls.get('outline') ?? '')
+        .split(/\s+/)
+        .find((t) => /^\d+(\.\d+)?(px|rem|em)$/.test(t));
+      const v = long ?? short;
+      const style = r.decls.get('outline-style');
+      const shorthand = r.decls.get('outline') ?? '';
+      if (style === 'none' || /\bnone\b/.test(shorthand)) return [];
+      const px = v === undefined ? null : toPx(v);
+      return px === null ? [] : [px];
+    });
+    expect(widths.length).toBeGreaterThan(0);
+    expect(Math.max(...widths)).toBeGreaterThanOrEqual(2);
   });
 
-  it('never removes the outline (outline: none/0) on any rule', () => {
-    const offenders = allRules.filter((r) => /^(none|0)\b/.test(r.decls.get('outline') ?? ''));
-    expect(offenders).toEqual([]);
+  it('never removes the outline on any rule (none, 0, 0px, outline-style none, outline-width 0)', () => {
+    const removes = (r: { decls: Map<string, string> }) => {
+      const tokens = (r.decls.get('outline') ?? '').split(/\s+/).filter(Boolean);
+      const shorthand = tokens.some((t) => t === 'none' || /^0(px|rem|em)?$/.test(t));
+      const style = r.decls.get('outline-style') === 'none';
+      const w = r.decls.get('outline-width');
+      return shorthand || style || (w !== undefined && toPx(w) === 0);
+    };
+    expect(allRules.filter(removes).map((r) => r.selector)).toEqual([]);
   });
 });
 
-describe('responsive layout (S-1.6.2 AC2, static)', () => {
-  it('turns the layout into a sidebar at min-width 1024px', () => {
-    const rules = inMedia(/\(min-width:\s*1024px\)/);
-    const shell = rules.find((r) => r.selector === '.shell');
+describe('responsive layout (S-1.6.2 AC2, static smoke)', () => {
+  it('turns the layout into a sidebar at 1024px and up', () => {
+    const shell = atLeast(1024).find((r) => r.selector === '.shell');
     expect(shell).toBeDefined();
-    const areas = shell?.decls.get('grid-template-areas') ?? '';
-    expect(areas).toMatch(/nav main/);
+    expect(shell?.decls.get('grid-template-areas') ?? '').toMatch(/nav main/);
     expect(shell?.decls.get('grid-template-columns')).toMatch(/^\S+\s+minmax\(0,\s*1fr\)$/);
   });
 
   it('hides the nav until opened below 768px', () => {
-    const rules = inMedia(/\(max-width:\s*767(\.98)?px\)/);
-    const hide = rules.find(
+    const hide = below(768).find(
       (r) => r.selector.includes('.shell-nav') && r.decls.get('display') === 'none',
     );
     expect(hide).toBeDefined();
@@ -101,22 +142,21 @@ describe('responsive layout (S-1.6.2 AC2, static)', () => {
   it('shows the menu toggle below 768px and hides it from 768px up', () => {
     const base = allRules.find((r) => r.media === null && r.selector === '.menu-toggle');
     expect(base?.decls.get('display')).not.toBe('none');
-    const wide = inMedia(/\(min-width:\s*768px\)/).find((r) => r.selector === '.menu-toggle');
+    const wide = atLeast(768).find((r) => r.selector === '.menu-toggle');
     expect(wide?.decls.get('display')).toBe('none');
   });
 
-  it('sets no fixed width or min-width above 360px (no forced horizontal scroll)', () => {
-    const px = (v: string): number | null => {
-      const m = /^(\d+(?:\.\d+)?)(px|rem|em)$/.exec(v);
-      if (!m) return null;
-      return Number(m[1]) * (m[2] === 'px' ? 1 : 16);
-    };
-    const offenders = allRules.filter((r) =>
-      ['width', 'min-width'].some((p) => {
-        const n = px(r.decls.get(p) ?? '');
+  it('sets no fixed width or min-width above 360px outside wide-viewport media queries', () => {
+    const offenders = allRules.filter((r) => {
+      if (r.media !== null) {
+        const min = minBound(r.media);
+        if (min !== null && min > 360) return false;
+      }
+      return ['width', 'min-width'].some((p) => {
+        const n = toPx(r.decls.get(p) ?? '');
         return n !== null && n > 360;
-      }),
-    );
+      });
+    });
     expect(offenders).toEqual([]);
   });
 });

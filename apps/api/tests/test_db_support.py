@@ -50,7 +50,7 @@ def test_default_test_database_url_targets_mtg_stats_test_over_psycopg3() -> Non
 
 
 def test_test_database_url_env_override_is_honoured() -> None:
-    url = "postgresql+psycopg://u:p@db.internal:5433/other_test"
+    url = "postgresql+psycopg://u:CHANGE_ME@db.internal:5433/other_test"
     assert resolve_test_database_url({"TEST_DATABASE_URL": url}) == url
 
 

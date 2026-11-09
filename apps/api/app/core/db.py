@@ -110,15 +110,38 @@ class TimestampMixin:
 class AppSession(AsyncSession):
     """``AsyncSession`` whose ``commit`` runs :func:`after_commit` callbacks.
 
-    ``commit`` commits and then runs the registered callbacks in order. If the commit fails,
-    ``rollback`` or ``close`` is called, the callbacks are dropped. The commit and the callback
-    loop are shielded from cancellation, so a cancelled request cannot lose follow-ups for data
-    the server already committed. Callbacks belong to the session, not to a savepoint.
+    Guarantees:
+
+    - ``commit`` commits and then runs the registered callbacks in order, as one inner task.
+    - If the commit fails, or ``rollback``/``close`` is called with no commit in progress, the
+      callbacks are dropped.
+    - Cancelling the caller of ``commit`` (``task.cancel()`` or an anyio cancel scope) does not
+      interrupt that inner task. ``commit`` keeps waiting until the commit and all callbacks have
+      finished, and only then re-raises ``CancelledError``. A commit failure after cancellation is
+      logged, since the caller can no longer receive it.
+    - ``rollback`` and ``close`` first wait for any commit in progress. They never drop callbacks
+      that belong to it and never touch the session while it is committing.
+
+    Callbacks belong to the session, not to a savepoint.
     """
 
+    _pending_commit: asyncio.Task[None] | None = None
+
     async def commit(self) -> None:
-        """Commit, then run the after-commit callbacks (shielded from cancellation)."""
-        await asyncio.shield(self._commit_and_run_callbacks())
+        """Commit, then run the after-commit callbacks; both complete even if cancelled."""
+        task = asyncio.create_task(self._commit_and_run_callbacks())
+        self._pending_commit = task  # strong reference, as the asyncio docs require
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if task.done() and not task.cancelled() and task.exception() is None:
+                raise
+            task.add_done_callback(_log_abandoned_commit)
+            await _wait_until_done(task)
+            raise
+        finally:
+            if task.done() and self._pending_commit is task:
+                self._pending_commit = None
 
     async def _commit_and_run_callbacks(self) -> None:
         try:
@@ -135,15 +158,59 @@ class AppSession(AsyncSession):
             except Exception:
                 logger.exception("after_commit callback failed")
 
+    async def _wait_for_pending_commit(self) -> bool:
+        """Wait for a commit in progress; return True if one was pending.
+
+        Cancellation is deferred, not swallowed: it is re-raised after the commit is done.
+        """
+        task = self._pending_commit
+        if task is None or task.done():
+            self._pending_commit = None
+            return False
+        cancelled = await _wait_until_done(task)
+        if cancelled:
+            raise asyncio.CancelledError
+        return True
+
     async def rollback(self) -> None:
-        """Roll back and drop the after-commit callbacks."""
+        """Roll back and drop the after-commit callbacks (after any commit in progress ends)."""
+        if await self._wait_for_pending_commit():
+            return  # the commit finished its transaction; nothing is left to roll back
         self.info.pop(_AFTER_COMMIT_INFO_SLOT, None)
         await super().rollback()
 
     async def close(self) -> None:
-        """Close and drop any after-commit callbacks that never ran."""
+        """Close and drop callbacks that never ran (after any commit in progress ends)."""
+        cancelled = False
+        try:
+            await self._wait_for_pending_commit()
+        except asyncio.CancelledError:
+            cancelled = True  # still close the session, then report the cancellation
         self.info.pop(_AFTER_COMMIT_INFO_SLOT, None)
         await super().close()
+        if cancelled:
+            raise asyncio.CancelledError
+
+
+async def _wait_until_done(task: asyncio.Task[None]) -> bool:
+    """Wait for ``task`` to finish, absorbing cancellation; return True if cancelled meanwhile."""
+    cancelled = False
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            cancelled = True  # also the level-triggered cancel of an anyio scope: keep waiting
+        except Exception:
+            break  # the task failed; it is done and reported by the caller or the logger
+    return cancelled
+
+
+def _log_abandoned_commit(task: asyncio.Task[None]) -> None:
+    """Log a commit failure that happened after its caller was cancelled."""
+    if task.cancelled():
+        logger.error("commit task was cancelled after its caller was cancelled")
+    elif (exc := task.exception()) is not None:
+        logger.error("commit failed after its caller was cancelled", exc_info=exc)
 
 
 @lru_cache

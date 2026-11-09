@@ -114,7 +114,12 @@ async def api_app(db_session: AppSession) -> AsyncIterator[FastAPI]:
 
 @pytest.fixture
 async def client(api_app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
-    """httpx client for ``api_app``; unhandled errors come back as 500 responses."""
+    """httpx client for ``api_app``; unhandled errors come back as 500 responses.
+
+    Write isolation covers only sessions obtained through ``get_session``/``SessionDep``, which
+    are overridden to use the rolled-back ``db_session``. Code that calls ``get_sessionmaker()``
+    directly gets a real session and commits for real to ``mtg_stats_test``.
+    """
     transport = httpx.ASGITransport(app=api_app, raise_app_exceptions=False)
     async with httpx.AsyncClient(transport=transport, base_url="http://t") as http_client:
         yield http_client

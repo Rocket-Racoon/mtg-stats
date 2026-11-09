@@ -2,15 +2,6 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { GestureHandlerRootView, State } from 'react-native-gesture-handler';
 import { fireGestureHandler, getByGestureTestId } from 'react-native-gesture-handler/jest-utils';
 import { getAnimatedStyle, setUpTests } from 'react-native-reanimated';
-// Under Reanimated's Jest resolver Worklets runs its web build, whose getUIRuntimeHolder throws when
-// Gesture Handler's deferred UI-runtime bootstrap calls it. There is no UI runtime in Jest.
-jest.mock(
-  'react-native-gesture-handler/lib/module/handlers/gestures/installUIRuntimeBindings',
-  () => ({
-    installUIRuntimeBindings: jest.fn(),
-  }),
-);
-
 import { GestureTestScreen, MOVE_STEP } from '../components/GestureTestScreen';
 
 function translation(): { x: number; y: number } {
@@ -115,6 +106,52 @@ describe('GestureTestScreen (AC3 logic layer)', () => {
     await drag(30, 20);
     await drag(10, 5);
     expect(translation()).toEqual({ x: 40, y: 25 });
+  });
+
+  async function pressMove() {
+    await fireEvent.press(screen.getByRole('button', { name: 'Move box' }));
+  }
+
+  async function advance(ms: number) {
+    await act(async () => {
+      jest.advanceTimersByTime(ms);
+    });
+  }
+
+  it('accumulates rapid taps made without advancing timers in between', async () => {
+    await renderScreen();
+    await pressMove();
+    await pressMove();
+    await advance(1000);
+    expect(translation()).toEqual({ x: 2 * MOVE_STEP, y: 2 * MOVE_STEP });
+  });
+
+  it('accumulates a second tap made while the first animation is half done', async () => {
+    await renderScreen();
+    await pressMove();
+    await advance(150);
+    await pressMove();
+    await advance(1000);
+    expect(translation()).toEqual({ x: 2 * MOVE_STEP, y: 2 * MOVE_STEP });
+  });
+
+  it('commits the drop position so a following Move adds to it', async () => {
+    await renderScreen();
+    await drag(30, 20);
+    await advance(1000);
+    expect(translation()).toEqual({ x: 30, y: 20 });
+    await pressMove();
+    await advance(1000);
+    expect(translation()).toEqual({ x: 30 + MOVE_STEP, y: 20 + MOVE_STEP });
+  });
+
+  it('moves the box by the same step via the activate accessibility action', async () => {
+    await renderScreen();
+    const box = screen.getByTestId('gesture-box');
+    expect(box.props.accessible).toBe(true);
+    await fireEvent(box, 'accessibilityAction', { nativeEvent: { actionName: 'activate' } });
+    await advance(1000);
+    expect(translation()).toEqual({ x: MOVE_STEP, y: MOVE_STEP });
   });
 
   // MANUAL (no emulator available): drag and release the box on iOS and Android without errors.

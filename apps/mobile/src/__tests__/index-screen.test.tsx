@@ -17,7 +17,9 @@ describe('Index screen (AC4 render smoke)', () => {
 
   it('renders the API base URL', async () => {
     await render(<Index />);
-    expect(screen.getByTestId('api-base-url')).toBeTruthy();
+    const url = screen.getByTestId('api-base-url');
+    expect(url).toBeTruthy();
+    expect(url).toHaveTextContent(/\/api\/v1$/);
   });
 
   it('shows the gesture test link in dev', async () => {

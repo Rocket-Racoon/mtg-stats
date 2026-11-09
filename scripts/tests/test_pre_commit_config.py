@@ -3,8 +3,11 @@
 The YAML is parsed minimally (pyyaml is not a declared dependency), and
 ``pre-commit validate-config`` is the authority on schema validity.
 
-Manual only (not automatable here): AC1 real installation on Windows PowerShell, macOS and Linux;
-AC2 timing (15 s on a typical commit, machine dependent); AC4 (CI secrets check, S-1.8.2).
+Coverage notes:
+- AC1 (fresh clone plus ``pnpm hooks:install`` runs the hooks on commit) is covered by the opt-in
+  end-to-end test (``RUN_PRECOMMIT_E2E=1``) on the current OS. macOS and Linux remain manual.
+- AC2 timing is measured at 13.8 s warm, accepted by the user; it is not asserted here.
+- AC4 (CI re-runs the secrets check) is deferred to S-1.8.2.
 """
 
 # ruff: noqa: S603, S607
@@ -14,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import time
@@ -29,6 +33,8 @@ SCRIPT = REPO_ROOT / "scripts" / "secrets_check.py"
 HAS_GIT = shutil.which("git") is not None
 HAS_UV = shutil.which("uv") is not None
 requires_git_uv = pytest.mark.skipif(not (HAS_GIT and HAS_UV), reason="git and uv are required")
+
+E2E_ENABLED = os.environ.get("RUN_PRECOMMIT_E2E") == "1"
 
 # Built at runtime so this file never trips the secrets check itself.
 LITERAL = "zq9" + "Xv7wLmN3pQ" + "r5Ts"
@@ -105,18 +111,35 @@ def test_end_of_file_fixer_hook_is_configured() -> None:
     assert "end-of-file-fixer" in all_hooks()
 
 
-def test_ruff_check_runs_with_fix_on_python_files_only() -> None:
+def test_ruff_check_runs_with_fix_concise_output_on_python_files_only() -> None:
     hook = all_hooks()["ruff-check"]
     assert "ruff check" in hook["entry"]
     assert "--fix" in hook["entry"]
-    assert hook["types"] == "[python]"
+    assert "--output-format=concise" in hook["entry"]
+    assert "--config" not in hook["entry"]
+    assert "python" in hook["types"]
 
 
-def test_ruff_format_runs_on_python_files_only() -> None:
+def test_ruff_format_runs_on_python_files_only_without_a_config_override() -> None:
     hook = all_hooks()["ruff-format"]
     assert "ruff format" in hook["entry"]
     assert "--check" not in hook["entry"]
-    assert hook["types"] == "[python]"
+    assert "--config" not in hook["entry"]
+    assert "python" in hook["types"]
+
+
+def test_scripts_ruff_config_extends_the_api_config() -> None:
+    text = (REPO_ROOT / "scripts" / "ruff.toml").read_text(encoding="utf-8")
+    assert re.search(r'^extend\s*=\s*"[^"]*apps/api/pyproject\.toml"', text, re.MULTILINE)
+
+
+def test_secrets_check_runs_first_and_the_config_fails_fast() -> None:
+    first_repo = parse_config()[0]
+    hooks = first_repo["hooks"]
+    assert isinstance(hooks, dict)
+    assert first_repo["repo"] == "local"
+    assert next(iter(hooks)) == "secrets-check"
+    assert re.search(r"^fail_fast:\s*true\s*$", CONFIG.read_text(encoding="utf-8"), re.MULTILINE)
 
 
 def test_prettier_is_a_local_hook_scoped_to_ts_and_js_files() -> None:
@@ -171,10 +194,24 @@ def _stage(path: Path, name: str, content: str) -> None:
     subprocess.run(["git", "add", "--", name], cwd=path, check=True)
 
 
+def _secrets_command() -> list[str]:
+    """The secrets hook's own entry from the config, with repo-relative paths made absolute."""
+    entry = all_hooks()["secrets-check"]["entry"]
+    mapping = {"apps/api": str(API_DIR), "scripts/secrets_check.py": str(SCRIPT)}
+    return [mapping.get(token, token) for token in shlex.split(entry)]
+
+
+def test_secrets_hook_entry_is_staged_mode_and_resolves_to_real_paths() -> None:
+    command = _secrets_command()
+    assert "--staged" in command
+    assert str(SCRIPT) in command
+    assert str(API_DIR) in command
+
+
 def _run_hook(path: Path) -> subprocess.CompletedProcess[str]:
-    """Run the hook's own entry command with the temp repo as cwd."""
+    """Run the hook's own entry command (derived from the config) with the temp repo as cwd."""
     return subprocess.run(
-        ["uv", "run", "--project", str(API_DIR), "python", str(SCRIPT), "--staged"],
+        _secrets_command(),
         cwd=path,
         capture_output=True,
         text=True,
@@ -191,6 +228,17 @@ def test_staged_env_file_refuses_the_commit_and_names_the_file(tmp_path: Path) -
     assert proc.returncode == 1, out
     assert ".env.local" in out
     assert LITERAL not in out
+
+
+@requires_git_uv
+def test_staged_literal_env_file_with_harmless_content_is_refused_by_name(tmp_path: Path) -> None:
+    _init_repo(tmp_path)
+    _stage(tmp_path, ".env", "DEBUG=1\n")
+    proc = _run_hook(tmp_path)
+    out = proc.stdout + proc.stderr
+    assert proc.returncode == 1, out
+    assert ".env" in out
+    assert "tracked-env-file" in out
 
 
 @requires_git_uv
@@ -240,3 +288,72 @@ def test_pre_commit_run_all_files_exits_zero() -> None:
     )
     elapsed = time.monotonic() - start
     assert proc.returncode == 0, f"{elapsed:.1f}s " + proc.stdout[-3000:] + proc.stderr[-1000:]
+
+
+def _git(clone: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", *args],
+        cwd=clone,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+@pytest.mark.skipif(not E2E_ENABLED, reason="slow; set RUN_PRECOMMIT_E2E=1 to run")
+def test_fresh_clone_with_documented_setup_enforces_hooks_on_commit(tmp_path: Path) -> None:
+    """AC1 and AC3 end to end: clone, ``pnpm hooks:install``, then real ``git commit`` runs."""
+    clone = tmp_path / "clone"
+    cloned = subprocess.run(
+        ["git", "clone", "--no-hardlinks", "-q", str(REPO_ROOT), str(clone)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert cloned.returncode == 0, cloned.stderr
+    pnpm = "pnpm.cmd" if os.name == "nt" else "pnpm"
+    env = {**os.environ, "CI": "true"}
+    deps = subprocess.run(
+        [pnpm, "install", "--frozen-lockfile"],
+        cwd=clone,
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+    assert deps.returncode == 0, deps.stdout[-2000:] + deps.stderr[-1000:]
+    installed = subprocess.run(
+        [pnpm, "hooks:install"], cwd=clone, capture_output=True, text=True, check=False
+    )
+    assert installed.returncode == 0, installed.stdout + installed.stderr
+    assert (clone / ".git" / "hooks" / "pre-commit").exists()
+
+    # (a) a literal .env is refused and named.
+    (clone / ".env").write_text("DEBUG=1\n", encoding="utf-8")
+    _git(clone, "add", "-f", ".env")  # .env is gitignored
+    refused_env = _git(clone, "commit", "-m", "add env")
+    env_out = refused_env.stdout + refused_env.stderr
+    assert refused_env.returncode != 0, env_out
+    assert ".env" in env_out
+    _git(clone, "reset", "-q")
+    (clone / ".env").unlink()
+
+    # (b) a secret line is refused, path:line is named, the literal is printed nowhere.
+    leak = clone / "apps" / "api" / "leak.py"
+    leak.write_text(f'"""Doc."""\n\nAPI_TOKEN = "{LITERAL}"\n', encoding="utf-8")
+    _git(clone, "add", "apps/api/leak.py")
+    refused_secret = _git(clone, "commit", "-m", "add secret")
+    secret_out = refused_secret.stdout + refused_secret.stderr
+    assert refused_secret.returncode != 0, secret_out
+    assert "apps/api/leak.py:3" in secret_out.replace("\\", "/")
+    assert LITERAL not in secret_out
+    _git(clone, "reset", "-q")
+    leak.unlink()
+
+    # (c) a clean change commits.
+    (clone / "NOTES.txt").write_text("clean change\n", encoding="utf-8")
+    _git(clone, "add", "NOTES.txt")
+    start = time.monotonic()
+    ok = _git(clone, "commit", "-m", "clean change")
+    elapsed = time.monotonic() - start
+    assert ok.returncode == 0, f"{elapsed:.1f}s " + ok.stdout + ok.stderr

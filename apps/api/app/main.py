@@ -6,6 +6,7 @@ from app.core.config import Settings, get_settings
 from app.core.cors import OriginGatedCORSMiddleware
 from app.core.errors import ERROR_RESPONSES, UnhandledErrorMiddleware, register_exception_handlers
 from app.core.logging import configure_logging
+from app.core.openapi import generate_operation_id
 from app.core.request_id import RequestIDMiddleware
 
 API_PREFIX = "/api/v1"
@@ -19,6 +20,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(
         responses=ERROR_RESPONSES,
         title="MTG Stats API",
+        generate_unique_id_function=generate_operation_id,
         openapi_url=f"{API_PREFIX}/openapi.json",
         docs_url=f"{API_PREFIX}/docs",
         redoc_url=f"{API_PREFIX}/redoc",

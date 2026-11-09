@@ -5,7 +5,6 @@
     "scheme": "mtgstats",
     "version": "0.0.0",
     "orientation": "default",
-    "userInterfaceStyle": "automatic",
     "platforms": ["android", "ios"],
     "android": { "package": "app.mtgstats" },
     "plugins": ["expo-router"]

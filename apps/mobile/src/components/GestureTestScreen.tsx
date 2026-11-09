@@ -15,6 +15,7 @@ export function GestureTestScreen() {
   const startY = useSharedValue(0);
 
   const pan = Gesture.Pan()
+    .withTestId('gesture-box-pan')
     .onStart(() => {
       startX.set(x.get());
       startY.set(y.get());

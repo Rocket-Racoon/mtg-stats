@@ -1,0 +1,133 @@
+"""Environment-driven settings (S-1.4.1).
+
+Every value comes from environment variables. The repo-root ``.env`` is read only when
+``APP_ENV=dev``; ``test`` and ``prod`` read the process environment only. No secret has a
+default in code.
+"""
+
+import os
+from functools import lru_cache
+from pathlib import Path
+from typing import Annotated, Literal, Self
+from urllib.parse import urlsplit
+
+from pydantic import Field, field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+WORKSPACE_MARKER = "pnpm-workspace.yaml"
+DEV_WEB_ORIGIN = "http://localhost:5173"
+DATABASE_URL_PREFIX = "postgresql+psycopg://"
+
+AppEnv = Literal["dev", "test", "prod"]
+
+
+class Settings(BaseSettings):
+    """Application settings, validated at startup."""
+
+    model_config = SettingsConfigDict(
+        extra="ignore",
+        populate_by_name=True,
+        case_sensitive=True,
+        hide_input_in_errors=True,
+    )
+
+    app_env: AppEnv = Field(validation_alias="APP_ENV")
+    database_url: str = Field(validation_alias="DATABASE_URL")
+    cors_allowed_origins: Annotated[list[str], NoDecode] = Field(
+        default_factory=list, validation_alias="CORS_ALLOWED_ORIGINS"
+    )
+
+    @field_validator("database_url")
+    @classmethod
+    def _check_database_url(cls, value: str) -> str:
+        msg = f"must start with {DATABASE_URL_PREFIX} and have a host and a valid port"
+        if not value.startswith(DATABASE_URL_PREFIX):
+            raise ValueError(msg)
+        try:
+            parts = urlsplit(value)
+            parts.port  # noqa: B018  (raises ValueError on an invalid port)
+        except ValueError:
+            raise ValueError(msg) from None
+        if not parts.hostname:
+            raise ValueError(msg)
+        return value
+
+    @field_validator("cors_allowed_origins", mode="before")
+    @classmethod
+    def _split_origins(cls, value: object) -> object:
+        if isinstance(value, str):
+            return [part.strip() for part in value.split(",") if part.strip()]
+        return value
+
+    @field_validator("cors_allowed_origins")
+    @classmethod
+    def _check_origins(cls, value: list[str]) -> list[str]:
+        return [_normalise_origin(origin) for origin in value]
+
+    @model_validator(mode="after")
+    def _dev_allows_web_origin(self) -> Self:
+        if self.app_env == "dev" and DEV_WEB_ORIGIN not in self.cors_allowed_origins:
+            self.cors_allowed_origins = [DEV_WEB_ORIGIN, *self.cors_allowed_origins]
+        return self
+
+
+def _normalise_origin(origin: str) -> str:
+    """Validate a CORS origin and return it as ``scheme://host[:port]`` in lowercase."""
+    msg = f"invalid origin {origin!r}; expected http(s)://host[:port] with no path"
+    if "*" in origin or origin == "null":
+        raise ValueError("wildcard and null origins are not allowed (credentials are sent)")
+    if any(ch in origin for ch in "?#@") or any(ch.isspace() for ch in origin):
+        raise ValueError(msg)
+    try:
+        parts = urlsplit(origin)
+        port = parts.port
+    except ValueError:
+        raise ValueError(msg) from None
+    host = parts.hostname
+    if parts.scheme.lower() not in {"http", "https"} or not host or parts.path:
+        raise ValueError(msg)
+    if ":" in host:
+        host = f"[{host}]"
+    scheme = parts.scheme.lower()
+    if port == {"http": 80, "https": 443}[scheme]:
+        port = None
+    return f"{scheme}://{host}" + (f":{port}" if port is not None else "")
+
+
+def find_env_file() -> Path | None:
+    """Locate the repo-root ``.env`` by walking up to ``pnpm-workspace.yaml``, or ``None``."""
+    for directory in Path(__file__).resolve().parents:
+        if (directory / WORKSPACE_MARKER).is_file():
+            env = directory / ".env"
+            return env if env.is_file() else None
+    return None
+
+
+class _AppEnvProbe(BaseSettings):
+    """Reads only ``APP_ENV`` from a ``.env`` file, to decide whether the file may be used."""
+
+    model_config = SettingsConfigDict(extra="ignore", case_sensitive=True)
+
+    app_env: str | None = Field(default=None, validation_alias="APP_ENV")
+
+
+def _dev_env_file() -> Path | None:
+    """Return the root ``.env`` only when the effective ``APP_ENV`` is ``dev``."""
+    env_file = find_env_file()
+    if env_file is None:
+        return None
+    app_env = os.environ.get("APP_ENV")
+    if app_env is None:
+        app_env = _AppEnvProbe(_env_file=env_file).app_env
+    return env_file if app_env == "dev" else None
+
+
+def load_settings() -> Settings:
+    """Build settings from the environment (and the root ``.env`` in dev only)."""
+    return Settings(_env_file=_dev_env_file())
+
+
+@lru_cache
+def get_settings() -> Settings:
+    """Cached settings accessor."""
+    return load_settings()

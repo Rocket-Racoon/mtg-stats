@@ -14,6 +14,7 @@
     "format:check": "pnpm -r format:check && prettier --check --ignore-unknown --no-error-on-unmatched-pattern --ignore-path .prettierignore \"*.{json,js,yaml}\" \"infra/**/*.{yml,yaml}\" \".github/**/*.{yml,yaml}\" \"scripts/**/*.{js,ts,json}\" \"tests/**/*.ts\"",
     "typecheck": "pnpm -r typecheck && tsc --noEmit -p tsconfig.json",
     "openapi:export": "uv run --directory apps/api python -m app.scripts.export_openapi",
+    "hooks:install": "uv run --frozen --project apps/api pre-commit install",
     "secrets:check": "uv run --project apps/api python scripts/secrets_check.py",
     "test": "pnpm -r test && vitest run --dir tests"
   },

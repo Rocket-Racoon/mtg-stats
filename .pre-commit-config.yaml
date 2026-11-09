@@ -1,0 +1,55 @@
+# Install once, from the main checkout:  pnpm hooks:install
+# (= uv run --project apps/api pre-commit install). Never commit with --no-verify;
+# CI will re-run the secrets check and fail the branch anyway, once S-1.8.2 lands.
+minimum_pre_commit_version: '3.8'
+default_stages: [pre-commit]
+repos:
+  - repo: local
+    hooks:
+      - id: secrets-check
+        name: secrets check
+        entry: uv run --frozen --project apps/api python scripts/secrets_check.py --staged
+        language: system
+        pass_filenames: false
+        always_run: true
+        # A finding stops everything, so no later hook can echo the secret. Other hooks all report.
+        fail_fast: true
+      # Ruff: the locked version from apps/api/uv.lock. Config: apps/api/pyproject.toml, and
+      # scripts/ruff.toml (which extends it) for scripts/. Concise output never prints source lines.
+      - id: ruff-check
+        name: ruff check --fix
+        entry: uv run --frozen --project apps/api ruff check --output-format=concise --force-exclude --fix
+        language: system
+        types: [python]
+        files: ^(apps/api|scripts)/
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --frozen --project apps/api ruff format --force-exclude
+        language: system
+        types: [python]
+        files: ^(apps/api|scripts)/
+      # Prettier and ESLint: the repo's own pinned versions, root configs, run with node directly.
+      - id: prettier
+        name: prettier --write
+        entry: node node_modules/prettier/bin/prettier.cjs --write --ignore-unknown --no-error-on-unmatched-pattern --ignore-path .prettierignore
+        language: system
+        require_serial: true
+        files: \.(js|jsx|mjs|cjs|ts|tsx|mts|cts|json|ya?ml|css|html|md)$
+        # Mirrors .prettierignore, so docs-only commits don't need node_modules.
+        exclude: ^(docs|\.claude)/|^(CLAUDE|README)\.md$|^pnpm-lock\.yaml$|(^|/)generated/
+      - id: eslint
+        name: eslint --fix
+        entry: node node_modules/eslint/bin/eslint.js --fix --no-warn-ignored --cache --cache-location node_modules/.cache/eslint/
+        language: system
+        require_serial: true
+        files: \.(ts|tsx|js|mjs|cjs)$
+        exclude: ^docs/backlog/
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: detect-private-key
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+      - id: end-of-file-fixer
+        exclude: ^docs/backlog/

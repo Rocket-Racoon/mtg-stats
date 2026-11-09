@@ -1,8 +1,5 @@
 """Tests for the backlog import script (S-1.2.4). No network: GitHub is a recording fake."""
 
-# The pyproject per-file-ignores glob is relative to apps/api, so it does not cover scripts/tests.
-# ruff: noqa: S101
-
 from __future__ import annotations
 
 import re

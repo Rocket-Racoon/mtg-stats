@@ -1,13 +1,15 @@
-import { resolve as resolvePath } from 'node:path';
-import { createServer, loadConfigFromFile, type UserConfig } from 'vite';
+// @vitest-environment node
+import { mkdtempSync, existsSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve as resolvePath } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { build, createServer, loadConfigFromFile, type UserConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-// Vitest runs with the web workspace as cwd (jsdom's import.meta.url is not a file: URL).
-const webRoot = process.cwd();
+const webRoot = fileURLToPath(new URL('..', import.meta.url));
 const configFile = resolvePath(webRoot, 'vite.config.ts');
 
-// The config module relies on a real file:// import.meta.url, so it is loaded by Vite's own
-// loader (as `vite build` does) instead of being imported into the jsdom test environment.
+// Loaded with Vite's own loader, as `vite build` does.
 const resolve = async (command: 'build' | 'serve', mode = 'production'): Promise<UserConfig> => {
   const loaded = await loadConfigFromFile({ command, mode }, configFile);
   if (!loaded) throw new Error('vite.config.ts not found');
@@ -32,6 +34,14 @@ describe('vite config: VITE_API_BASE_URL requirement (S-1.6.1 AC2)', () => {
   it('does not throw on build when VITE_API_BASE_URL is set', async () => {
     vi.stubEnv('VITE_API_BASE_URL', 'https://api.example.test/api/v1');
     await expect(resolve('build')).resolves.toBeDefined();
+  });
+
+  it('trims surrounding whitespace in the value that define injects', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', '  https://api.example.test/api/v1  ');
+    const cfg = await resolve('build');
+    expect(cfg.define?.['import.meta.env.VITE_API_BASE_URL']).toBe(
+      JSON.stringify('https://api.example.test/api/v1'),
+    );
   });
 
   it('does not throw on serve when VITE_API_BASE_URL is unset', async () => {
@@ -64,8 +74,27 @@ describe('vite config: dev server (S-1.6.1 AC1)', () => {
       const html = await (await fetch(url as string)).text();
       expect(html).toContain('<div id="root"></div>');
       expect(html).toContain('<title>MTG Stats</title>');
+      expect(html).toContain('/src/main.tsx');
     } finally {
       await server.close();
     }
   }, 30_000);
+});
+
+describe('vite build (slow, S-1.6.1 AC2 success path)', () => {
+  it('SLOW: builds a production bundle with index.html when VITE_API_BASE_URL is set', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'https://api.example.test/api/v1');
+    const outDir = mkdtempSync(join(tmpdir(), 'web-build-'));
+    try {
+      await build({
+        configFile,
+        root: webRoot,
+        logLevel: 'silent',
+        build: { outDir, emptyOutDir: true },
+      });
+      expect(existsSync(join(outDir, 'index.html'))).toBe(true);
+    } finally {
+      rmSync(outDir, { recursive: true, force: true });
+    }
+  }, 60_000);
 });

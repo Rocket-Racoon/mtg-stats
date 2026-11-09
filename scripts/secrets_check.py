@@ -38,10 +38,16 @@ Rules
       ``f``/``b``/``r``/``u`` prefixes are accepted). An unquoted right-hand side is an expression
       (``settings.JWT_SECRET``, ``os.environ["X_TOKEN"]``), not a literal. A quote needs a
       matching closing quote, so ``"X_KEY="`` (the quote closes an enclosing string) is not an
-      assignment;
-    * every other text file (``.sh``, ``Dockerfile``, ``.md``, ``.txt``, ``.ps1``, ``.npmrc``,
-      extensionless files, ...): a line-anchored env-style form only,
-      ``^\\s*(export |ENV |$env:)?NAME\\s*[=:]\\s*value``, with bare or quoted values.
+      assignment. Known false positive: a call passing ``"X_KEY="`` followed by another quoted
+      argument, where the later quote on the line closes the string. An ``f"..."`` value
+      containing ``{`` is a reference, not a literal;
+    * every other text file (``.sh``, ``Dockerfile``, ``.md``, ``.txt``, ``.ps1``, extensionless
+      files, ...): a line-anchored, env-style form only, with ``=`` as the separator (never
+      ``:``) and an UPPERCASE, case-sensitive name:
+      ``^\\s*(export |ENV |$env:)?[A-Z][A-Z0-9_]*_(SECRET|KEY|TOKEN|PASSWORD)\\s*=\\s*value``,
+      with bare or quoted values. Annotations in prose or code samples (``jwt_secret: SecretStr``,
+      ``JWT_SECRET: str``) and lowercase names (``primary_key=True``) are therefore not
+      findings there. The npm ``//host/:_authToken=...`` form is not covered by the name rule.
 
     Not a finding: an empty value, ``CHANGE_ME``, or a placeholder or reference (starts with
     ``$``, ``{``, ``<``, ``!``, ``*``, ``&``, ``|``, ``>`` or ``%``; or contains ``${``, ``{{`` or
@@ -77,13 +83,25 @@ _PREFIX = r"(?:^|[^A-Za-z0-9_])[\"'`]?" + _NAME + r"\b[\"'`]?\]?\s*"
 ASSIGN_EQ_RE = re.compile(_PREFIX + r"(?::\s*[^=:#\"'`]+?)?=(?![=>~])\s*" + _VALUE, re.IGNORECASE)
 ASSIGN_COLON_RE = re.compile(_PREFIX + r":\s*" + _VALUE, re.IGNORECASE)
 FALLBACK_RE = re.compile(
-    r"^\s*(?:export\s+|ENV\s+|\$env:)?" + _NAME + r"\s*(?:=(?!=)|:)\s*" + _VALUE,
-    re.IGNORECASE,
+    r"^\s*(?:export\s+|ENV\s+|\$env:)?[A-Z][A-Z0-9_]*(?:_SECRET|_KEY|_TOKEN|_PASSWORD)"
+    r"\s*=(?!=)\s*" + _VALUE
 )
 
 ENV_LIKE_SUFFIXES = (".env", ".ini", ".cfg")
 YAML_SUFFIXES = (".yml", ".yaml")
-QUOTED_ONLY_SUFFIXES = (".toml", ".json", ".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")
+QUOTED_ONLY_SUFFIXES = (
+    ".toml",
+    ".json",
+    ".py",
+    ".ts",
+    ".tsx",
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".cjs",
+    ".mts",
+    ".cts",
+)
 PLACEHOLDER_STARTS = ("$", "{", "<", "!", "*", "&", "|", ">", "%")
 PLACEHOLDER_PARTS = ("${", "{{", "%(")
 STRING_PREFIX_RE = re.compile(r"^[fFbBrRuU]{1,2}(?=[\"'`])")
@@ -141,10 +159,16 @@ def _is_placeholder(value: str) -> bool:
 
 def _literal(raw: str, kind: str) -> str | None:
     """Extract the literal from a value token, or None when it is not a literal."""
-    raw = STRING_PREFIX_RE.sub("", raw.strip())
+    raw = raw.strip()
+    prefix = STRING_PREFIX_RE.match(raw)
+    is_fstring = prefix is not None and "f" in prefix.group(0).lower()
+    raw = STRING_PREFIX_RE.sub("", raw)
     if raw[:1] in ("'", '"', "`"):
         end = raw.find(raw[0], 1)
-        return raw[1:end] if end != -1 else None
+        if end == -1:
+            return None
+        content = raw[1:end]
+        return "{" if is_fstring and "{" in content else content
     if kind == "quoted":
         return None
     return "" if raw.startswith("#") else raw.rstrip(",")

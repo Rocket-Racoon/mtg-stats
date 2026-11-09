@@ -19,6 +19,7 @@ DEV_WEB_ORIGIN = "http://localhost:5173"
 DATABASE_URL_PREFIX = "postgresql+psycopg://"
 
 AppEnv = Literal["dev", "test", "prod"]
+LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 
 class Settings(BaseSettings):
@@ -33,6 +34,7 @@ class Settings(BaseSettings):
 
     app_env: AppEnv = Field(validation_alias="APP_ENV")
     database_url: str = Field(validation_alias="DATABASE_URL")
+    log_level: LogLevel = Field(default="INFO", validation_alias="LOG_LEVEL")
     cors_allowed_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=list, validation_alias="CORS_ALLOWED_ORIGINS"
     )

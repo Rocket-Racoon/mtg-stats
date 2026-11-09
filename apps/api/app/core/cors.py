@@ -27,6 +27,7 @@ class OriginGatedCORSMiddleware:
             allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],
+            expose_headers=["X-Request-ID"],
         )
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:

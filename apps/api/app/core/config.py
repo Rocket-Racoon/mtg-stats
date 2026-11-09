@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     app_env: AppEnv = Field(validation_alias="APP_ENV")
     database_url: str = Field(validation_alias="DATABASE_URL")
     log_level: LogLevel = Field(default="INFO", validation_alias="LOG_LEVEL")
+    db_connect_timeout: int = Field(default=5, ge=1, validation_alias="DB_CONNECT_TIMEOUT")
     cors_allowed_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=list, validation_alias="CORS_ALLOWED_ORIGINS"
     )

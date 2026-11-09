@@ -2,17 +2,28 @@
 
 The engine and session factory are created lazily from settings, so importing this module never
 connects. The request-scoped dependency :func:`get_session` commits when the handler succeeds and
-rolls back when it raises.
+rolls back when it raises. Routers must declare it through :data:`SessionDep`, which uses
+``scope="function"`` so the commit happens before the response is sent; a commit failure then
+becomes an error response instead of a 200 with lost data.
+
+Schema conventions for models built on :class:`Base`:
+
+- ``Boolean`` and ``Enum`` columns created with ``create_constraint=True`` need an explicit
+  ``name=`` because the ``ck`` naming convention uses the constraint name.
+- Only the :class:`TimestampMixin` columns validate at assignment. Any other ``Mapped[datetime]``
+  column is typed :class:`UtcDateTime` and rejects naive values at flush time instead.
 """
 
+import asyncio
 import inspect
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import UTC, datetime
 from functools import lru_cache
-from typing import Any, ClassVar
+from typing import Annotated, Any, ClassVar
 from uuid import UUID
 
+from fastapi import Depends
 from sqlalchemy import DateTime, MetaData
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.engine import Dialect
@@ -52,6 +63,8 @@ class UtcDateTime(TypeDecorator[datetime]):
         """Reject naive datetimes; normalise aware ones to UTC."""
         if value is None:
             return None
+        if not isinstance(value, datetime):
+            raise TypeError(f"expected a datetime, got {type(value).__name__}")
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("naive datetime is not allowed; use a timezone-aware datetime")
         return value.astimezone(UTC)
@@ -94,16 +107,60 @@ class TimestampMixin:
         return value
 
 
+class AppSession(AsyncSession):
+    """``AsyncSession`` whose ``commit`` runs :func:`after_commit` callbacks.
+
+    ``commit`` commits and then runs the registered callbacks in order. If the commit fails,
+    ``rollback`` or ``close`` is called, the callbacks are dropped. The commit and the callback
+    loop are shielded from cancellation, so a cancelled request cannot lose follow-ups for data
+    the server already committed. Callbacks belong to the session, not to a savepoint.
+    """
+
+    async def commit(self) -> None:
+        """Commit, then run the after-commit callbacks (shielded from cancellation)."""
+        await asyncio.shield(self._commit_and_run_callbacks())
+
+    async def _commit_and_run_callbacks(self) -> None:
+        try:
+            await super().commit()
+        except BaseException:
+            self.info.pop(_AFTER_COMMIT_INFO_SLOT, None)
+            raise
+        callbacks: list[AfterCommitCallback] = self.info.pop(_AFTER_COMMIT_INFO_SLOT, [])
+        for callback in callbacks:
+            try:
+                result: Any = callback()
+                if inspect.isawaitable(result):
+                    await result
+            except Exception:
+                logger.exception("after_commit callback failed")
+
+    async def rollback(self) -> None:
+        """Roll back and drop the after-commit callbacks."""
+        self.info.pop(_AFTER_COMMIT_INFO_SLOT, None)
+        await super().rollback()
+
+    async def close(self) -> None:
+        """Close and drop any after-commit callbacks that never ran."""
+        self.info.pop(_AFTER_COMMIT_INFO_SLOT, None)
+        await super().close()
+
+
 @lru_cache
 def get_engine() -> AsyncEngine:
-    """Return the process-wide async engine, created on first use from ``DATABASE_URL``."""
-    return create_async_engine(get_settings().database_url, pool_pre_ping=True)
+    """Return the process-wide async engine, created on first use from settings."""
+    settings = get_settings()
+    return create_async_engine(
+        settings.database_url,
+        pool_pre_ping=True,
+        connect_args={"connect_timeout": settings.db_connect_timeout},
+    )
 
 
 @lru_cache
-def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
-    """Return the process-wide session factory (``expire_on_commit=False``)."""
-    return async_sessionmaker(get_engine(), expire_on_commit=False)
+def get_sessionmaker() -> async_sessionmaker[AppSession]:
+    """Return the process-wide session factory (:class:`AppSession`, ``expire_on_commit=False``)."""
+    return async_sessionmaker(get_engine(), class_=AppSession, expire_on_commit=False)
 
 
 async def dispose_engine() -> None:
@@ -117,48 +174,38 @@ async def dispose_engine() -> None:
 def after_commit(session: AsyncSession, callback: AfterCommitCallback) -> None:
     """Register ``callback`` to run after ``session`` commits; it is dropped on rollback.
 
-    Callbacks run, in registration order, when the owner of the transaction calls
-    :func:`commit_session` (the request dependency does). Services running in a caller's session
-    use this instead of enqueueing or publishing directly. A failing callback is logged and does
-    not stop the others, because the transaction is already committed.
+    Callbacks run, in registration order, inside :meth:`AppSession.commit`. Services running in a
+    caller's session use this instead of enqueueing or publishing directly. A failing callback is
+    logged and does not stop the others, because the transaction is already committed.
+
+    Callbacks belong to the session, not to a savepoint: one registered inside a ``begin_nested()``
+    that is rolled back still fires at the outer commit. A ``nested()`` helper that scopes them to
+    the savepoint is future work.
+
+    Raises:
+        TypeError: if ``session`` is not an :class:`AppSession`, since the callback would never run.
     """
+    if not isinstance(session, AppSession):
+        raise TypeError(
+            "after_commit requires an AppSession; build sessions with get_sessionmaker()"
+        )
     session.info.setdefault(_AFTER_COMMIT_INFO_SLOT, []).append(callback)
 
 
-def discard_after_commit(session: AsyncSession) -> None:
-    """Drop registered callbacks without running them."""
-    session.info.pop(_AFTER_COMMIT_INFO_SLOT, None)
+async def get_session() -> AsyncIterator[AppSession]:
+    """Request-scoped session: commit on success, roll back on error, always close.
 
-
-async def commit_session(session: AsyncSession) -> None:
-    """Commit, then run the after-commit callbacks. If the commit fails they are dropped."""
-    try:
-        await session.commit()
-    except BaseException:
-        discard_after_commit(session)
-        raise
-    callbacks: list[AfterCommitCallback] = session.info.pop(_AFTER_COMMIT_INFO_SLOT, [])
-    for callback in callbacks:
-        try:
-            result: Any = callback()
-            if inspect.isawaitable(result):
-                await result
-        except Exception:
-            logger.exception("after_commit callback failed")
-
-
-async def rollback_session(session: AsyncSession) -> None:
-    """Roll back and drop the after-commit callbacks."""
-    discard_after_commit(session)
-    await session.rollback()
-
-
-async def get_session() -> AsyncIterator[AsyncSession]:
-    """Request-scoped session: commit on success, roll back on error, always close."""
+    Declare it with :data:`SessionDep`, not a bare ``Depends(get_session)``.
+    """
     async with get_sessionmaker()() as session:
         try:
             yield session
-            await commit_session(session)
+            await session.commit()
         except BaseException:
-            await rollback_session(session)
+            await session.rollback()
             raise
+
+
+SessionDep = Annotated[AppSession, Depends(get_session, scope="function")]
+"""Router parameter type. ``scope="function"`` ends the dependency (the commit) before the response
+is sent, so commit-time failures reach the client as errors."""

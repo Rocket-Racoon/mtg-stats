@@ -3,6 +3,11 @@
 Layout: 48-bit Unix time in milliseconds, 4 version bits, a 12-bit counter, 2 variant bits and
 62 random bits. The counter makes IDs generated in the same millisecond (in one process) sort in
 creation order; if it overflows, the timestamp is advanced by one millisecond.
+
+Ordering is per process and at millisecond granularity: IDs from different processes or workers
+in the same millisecond have no defined order. If the clock goes backwards, ``_last_ms`` holds the
+highest timestamp seen, so IDs keep increasing (RFC 9562 allows this). After ``fork`` the child
+resets the lock and state, so it never inherits a lock held by another thread.
 """
 
 import os
@@ -14,6 +19,17 @@ _COUNTER_MAX = 0xFFF
 _lock = threading.Lock()
 _last_ms = -1
 _counter = 0
+
+
+def _reset_after_fork() -> None:
+    global _lock, _last_ms, _counter  # noqa: PLW0603
+    _lock = threading.Lock()
+    _last_ms = -1
+    _counter = 0
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_reset_after_fork)
 
 
 def uuid7() -> uuid.UUID:

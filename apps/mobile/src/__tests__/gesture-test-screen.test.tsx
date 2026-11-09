@@ -1,6 +1,12 @@
+// Jest runs Reanimated with synchronous shared values, so these tests cover the component's logic,
+// not UI-thread ordering. Thread ordering is verified on a device.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { GestureHandlerRootView, State } from 'react-native-gesture-handler';
-import { fireGestureHandler, getByGestureTestId } from 'react-native-gesture-handler/jest-utils';
+import {
+  createGestureController,
+  fireGestureHandler,
+  getByGestureTestId,
+} from 'react-native-gesture-handler/jest-utils';
 import { getAnimatedStyle, setUpTests } from 'react-native-reanimated';
 import { GestureTestScreen, MOVE_STEP } from '../components/GestureTestScreen';
 
@@ -154,6 +160,64 @@ describe('GestureTestScreen (AC3 logic layer)', () => {
     expect(translation()).toEqual({ x: MOVE_STEP, y: MOVE_STEP });
   });
 
-  // MANUAL (no emulator available): drag and release the box on iOS and Android without errors.
-  it.todo('MANUAL: box can be dragged and released on iOS and Android without errors');
+  // fireGestureHandler always appends an END event, so a drag held open needs the controller.
+  function pan() {
+    return createGestureController('gesture-box-pan');
+  }
+
+  it('ignores a Move tap made during an active drag, leaving only the drop position', async () => {
+    await renderScreen();
+    const gesture = pan();
+    await act(async () => {
+      gesture.begin();
+      gesture.activate({ translationX: 0, translationY: 0 });
+      gesture.update({ translationX: 30, translationY: 20 });
+      jest.advanceTimersByTime(100);
+    });
+    await pressMove();
+    await advance(1000);
+    expect(translation()).toEqual({ x: 30, y: 20 });
+    await act(async () => {
+      gesture.end({ translationX: 30, translationY: 20 });
+      jest.advanceTimersByTime(100);
+    });
+    await advance(1000);
+    expect(translation()).toEqual({ x: 30, y: 20 });
+  });
+
+  it('snaps back to the previous target when the drag is cancelled, committing nothing', async () => {
+    await renderScreen();
+    await pressMove();
+    await advance(1000);
+    const gesture = pan();
+    await act(async () => {
+      gesture.begin();
+      gesture.activate({ translationX: 0, translationY: 0 });
+      gesture.update({ translationX: 30, translationY: 20 });
+      gesture.cancel({ translationX: 30, translationY: 20 });
+      jest.advanceTimersByTime(100);
+    });
+    await advance(1000);
+    expect(translation()).toEqual({ x: MOVE_STEP, y: MOVE_STEP });
+    // Nothing was committed: the next Move adds to the old target.
+    await pressMove();
+    await advance(1000);
+    expect(translation()).toEqual({ x: 2 * MOVE_STEP, y: 2 * MOVE_STEP });
+  });
+
+  it('starts a drag from the position shown mid-animation', async () => {
+    await renderScreen();
+    await pressMove();
+    await advance(150);
+    const shown = translation();
+    expect(shown.x).toBeGreaterThan(0);
+    expect(shown.x).toBeLessThan(MOVE_STEP);
+    await drag(30, 20);
+    await advance(1000);
+    expect(translation().x).toBeCloseTo(shown.x + 30, 5);
+    expect(translation().y).toBeCloseTo(shown.y + 20, 5);
+  });
+
+  // MANUAL: Android is required (emulator or device), iOS is optional (decisions log, #40).
+  it.todo('MANUAL: box can be dragged and released on Android (required) and iOS (optional)');
 });

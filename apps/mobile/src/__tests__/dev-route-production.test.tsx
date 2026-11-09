@@ -4,7 +4,6 @@ import GestureTestRoute from '../app/dev/gesture-test';
 // Redirect is mocked so the test can observe the redirect target without a navigator.
 const mockRedirect = jest.fn();
 jest.mock('expo-router', () => ({
-  ...jest.requireActual<object>('expo-router'),
   Redirect: (props: { href: string }) => {
     mockRedirect(props.href);
     return null;

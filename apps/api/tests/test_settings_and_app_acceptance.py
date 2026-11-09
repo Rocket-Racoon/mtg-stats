@@ -1,13 +1,15 @@
 """Acceptance tests for S-1.4.1: environment settings and the app factory."""
 
-import importlib
 import re
+import shutil
+import subprocess
 import sys
 from collections.abc import Iterator
 from pathlib import Path
 
 import httpx
 import pytest
+from fastapi import Response
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
@@ -407,8 +409,16 @@ def test_find_env_file_finds_env_next_to_the_workspace_marker(
     assert config.find_env_file() == (tmp_path / ".env").resolve()
 
 
-def test_importing_config_never_raises() -> None:
-    importlib.reload(config)
+def test_importing_config_in_a_fresh_interpreter_never_raises() -> None:
+    api_dir = Path(__file__).resolve().parents[1]
+    result = subprocess.run(  # noqa: S603  (fixed argv, no untrusted input)
+        [shutil.which("uv") or "uv", "run", "python", "-c", "import app.core.config"],
+        cwd=api_dir,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows env var names are case-insensitive")
@@ -495,3 +505,82 @@ def test_dev_with_no_origins_gives_only_the_web_dev_origin(monkeypatch: pytest.M
 def test_dev_does_not_duplicate_the_web_dev_origin(monkeypatch: pytest.MonkeyPatch) -> None:
     s = _make(monkeypatch, "dev", f"{WEB_DEV_ORIGIN},{ALLOWED}")
     assert s.cors_allowed_origins == [WEB_DEV_ORIGIN, ALLOWED]
+
+
+def _vary_tokens(resp: httpx.Response) -> list[str]:
+    return [t.strip().lower() for v in resp.headers.get_list("vary") for t in v.split(",")]
+
+
+def _probe_client(monkeypatch: pytest.MonkeyPatch, vary_lines: list[str]) -> TestClient:
+    app = create_app(_make(monkeypatch, "prod", ALLOWED))
+
+    def probe() -> Response:
+        resp = Response("ok")
+        for line in vary_lines:
+            resp.headers.append("Vary", line)
+        return resp
+
+    app.add_api_route("/api/v1/probe", probe)
+    return TestClient(app)
+
+
+@pytest.mark.parametrize("origin", [None, EVIL, ALLOWED])
+def test_multiple_vary_lines_end_with_origin_exactly_once(
+    monkeypatch: pytest.MonkeyPatch, origin: str | None
+) -> None:
+    client = _probe_client(monkeypatch, ["Accept-Encoding", "Origin"])
+    resp = client.get("/api/v1/probe", headers={"Origin": origin} if origin else {})
+    tokens = _vary_tokens(resp)
+    assert tokens.count("origin") == 1
+    assert "accept-encoding" in tokens
+
+
+def test_vary_origin_is_added_when_other_vary_lines_lack_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _probe_client(monkeypatch, ["Accept-Encoding", "Accept-Language"])
+    tokens = _vary_tokens(client.get("/api/v1/probe"))
+    assert tokens.count("origin") == 1
+    assert {"accept-encoding", "accept-language"} <= set(tokens)
+
+
+def test_vary_star_is_left_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _probe_client(monkeypatch, ["*"])
+    resp = client.get("/api/v1/probe", headers={"Origin": EVIL})
+    assert _vary_tokens(resp) == ["*"]
+
+
+@pytest.mark.parametrize(
+    ("configured", "normalised"),
+    [("https://a.com:443", "https://a.com"), ("http://a.com:80", "http://a.com")],
+)
+def test_default_ports_are_normalised_and_match_browser_origin(
+    monkeypatch: pytest.MonkeyPatch, configured: str, normalised: str
+) -> None:
+    settings = _make(monkeypatch, "prod", configured)
+    assert settings.cors_allowed_origins == [normalised]
+    client = TestClient(create_app(settings))
+    resp = client.get("/api/v1/openapi.json", headers={"Origin": normalised})
+    assert resp.headers["access-control-allow-origin"] == normalised
+
+
+def test_origin_with_whitespace_is_rejected_at_startup(monkeypatch: pytest.MonkeyPatch) -> None:
+    _env(monkeypatch, APP_ENV="prod", DATABASE_URL=DB_URL, CORS_ALLOWED_ORIGINS="https://a .com")
+    with pytest.raises(ValidationError, match="CORS_ALLOWED_ORIGINS"):
+        create_app()
+
+
+def test_ipv6_origin_is_accepted_and_matched(monkeypatch: pytest.MonkeyPatch) -> None:
+    origin = "https://[::1]:8080"
+    settings = _make(monkeypatch, "prod", origin)
+    assert settings.cors_allowed_origins == [origin]
+    resp = TestClient(create_app(settings)).get("/api/v1/openapi.json", headers={"Origin": origin})
+    assert resp.headers["access-control-allow-origin"] == origin
+
+
+def test_lifespan_events_pass_through_the_cors_middleware(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = create_app(_make(monkeypatch, "prod", ALLOWED))
+    with TestClient(app) as client:
+        assert client.get("/api/v1/openapi.json").status_code == 200

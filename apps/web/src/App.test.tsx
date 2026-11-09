@@ -1,10 +1,16 @@
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { App } from './App';
+import { createMemoryRouter } from 'react-router';
+import { RouterProvider } from 'react-router/dom';
+import { routes } from './routes';
+
+function renderApp() {
+  return render(<RouterProvider router={createMemoryRouter(routes, { initialEntries: ['/'] })} />);
+}
 
 describe('App shell', () => {
   it('renders the banner landmark containing the MTG Stats heading', () => {
-    render(<App />);
+    renderApp();
     const banner = screen.getByRole('banner');
     expect(
       within(banner).getByRole('heading', { level: 1, name: 'MTG Stats' }),
@@ -12,17 +18,17 @@ describe('App shell', () => {
   });
 
   it('renders the main landmark', () => {
-    render(<App />);
+    renderApp();
     expect(screen.getByRole('main')).toBeInTheDocument();
   });
 
   it('renders the contentinfo landmark as the footer placeholder', () => {
-    render(<App />);
+    renderApp();
     expect(screen.getByRole('contentinfo')).toBeInTheDocument();
   });
 
   it('renders the three workspace package names, proving the workspace link at runtime', () => {
-    render(<App />);
+    renderApp();
     const main = screen.getByRole('main');
     expect(main).toHaveTextContent('@mtg-stats/api-client');
     expect(main).toHaveTextContent('@mtg-stats/card-utils');
@@ -30,7 +36,7 @@ describe('App shell', () => {
   });
 
   it('renders the API base URL inside the main landmark', () => {
-    render(<App />);
+    renderApp();
     expect(screen.getByRole('main')).toHaveTextContent(/API: https?:\/\//);
   });
 });

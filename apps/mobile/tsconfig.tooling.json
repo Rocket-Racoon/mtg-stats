@@ -2,7 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "jsx": "react-native",
-    "types": ["jest"]
+    "types": ["jest", "node"]
   },
   "include": ["expo-env.d.ts", "jest.setup.ts", "src"]
 }

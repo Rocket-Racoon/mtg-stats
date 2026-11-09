@@ -1,15 +1,29 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
-import { scheduleOnRN } from 'react-native-worklets';
+import Animated, {
+  cancelAnimation,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
+import { scheduleOnUI } from 'react-native-worklets';
 
 /*
- * Template for every drag interaction in the app: ONE commit path for drag and tap.
- *  - `target` is the logical position. `x`/`y` are only the animated view of it.
- *  - The drag follows the finger directly, and on release calls commitMove(next).
- *  - The tap alternative (Move button, accessibility action) calls the same commitMove(next),
- *    computed from `target`, so quick taps accumulate and never read the in-flight animated value.
- *  - commitMove stores the target, then animates x/y toward it with withTiming.
+ * Template for every drag interaction in the app: one commit path, owned by the UI thread.
+ *  - `target` is the logical position and lives ONLY on the UI thread. `x`/`y` are the animated
+ *    view of it. Nothing on the JS thread reads or writes `target`, so there is no stale cache.
+ *  - `commitMove(next)` is a worklet: it sets `target` and animates `x`/`y` toward it.
+ *  - The drag runs on the UI thread. It starts from the position currently shown (after
+ *    cancelling any animation), follows the finger, and on release calls commitMove directly.
+ *    If the system cancels the gesture (`e.canceled`) it snaps back to `target` and commits nothing.
+ *  - The tap alternative (Move button, accessibility `activate` action) hops to the UI thread with
+ *    scheduleOnUI, reads `target` there and calls the same commitMove. The UI thread runs these
+ *    in FIFO order, so quick taps accumulate and never lose a step.
+ *  - A tap during a drag is ignored on purpose (`isDragging`): the finger owns the box.
+ *  - Use scheduleOnRN only for JS-side effects. None are needed here; persisting the position or
+ *    calling the API would go there, after commitMove.
+ *
+ * The Jest tests cover this logic, not thread ordering. Check ordering on a device.
  */
 
 export const MOVE_STEP = 40;
@@ -24,23 +38,32 @@ export function GestureTestScreen() {
   const y = useSharedValue(0);
   const target = useSharedValue<Point>({ x: 0, y: 0 });
   const dragStart = useSharedValue<Point>({ x: 0, y: 0 });
+  const isDragging = useSharedValue(false);
 
   const commitMove = (next: Point) => {
+    'worklet';
     target.set(next);
     x.set(withTiming(next.x));
     y.set(withTiming(next.y));
   };
 
   const moveByStep = () => {
-    const current = target.get();
-    commitMove({ x: current.x + MOVE_STEP, y: current.y + MOVE_STEP });
+    scheduleOnUI(() => {
+      'worklet';
+      if (isDragging.get()) return;
+      const t = target.get();
+      commitMove({ x: t.x + MOVE_STEP, y: t.y + MOVE_STEP });
+    });
   };
 
   const pan = usePanGesture({
     testID: 'gesture-box-pan',
     onActivate: () => {
       'worklet';
-      dragStart.set(target.get());
+      isDragging.set(true);
+      cancelAnimation(x);
+      cancelAnimation(y);
+      dragStart.set({ x: x.get(), y: y.get() });
     },
     onUpdate: (e) => {
       'worklet';
@@ -50,8 +73,15 @@ export function GestureTestScreen() {
     },
     onDeactivate: (e) => {
       'worklet';
+      isDragging.set(false);
+      if (e.canceled) {
+        const t = target.get();
+        x.set(withTiming(t.x));
+        y.set(withTiming(t.y));
+        return;
+      }
       const start = dragStart.get();
-      scheduleOnRN(commitMove, { x: start.x + e.translationX, y: start.y + e.translationY });
+      commitMove({ x: start.x + e.translationX, y: start.y + e.translationY });
     },
   });
 

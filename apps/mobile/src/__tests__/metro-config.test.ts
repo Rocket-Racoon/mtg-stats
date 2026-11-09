@@ -1,4 +1,3 @@
-/// <reference types="node" />
 import path from 'node:path';
 
 // The AC2 stand-in: Metro can only pick up a saved change in packages/game-core if it watches

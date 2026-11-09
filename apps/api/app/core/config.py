@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     @field_validator("database_url")
     @classmethod
     def _check_database_url(cls, value: str) -> str:
-        msg = f"must be a {DATABASE_URL_PREFIX}user:password@host:port/db URL"
+        msg = f"must start with {DATABASE_URL_PREFIX} and have a host and a valid port"
         if not value.startswith(DATABASE_URL_PREFIX):
             raise ValueError(msg)
         try:
@@ -76,7 +76,7 @@ def _normalise_origin(origin: str) -> str:
     msg = f"invalid origin {origin!r}; expected http(s)://host[:port] with no path"
     if "*" in origin or origin == "null":
         raise ValueError("wildcard and null origins are not allowed (credentials are sent)")
-    if any(ch in origin for ch in "?#@"):
+    if any(ch in origin for ch in "?#@") or any(ch.isspace() for ch in origin):
         raise ValueError(msg)
     try:
         parts = urlsplit(origin)
@@ -88,7 +88,10 @@ def _normalise_origin(origin: str) -> str:
         raise ValueError(msg)
     if ":" in host:
         host = f"[{host}]"
-    return f"{parts.scheme.lower()}://{host}" + (f":{port}" if port is not None else "")
+    scheme = parts.scheme.lower()
+    if port == {"http": 80, "https": 443}[scheme]:
+        port = None
+    return f"{scheme}://{host}" + (f":{port}" if port is not None else "")
 
 
 def find_env_file() -> Path | None:

@@ -38,7 +38,11 @@ class OriginGatedCORSMiddleware:
         async def send_with_vary(message: Message) -> None:
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
-                existing = [v.strip().lower() for v in headers.get("vary", "").split(",")]
+                existing = {
+                    token.strip().lower()
+                    for line in headers.getlist("vary")
+                    for token in line.split(",")
+                }
                 if "origin" not in existing and "*" not in existing:
                     headers.append("Vary", "Origin")
             await send(message)

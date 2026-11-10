@@ -13,7 +13,7 @@ pnpm hooks:install                        # pre-commit hooks (S-1.8.7); run once
 
 # Run
 pnpm dev:api                              # uv run uvicorn app.main:app --reload (apps/api)
-pnpm dev:worker                           # uv run arq app.workers.settings.WorkerSettings
+pnpm dev:worker                           # uv run python -m app.workers (arq; SelectorEventLoop on Windows)
 pnpm dev:web                              # Vite dev server
 pnpm dev:mobile                           # Expo dev server
 

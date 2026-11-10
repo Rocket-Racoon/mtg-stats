@@ -29,7 +29,7 @@ pnpm verify                               # all 12 steps in order; stops at the 
 pnpm verify:api                           # steps 1-6 only
 pnpm verify:ts                            # steps 7-12 only
 pnpm verify --list                        # print the steps and their commands, run nothing
-# API half (Python steps run from apps/api; 2-5 also cover the repo-level scripts/ Python):
+# API half (steps 2-6 run from apps/api; 2-5 also cover the repo-level scripts/ Python):
 #  1. secrets check        uv run --project apps/api python scripts/secrets_check.py
 #  2. ruff check           uv run ruff check .
 #  3. ruff format --check  uv run ruff format --check .

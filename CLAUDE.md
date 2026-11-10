@@ -24,21 +24,28 @@ uv run alembic upgrade head
 # API client: regenerate after any API change (CI fails on drift)
 pnpm client:generate                      # exports the spec, then regenerates the TS types
 
-# Verify gate (S-1.8.1). `pnpm verify` runs these in order and stops at the first failure.
-# `pnpm verify:api` and `pnpm verify:ts` run one half.
-#  1. pnpm secrets:check                   # scripts/secrets_check.py over all tracked files
-#  2. uv run ruff check . && uv run ruff format --check .
-#  3. uv run mypy --strict app/
-#  4. uv run pytest --cov=app --cov-fail-under=85
-#  5. uv run alembic check                 # migration drift
-#  6. pnpm client:check                    # client drift: the committed spec and TS types match the API
-#  7. pnpm -r lint                         # eslint
-#  8. pnpm -r format:check                 # prettier --check
-#  9. pnpm -r typecheck                    # tsc --noEmit
-# 10. pnpm -r test                         # Vitest (web, packages) + Jest/jest-expo (mobile)
+# Verify gate (S-1.8.1): every story ends with `pnpm verify` green.
+pnpm verify                               # all 12 steps in order; stops at the first failure and names it
+pnpm verify:api                           # steps 1-6 only
+pnpm verify:ts                            # steps 7-12 only
+pnpm verify --list                        # print the steps and their commands, run nothing
+# API half (Python steps run from apps/api; 2-5 also cover the repo-level scripts/ Python):
+#  1. secrets check        uv run --project apps/api python scripts/secrets_check.py
+#  2. ruff check           uv run ruff check .
+#  3. ruff format --check  uv run ruff format --check .
+#  4. mypy --strict        uv run mypy --strict app/
+#  5. pytest               uv run pytest --cov=app --cov-fail-under=85
+#  6. alembic check        uv run alembic check   # needs the dev DB at head; never upgrades
+# TS half:
+#  7. client drift check   pnpm client:check      # the committed spec and TS types match the API
+#  8. eslint               pnpm lint
+#  9. prettier --check     pnpm format:check
+# 10. tsc --noEmit         pnpm typecheck
+# 11. vitest               web, api-client, game-core, card-utils, then root tests/, one at a time
+# 12. jest                 mobile (jest-expo), --maxWorkers=2
 ```
 
-The exact commands are confirmed once the scaffold stories S-1.1.2 and S-1.1.3 are done.
+`scripts/verify.js` is the source of truth for the exact commands.
 
 ## Workflow
 

@@ -5,10 +5,11 @@ occurrence is in the past, so arq enqueues it without a deferral and no real wai
 """
 
 import asyncio
+import json
 import logging
 import random
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from arq.connections import ArqRedis
@@ -17,7 +18,10 @@ from arq.worker import Worker, create_worker
 
 from app.core import jobs as core_jobs
 from app.core.config import Settings, get_settings
-from app.workers.registry import JOBS, build_functions
+from app.core.jobs import RetryableJobError
+from app.core.logging import JsonFormatter
+from app.workers import registry
+from app.workers.registry import JOBS, JobSpec, build_functions
 from app.workers.schedule import (
     SCHEDULES,
     Schedule,
@@ -250,3 +254,117 @@ async def test_cron_results_are_kept_for_a_day(job_queue: JobQueue, occurrence: 
     await _drain(job_queue)
     ttl = await pool.pttl(f"arq:result:{job_id}")
     assert 23 * 3600 * 1000 < ttl <= 24 * 3600 * 1000
+
+
+# --- S-1.9.2 rules apply to scheduled jobs -------------------------------------------------------
+
+
+def test_cron_job_options_equal_the_plain_functions_for_every_scheduled_name() -> None:
+    functions = {f.name: f for f in build_functions()}
+    for job in build_cron_jobs(_settings()):
+        plain = functions[job.name]
+        assert job.timeout_s == plain.timeout_s
+        assert job.max_tries == plain.max_tries
+        assert job.timeout_s is not None
+        assert job.keep_result_s is not None
+        assert job.keep_result_s >= 24 * 3600
+
+
+class _Lines(logging.Handler):
+    """Formats each record as JSON while it is emitted, when the log context is still set."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setFormatter(JsonFormatter())
+        self.lines: list[dict[str, Any]] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.lines.append(json.loads(self.format(record)))
+
+
+async def test_scheduled_run_writes_the_end_of_run_log_line(
+    job_queue: JobQueue, occurrence: Any
+) -> None:
+    now, job_id, pool = occurrence
+    await _scheduler_tick(_worker(job_queue, pool), now)
+    handler = _Lines()
+    logger = logging.getLogger("app.workers.registry")
+    logger.addHandler(handler)
+    previous = logger.level
+    logger.setLevel(logging.INFO)
+    try:
+        assert await _drain(job_queue) == 1
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous)
+    (line,) = handler.lines
+    assert line["job"] == HEARTBEAT
+    assert line["job_id"] == job_id
+    assert line["try"] == 1
+    assert line["outcome"] == "success"
+    assert isinstance(line["duration_ms"], int)
+
+
+_JOB_KEY_KINDS = ("job", "result", "in-progress", "retry")
+flaky_calls: list[str] = []
+
+
+async def flaky_cron(ctx: dict[str, Any]) -> None:
+    flaky_calls.append(ctx["job_id"])
+    raise RetryableJobError("transient")
+
+
+async def test_a_retried_scheduled_job_keeps_its_occurrence_id_and_blocks_a_lagging_worker(
+    job_queue: JobQueue, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A retryable error retries under the same id (max_tries comes from the JobSpec).
+
+    arq keeps a cron job's in-progress key for 60 s, so a live retry would take over a minute;
+    this test runs one attempt and checks the keys and the queue instead.
+    """
+    name = f"tests.flaky_cron_{job_queue.token}"
+    flaky_calls.clear()
+    monkeypatch.setitem(cast(dict[str, JobSpec], JOBS), name, JobSpec(flaky_cron))
+    monkeypatch.setitem(
+        cast(dict[str, Schedule], SCHEDULES), name, Schedule(minute=set(range(0, 60, 5)))
+    )
+    monkeypatch.setattr(registry, "RETRY_DELAYS_SECONDS", (0, 0, 0))
+    run_at = datetime(2021, 6, 1, tzinfo=UTC) + timedelta(microseconds=123456)
+    job_id = f"{name}:{to_unix_ms(run_at)}"
+    pool = await core_jobs.get_jobs_pool()
+    jobs = [j for j in build_cron_jobs(_settings()) if j.name == name]
+    assert (jobs[0].max_tries or 0) > 1  # not arq's cron default of 1
+
+    def make() -> Worker:
+        return create_worker(
+            WorkerSettings,
+            functions=build_functions(),
+            cron_jobs=build_cron_jobs(_settings()),
+            queue_name=job_queue.name,
+            poll_delay=0.05,
+            handle_signals=False,
+            timezone=UTC,
+            redis_pool=pool,
+        )
+
+    heartbeat_id = f"{HEARTBEAT}:{to_unix_ms(run_at)}"  # the real schedule fires at this time too
+    keys = [f"arq:{k}:{i}" for i in (job_id, heartbeat_id) for k in _JOB_KEY_KINDS]
+    first, lagging = make(), make()
+    try:
+        await _scheduler_tick(first, run_at - timedelta(seconds=1))
+        assert await pool.zscore(job_queue.name, job_id) is not None
+        await first._poll_iteration()
+        await asyncio.gather(*first.tasks.values())
+        assert flaky_calls == [job_id]
+        assert first.jobs_retried == 1
+        assert first.jobs_failed == 0
+        assert await pool.exists(f"arq:job:{job_id}") == 1  # still queued for its retry
+        assert await pool.exists(f"arq:result:{job_id}") == 0  # not failed
+        assert await pool.zscore(job_queue.name, job_id) is not None
+
+        await pool.zrem(job_queue.name, job_id)  # make a re-enqueue by the lagging worker visible
+        await _scheduler_tick(lagging, run_at - timedelta(seconds=1))  # slow second worker
+        assert await pool.zscore(job_queue.name, job_id) is None
+        assert flaky_calls == [job_id]
+    finally:
+        await pool.delete(job_queue.name, *keys)

@@ -10,6 +10,13 @@ result key exists. The result is therefore kept (see :data:`SCHEDULE_KEEP_RESULT
 arq's default ``keep_result=0`` a worker that was slow to wake up could enqueue an occurrence
 again after another worker had already run it and deleted its result.
 
+Scheduled jobs follow S-1.9.2's rules: each cron job runs through :func:`wrap_job` and takes its
+timeout and ``max_tries`` from its ``JobSpec`` via :func:`arq_options`, so a
+:class:`~app.core.jobs.RetryableJobError` is retried under the same occurrence id (arq keeps a
+cron job's in-progress key for 60 s, so a cron retry waits at least that long). Caveat: a long job
+whose retries run past its next occurrence can overlap it, because the next occurrence has a new
+id. That cannot happen to the heartbeat.
+
 The scheduler runs only when ``SCHEDULER_ENABLED`` is true and ``APP_ENV`` is not ``test``.
 """
 
@@ -24,7 +31,7 @@ from arq.typing import OptionType, WeekdayOptionType
 
 from app.core.config import Settings
 from app.core.jobs import KEEP_RESULT_SECONDS
-from app.workers.registry import JOBS, _with_log_context
+from app.workers.registry import JOBS, arq_options, wrap_job
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +105,7 @@ def build_cron_jobs(settings: Settings) -> list[CronJob]:
         return []
     return [
         cron(
-            cast(Any, _with_log_context(name, JOBS[name])),
+            cast(Any, wrap_job(name, JOBS[name])),
             name=name,
             month=schedule.month,
             day=schedule.day,
@@ -109,7 +116,7 @@ def build_cron_jobs(settings: Settings) -> list[CronJob]:
             microsecond=CRON_MICROSECOND,
             unique=True,
             keep_result=SCHEDULE_KEEP_RESULT_SECONDS,
-            max_tries=1,
+            **arq_options(JOBS[name]),
         )
         for name, schedule in SCHEDULES.items()
     ]

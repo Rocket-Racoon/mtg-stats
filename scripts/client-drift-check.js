@@ -16,6 +16,8 @@
 //                        (CLIENT_CHECK_EXPORT_CMD), default
 //                        ["uv","run","--directory","apps/api","python","-m","app.scripts.export_openapi"]
 //
+// CLIENT_CHECK_TIMEOUT_MS overrides the 300 s limit on each spawned step.
+//
 // Exit codes: 0 up to date; 1 drift (changed files are listed); 2 the export or generation failed.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -28,6 +30,8 @@ const EXIT_DRIFT = 1;
 const EXIT_ERROR = 2;
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const clientDir = join(repoRoot, 'packages', 'api-client');
+const DEFAULT_TIMEOUT_MS = 300_000; // override with CLIENT_CHECK_TIMEOUT_MS
+const MAX_BUFFER = 64 * 1024 * 1024;
 const HINT = 'Run `pnpm client:generate` and commit the result.';
 const DEFAULT_EXPORT_CMD = [
   'uv',
@@ -69,7 +73,7 @@ function parseArgs(argv, env) {
     const key = flags[argv[i]];
     if (!key) throw new CheckError(`Unknown argument: ${argv[i]}`);
     const value = argv[++i];
-    if (!value) throw new CheckError(`${argv[i - 1]} needs a value`);
+    if (!value || value.startsWith('--')) throw new CheckError(`${argv[i - 1]} needs a value`);
     opts[key] = value;
   }
   return {
@@ -83,11 +87,16 @@ function parseArgs(argv, env) {
 }
 
 function run(label, command, args, cwd) {
-  const result = spawnSync(command, args, { cwd, encoding: 'utf8' });
-  if (result.error) throw new CheckError(`${label} failed to start: ${result.error.message}`);
+  const result = spawnSync(command, args, {
+    cwd,
+    encoding: 'utf8',
+    timeout: Number(process.env.CLIENT_CHECK_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS,
+    maxBuffer: MAX_BUFFER,
+  });
+  if (result.error) throw new CheckError(`${label} failed: ${result.error.message}`);
   if (result.status !== 0) {
     const output = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim();
-    throw new CheckError(`${label} failed (exit ${result.status}).\n${output}`);
+    throw new CheckError(`${label} failed (exit ${result.status ?? result.signal}).\n${output}`);
   }
 }
 

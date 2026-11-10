@@ -2,8 +2,9 @@
 //
 //   node scripts/generate.mjs [--input <openapi.json>] [--output <schema.d.ts>] [--check]
 //
-// --check writes nothing and exits 1 when the output file differs from a fresh generation
-// (the client drift gate, mirroring `pnpm openapi:export --check`).
+// --check writes nothing and exits 1 when the output file differs from a fresh generation: a
+// quick TS-only consistency check of the schema against the committed spec. The end-to-end
+// drift gate (API code -> spec -> schema) is `pnpm client:check`.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';

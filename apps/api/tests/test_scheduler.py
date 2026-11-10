@@ -62,7 +62,7 @@ def test_startup_log_lists_each_job_with_schedule_and_next_run_in_utc(
     assert len(messages) == len(SCHEDULES)
     assert any(
         m.startswith("scheduled job system.heartbeat schedule=[minute=0,5,10,")
-        and m.endswith("next_run=2026-03-01T12:05:00.123456+00:00")
+        and m.endswith("next_run=2026-03-01T12:05:00.123+00:00")
         for m in messages
     ), messages
 
@@ -78,6 +78,20 @@ def test_next_run_in_log_matches_arq_cron_job() -> None:
 def test_describe_shows_the_fields_that_are_set() -> None:
     assert Schedule(hour=3, minute=0).describe() == "hour=3 minute=0"
     assert Schedule().describe() == "every minute"
+    assert Schedule(minute=0, second=30).describe() == "minute=0 second=30"
+
+
+def test_startup_log_reads_the_cron_jobs_the_worker_built(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    jobs = build_cron_jobs(_settings())
+    now = datetime(2026, 3, 1, 12, 3, 30, tzinfo=UTC)
+    with caplog.at_level(logging.INFO, logger="app.workers.schedule"):
+        log_schedule(_settings(), now, jobs)
+    (line,) = [r.getMessage() for r in caplog.records]
+    assert "scheduled job system.heartbeat" in line
+    assert line.endswith("next_run=2026-03-01T12:05:00.123+00:00")
+    assert jobs[0].next_run is None  # logging does not touch arq's own state
 
 
 # --- AC3: enable / disable ---------------------------------------------------------------------

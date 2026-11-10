@@ -56,7 +56,7 @@ async def serve(extra_jobs: Mapping[str, JobSpec | JobFunction] | None = None) -
     logger.info(
         "registered jobs (%d): %s", len(worker.functions), ", ".join(sorted(worker.functions))
     )
-    log_schedule(get_settings())
+    log_schedule(get_settings(), cron_jobs=worker.cron_jobs)
     if sys.platform == "win32":
         _install_windows_signal_handlers(worker, asyncio.get_running_loop())
     try:

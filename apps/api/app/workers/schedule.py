@@ -14,7 +14,7 @@ The scheduler runs only when ``SCHEDULER_ENABLED`` is true and ``APP_ENV`` is no
 """
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -27,6 +27,11 @@ from app.core.jobs import KEEP_RESULT_SECONDS
 from app.workers.registry import JOBS, _with_log_context
 
 logger = logging.getLogger(__name__)
+
+CRON_MICROSECOND = 123_456
+"""arq's default microsecond, pinned. It is part of every occurrence's time and so of its job id
+(``<name>:<ms>``): changing it changes every id, and in a rolling deploy workers with different
+values would each run the same occurrence once. Never change it without stopping all workers."""
 
 SCHEDULE_KEEP_RESULT_SECONDS = KEEP_RESULT_SECONDS
 """One day: far longer than the seconds in which a lagging worker can still see an occurrence."""
@@ -53,18 +58,24 @@ class Schedule:
             hour=self.hour,
             minute=self.minute,
             second=self.second,
+            microsecond=CRON_MICROSECOND,
         )
 
     def describe(self) -> str:
         """Return the set fields as ``minute=0,5,10 hour=3``; ``every minute`` if none is set."""
-        parts = []
-        for field in ("month", "day", "weekday", "hour", "minute"):
-            value = getattr(self, field)
-            if value is None:
-                continue
-            shown = sorted(value) if isinstance(value, set | list | tuple) else [value]
-            parts.append(f"{field}={','.join(str(v) for v in shown)}")
-        return " ".join(parts) or "every minute"
+        return _describe(self)
+
+
+def _describe(fields: Any) -> str:
+    """Describe the cron fields of a :class:`Schedule` or an arq ``CronJob``."""
+    parts = []
+    for field in ("month", "day", "weekday", "hour", "minute", "second"):
+        value = getattr(fields, field)
+        if value is None or (field == "second" and value == 0):
+            continue
+        shown = sorted(value) if isinstance(value, set | list | tuple) else [value]
+        parts.append(f"{field}={','.join(str(v) for v in shown)}")
+    return " ".join(parts) or "every minute"
 
 
 SCHEDULES: Mapping[str, Schedule] = {
@@ -95,6 +106,7 @@ def build_cron_jobs(settings: Settings) -> list[CronJob]:
             hour=schedule.hour,
             minute=schedule.minute,
             second=schedule.second,
+            microsecond=CRON_MICROSECOND,
             unique=True,
             keep_result=SCHEDULE_KEEP_RESULT_SECONDS,
             max_tries=1,
@@ -103,18 +115,38 @@ def build_cron_jobs(settings: Settings) -> list[CronJob]:
     ]
 
 
-def log_schedule(settings: Settings, now: datetime | None = None) -> None:
-    """Log each scheduled job with its next UTC run time, or once that the scheduler is off."""
+def log_schedule(
+    settings: Settings, now: datetime | None = None, cron_jobs: Sequence[CronJob] | None = None
+) -> None:
+    """Log each scheduled job with its next UTC run time, or once that the scheduler is off.
+
+    The worker passes the ``cron_jobs`` it actually built, so the log shows what arq will run;
+    without them the jobs are read from :data:`SCHEDULES`. Next run times come from arq's
+    ``next_cron`` and no job's own state is changed.
+    """
     reason = scheduler_disabled_reason(settings)
     if reason is not None:
         logger.info("scheduler disabled (%s): no scheduled jobs will run", reason)
         return
     current = now or datetime.now(UTC)
-    for name, schedule in SCHEDULES.items():
-        next_run = schedule.next_run(current).astimezone(UTC).isoformat()
+    entries: list[tuple[str, Any]] = (
+        [(job.name, job) for job in cron_jobs] if cron_jobs is not None else list(SCHEDULES.items())
+    )
+    for name, fields in entries:
+        next_run = (
+            next_cron(
+                current,
+                month=fields.month,
+                day=fields.day,
+                weekday=fields.weekday,
+                hour=fields.hour,
+                minute=fields.minute,
+                second=fields.second,
+                microsecond=CRON_MICROSECOND,
+            )
+            .astimezone(UTC)
+            .isoformat(timespec="milliseconds")
+        )
         logger.info(
-            "scheduled job %s schedule=[%s] (UTC) next_run=%s",
-            name,
-            schedule.describe(),
-            next_run,
+            "scheduled job %s schedule=[%s] (UTC) next_run=%s", name, _describe(fields), next_run
         )

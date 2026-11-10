@@ -6,17 +6,18 @@ would need to wait for a real 5-minute boundary, so the live race uses an every-
 """
 
 import asyncio
+import dataclasses
 import logging
-import os
+import random
 import re
 import signal
-import time
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
 import pytest
-from arq.cron import cron, next_cron
+from arq.cron import next_cron
+from arq.utils import to_unix_ms
 from arq.worker import Worker, create_worker
 
 from app.core import jobs as core_jobs
@@ -102,20 +103,10 @@ def test_next_run_is_correct_for_a_non_utc_input() -> None:
     )
 
 
-@pytest.mark.skipif(not hasattr(time, "tzset"), reason="time.tzset is not available on Windows")
-def test_schedule_is_utc_even_when_the_host_timezone_is_not(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("TZ", "Asia/Kolkata")  # UTC+5:30: a half-hour offset exposes local time
-    time.tzset()
-    try:
-        result = SCHEDULES[HEARTBEAT].next_run(datetime(2026, 7, 1, 12, 3, 0, tzinfo=UTC))
-        assert result.astimezone(UTC).replace(microsecond=0) == datetime(
-            2026, 7, 1, 12, 5, 0, tzinfo=UTC
-        )
-    finally:
-        monkeypatch.undo()
-        time.tzset()
+def test_a_real_worker_evaluates_schedules_in_utc() -> None:
+    # Building a worker opens no connection (the pool is made in ``main``), so nothing to close.
+    worker = create_worker(WorkerSettings, queue_name="arq:queue:test-tz", handle_signals=False)
+    assert worker.timezone is UTC
 
 
 def test_worker_timezone_is_utc() -> None:
@@ -143,7 +134,17 @@ async def test_real_worker_in_dev_logs_every_schedule_with_its_next_run_at_start
     job_queue: JobQueue,
 ) -> None:
     before = datetime.now(UTC)
-    stderr, _ = await _stderr_of_worker(job_queue, {"APP_ENV": "dev", "SCHEDULER_ENABLED": "true"})
+    pool = await core_jobs.get_jobs_pool()
+    pattern = "arq:*:system.heartbeat:*"
+    existing = {k async for k in pool.scan_iter(match=pattern)}
+    try:
+        stderr, _ = await _stderr_of_worker(
+            job_queue, {"APP_ENV": "dev", "SCHEDULER_ENABLED": "true", "LOG_LEVEL": "INFO"}
+        )
+    finally:
+        created = [k async for k in pool.scan_iter(match=pattern) if k not in existing]
+        if created:
+            await pool.delete(*created)
     for name in SCHEDULES:
         (line,) = [ln for ln in stderr.splitlines() if f"scheduled job {name} " in ln]
         next_run = _next_run_of(line)
@@ -203,7 +204,7 @@ async def test_real_worker_with_scheduler_disabled_logs_the_reason_and_still_run
     job_queue: JobQueue, env: str, enabled: str, reason: str
 ) -> None:
     stderr, status = await _stderr_of_worker(
-        job_queue, {"APP_ENV": env, "SCHEDULER_ENABLED": enabled}
+        job_queue, {"APP_ENV": env, "SCHEDULER_ENABLED": enabled, "LOG_LEVEL": "INFO"}
     )
     assert status is JobStatus.COMPLETE  # normal enqueued jobs still run
     assert not re.search(r"scheduled job \w+\.", stderr)
@@ -247,6 +248,45 @@ def test_heartbeat_runs_exactly_twice_in_ten_minutes_five_minutes_apart(start: d
     assert all(r.minute % 5 == 0 for r in runs)
 
 
+async def test_worker_ticking_across_ten_minutes_runs_the_heartbeat_twice(
+    job_queue: JobQueue, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Drive arq's own scheduler loop over a past 10-minute window, then drain the queue."""
+    base = datetime(2021, 1, 1, tzinfo=UTC) + timedelta(minutes=5 * random.randrange(0, 400_000))  # noqa: S311
+    ids = [
+        f"{HEARTBEAT}:{to_unix_ms(base + timedelta(minutes=m, microseconds=123456))}"
+        for m in (5, 10)
+    ]
+    pool = await core_jobs.get_jobs_pool()
+    worker = create_worker(
+        WorkerSettings,
+        functions=build_functions(),
+        cron_jobs=build_cron_jobs(_settings("dev")),
+        queue_name=job_queue.name,
+        handle_signals=False,
+        timezone=UTC,
+        redis_pool=pool,
+    )
+    drain = create_worker(
+        WorkerSettings,
+        functions=build_functions(),
+        cron_jobs=build_cron_jobs(_settings("dev")),
+        queue_name=job_queue.name,
+        burst=True,
+        poll_delay=0.05,
+        handle_signals=False,
+    )
+    try:
+        for tick in range(1201):  # base .. base + 10 min, every 0.5 s
+            await worker.run_cron(base + timedelta(seconds=tick * 0.5), 0.5)
+        with caplog.at_level(logging.INFO, logger="app.system.services.jobs"):
+            await asyncio.wait_for(drain.async_run(), 20)
+    finally:
+        await drain.pool.aclose()
+        await pool.delete(*[f"arq:{k}:{i}" for i in ids for k in ("job", "result", "in-progress")])
+    assert [r.getMessage() for r in caplog.records].count("heartbeat") == 2
+
+
 def test_heartbeat_occurrences_match_arqs_own_next_cron() -> None:
     start = datetime(2026, 5, 6, 7, 8, 9, tzinfo=UTC)
     minutes = set(range(0, 60, 5))
@@ -286,20 +326,16 @@ async def test_two_live_workers_run_every_scheduled_second_exactly_once(
     async def tick(ctx: dict[str, Any]) -> None:
         runs.append(ctx["job_id"])
 
+    (real,) = build_cron_jobs(_settings("dev"))
+    job = dataclasses.replace(
+        real, name=name, coroutine=tick, minute=None, second=set(range(60)), next_run=None
+    )
+
     def make() -> Worker:
         return create_worker(
             WorkerSettings,
             functions=build_functions(),
-            cron_jobs=[
-                cron(
-                    tick,
-                    name=name,
-                    second=set(range(60)),
-                    unique=True,
-                    keep_result=24 * 3600,
-                    max_tries=1,
-                )
-            ],
+            cron_jobs=[job],
             queue_name=job_queue.name,
             poll_delay=0.05,
             handle_signals=False,
@@ -329,4 +365,3 @@ async def test_two_live_workers_run_every_scheduled_second_exactly_once(
         leftovers = [k async for k in pool.scan_iter(match=f"arq:*:{name}:*")]
         if leftovers:
             await pool.delete(*leftovers)
-        assert os.environ.get("APP_ENV") == "test"

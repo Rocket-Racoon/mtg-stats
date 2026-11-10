@@ -1,8 +1,9 @@
 """arq ``WorkerSettings`` (S-1.9.1), built from the environment.
 
 Importing this module reads settings, so ``REDIS_URL`` must be set. Run the worker with
-``python -m app.workers`` (it picks the right event loop and signal handling on Windows);
-``arq app.workers.settings.WorkerSettings`` works on Linux and macOS.
+``python -m app.workers``: it is the only supported entry point (it picks the right event loop
+and signal handling on Windows). The ``arq`` CLI is unsupported because it skips logging setup and
+the schedule log.
 
 Tuning:
 

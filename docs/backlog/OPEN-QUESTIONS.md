@@ -137,6 +137,8 @@ Status: `open` · `answered` (with the decision recorded). Answers are also copi
 | `@types/node` | **Approved** as a type-only TypeScript devDependency (S-1.1.3 review). Under TypeScript 6 it loads only where a tsconfig opts in with `"types": ["node"]`, such as root tooling tests, Vite and Playwright configs, never app code. |
 | Issue titles | The imported issues keep the `[S-1.1.1] Title` form rather than S-1.2.4 AC1's `S-1.1.1 — …` example (comment on #11). |
 | SQLAlchemy | **Approved by the user (2026-11-10):** 2.1.x (`>=2.1,<2.2`) falls within the plan §8 "SQLAlchemy 2.0" approval, because it is the same 2.0-style API. Locked at 2.1.8 in PR #451. CLAUDE.md's "SQLAlchemy 2.0" means this 2.0-style API. |
+| Type-only and test-runner packages | **Approved** (2026-11-08): `@types/react` and `@types/react-dom` (web, S-1.6.1), `@types/jest` (mobile), and `jest` itself as the required peer of the approved jest-expo (S-1.7.1). None ships in the app at runtime. |
+| S-1.7.1 platforms | **Android is required** for the device check, and iOS (Expo Go) is optional; it is checked when an iPhone is at hand and otherwise recorded as unverified. This follows the iPhone decision above (comment on #40). |
 | Tap targets (S-1.6.5 AC3) | **User decision (2026-11-10, S-1.6.6):** links inside a sentence of text are exempt from the 44 × 44 px rule below 768 px, per WCAG 2.5.8's "Inline" exception. Standalone links (such as the footer's About link) and every button keep 44 × 44. The web tests list the exempt selectors (`.attribution p a`) explicitly. |
 
 ## A. Dependencies needing approval (CLAUDE.md: ask before adding)

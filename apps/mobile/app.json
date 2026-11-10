@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "name": "MTG Stats",
+    "slug": "mtg-stats",
+    "scheme": "mtgstats",
+    "version": "0.0.0",
+    "orientation": "default",
+    "platforms": ["android", "ios"],
+    "android": { "package": "app.mtgstats" },
+    "plugins": ["expo-router"]
+  }
+}

@@ -5,21 +5,26 @@
 //
 //   --only api|ts        run only the Python half (steps 1-6) or the TypeScript half (steps 7-12)
 //   --list               print the selected steps and their commands, run nothing
-//   --step-cmds <json>   JSON object mapping a step name to an argv array that replaces that
+//   --step-cmds <json>   JSON object mapping a step name to one argv array, or to an array of argv
+//                        arrays (run in order, stopping at the first failure), that replaces that
 //                        step's commands (run from the repo root); also read from
 //                        VERIFY_STEP_CMDS, the flag wins. Meant for tests, for example
 //                        {"mypy --strict": ["node", "-e", "process.exit(1)"]}. A first element of
 //                        "node" means this Node binary.
+//   A bare `--` argument is ignored (pnpm 11 passes it through). --only may be given only once.
 //
 // Python steps run through `uv` (a real executable). pnpm is a `.cmd` shim on Windows that cannot
 // be spawned without a shell, so pnpm steps run through `$npm_execpath` (a JS file is run with this
 // Node binary, a native pnpm binary directly); that variable is set when this script is started
-// through `pnpm verify`.
+// through `pnpm verify` and is used only when its file name contains "pnpm".
 //
-// Exit codes: 0 every selected step passed; 1 a step failed (its name is printed to stderr);
-// 2 bad usage.
+// Exit codes: 0 every selected step passed. When a step fails, its name is printed to stderr and
+// the failing command's own exit code is passed through (capped at 255); it is 1 when the command
+// was killed by a signal or could not start. A step that itself exits 2 is therefore
+// indistinguishable by code from bad usage: rely on the FAILED line. 2 means bad usage when no step
+// has run (bad flag, bad JSON, unknown step name).
 import { spawnSync } from 'node:child_process';
-import { dirname, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
@@ -32,7 +37,19 @@ const ALEMBIC_HINT =
 
 const uv = (cwd, ...args) => ({ tool: 'uv', args, cwd });
 const pnpm = (...args) => ({ tool: 'pnpm', args, cwd: '.' });
+// `--fail-if-no-match`: pnpm 11 otherwise exits 0 when a filter matches no workspace.
+const pnpmTest = (workspace, ...args) =>
+  pnpm('--filter', workspace, '--fail-if-no-match', 'test', ...args);
 const vitestFlags = ['--pool=forks', '--maxWorkers=1'];
+// Every workspace with a `test` script. Exported so a test can check this list stays complete:
+// vitest workspaces run in the `vitest` step, jest workspaces in the `jest` step.
+export const VITEST_WORKSPACES = [
+  '@mtg-stats/web',
+  '@mtg-stats/api-client',
+  '@mtg-stats/game-core',
+  '@mtg-stats/card-utils',
+];
+export const JEST_WORKSPACES = ['@mtg-stats/mobile'];
 
 // Order matters: it is the order of acceptance criterion 1. Test steps run one workspace at a
 // time on purpose (memory-constrained machines).
@@ -88,17 +105,17 @@ export const STEPS = [
     name: 'vitest',
     half: 'ts',
     commands: [
-      pnpm('--filter', '@mtg-stats/web', 'test'),
-      pnpm('--filter', '@mtg-stats/api-client', 'test', ...vitestFlags),
-      pnpm('--filter', '@mtg-stats/game-core', 'test'),
-      pnpm('--filter', '@mtg-stats/card-utils', 'test'),
+      pnpmTest('@mtg-stats/web'),
+      pnpmTest('@mtg-stats/api-client', ...vitestFlags),
+      pnpmTest('@mtg-stats/game-core'),
+      pnpmTest('@mtg-stats/card-utils'),
       pnpm('exec', 'vitest', 'run', '--dir', 'tests', ...vitestFlags),
     ],
   },
   {
     name: 'jest',
     half: 'ts',
-    commands: [pnpm('--filter', '@mtg-stats/mobile', 'test', '--maxWorkers=2')],
+    commands: [pnpmTest('@mtg-stats/mobile', '--maxWorkers=2')],
   },
 ];
 
@@ -108,15 +125,19 @@ export function parseArgs(argv, env) {
   const opts = { only: undefined, list: false, stepCmds: env.VERIFY_STEP_CMDS };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === '--list') {
+    if (arg === '--') {
+      continue;
+    } else if (arg === '--list') {
       opts.list = true;
     } else if (arg === '--only' || arg === '--step-cmds') {
       const value = argv[++i];
       if (value === undefined || value.startsWith('--')) {
         throw new UsageError(`${arg} needs a value`);
       }
-      if (arg === '--only') opts.only = value;
-      else opts.stepCmds = value;
+      if (arg === '--only') {
+        if (opts.only !== undefined) throw new UsageError('--only may be given only once');
+        opts.only = value;
+      } else opts.stepCmds = value;
     } else {
       throw new UsageError(`Unknown argument: ${arg}`);
     }
@@ -126,6 +147,8 @@ export function parseArgs(argv, env) {
   }
   return { only: opts.only, list: opts.list, overrides: parseOverrides(opts.stepCmds) };
 }
+
+const isArgv = (v) => Array.isArray(v) && v.length > 0 && v.every((s) => typeof s === 'string');
 
 function parseOverrides(text) {
   if (!text) return {};
@@ -140,17 +163,19 @@ function parseOverrides(text) {
     typeof parsed === 'object' &&
     !Array.isArray(parsed) &&
     Object.values(parsed).every(
-      (v) => Array.isArray(v) && v.length > 0 && v.every((s) => typeof s === 'string'),
+      (v) => isArgv(v) || (Array.isArray(v) && v.length > 0 && v.every(isArgv)),
     );
   if (!valid) {
-    throw new UsageError('--step-cmds must be a JSON object of step name -> non-empty argv array');
+    throw new UsageError(
+      '--step-cmds must be a JSON object of step name -> non-empty argv array (or array of argv arrays)',
+    );
   }
   const unknown = Object.keys(parsed).filter((name) => !STEPS.some((s) => s.name === name));
   if (unknown.length > 0) {
     const known = STEPS.map((s) => s.name).join(', ');
     throw new UsageError(`--step-cmds names unknown steps: ${unknown.join(', ')}. Known: ${known}`);
   }
-  return parsed;
+  return Object.fromEntries(Object.entries(parsed).map(([name, v]) => [name, isArgv(v) ? [v] : v]));
 }
 
 // Turn a command description into something spawnSync can run without a shell.
@@ -162,7 +187,7 @@ function resolveCommand(command, env) {
   const cwd = resolve(repoRoot, command.cwd);
   if (command.tool === 'pnpm') {
     const execPath = env.npm_execpath;
-    if (execPath) {
+    if (execPath && /pnpm/i.test(basename(execPath))) {
       // npm_execpath is a JS entry point for npm-installed pnpm, or a native binary for the
       // standalone pnpm (`@pnpm/exe`).
       const isScript = /\.[cm]?js$/i.test(execPath);
@@ -181,7 +206,7 @@ function resolveCommand(command, env) {
 }
 
 function commandsFor(step, overrides) {
-  return overrides[step.name] ? [{ argv: overrides[step.name] }] : step.commands;
+  return overrides[step.name] ? overrides[step.name].map((argv) => ({ argv })) : step.commands;
 }
 
 function describe(command) {

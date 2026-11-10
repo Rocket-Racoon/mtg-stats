@@ -49,7 +49,7 @@ Each worktree needs `pnpm install` before you commit TS, JSON, YAML or Markdown 
 - `pnpm verify:api` runs steps 1-6 only, `pnpm verify:ts` runs steps 7-12 only.
 - `pnpm verify --list` prints the steps and their commands without running anything.
 - Needs `uv` and `pnpm` on the PATH, the Compose stack up (`docker compose -f infra/docker-compose.yml up -d postgres redis`) and a root `.env`. `alembic check` needs the dev database at head; if it fails, run `uv run alembic upgrade head` from `apps/api` (dev database only).
-- Test workspaces run one at a time, so a full run takes several minutes. It behaves the same on Windows PowerShell, macOS and Linux.
+- Test workspaces run one at a time, so a full run takes several minutes. The runner is one Node script with no shell, so it is cross-platform by design (developed on Windows PowerShell; Linux is exercised by CI). Start it with `pnpm verify`: running `node scripts/verify.js` directly cannot find pnpm on Windows.
 
 ## Planned layout
 

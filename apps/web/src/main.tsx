@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { createBrowserRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 import { routes } from './routes';
+import './theme/theme.css';
+import './App.css';
 import { startThemeSync } from './theme/store';
 
 const container = document.getElementById('root');

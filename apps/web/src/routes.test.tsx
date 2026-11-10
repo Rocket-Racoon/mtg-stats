@@ -150,6 +150,22 @@ describe('focus after navigation (S-1.6.2)', () => {
     await act(() => router.navigate('/decks'));
     expect(screen.getByRole('main')).toHaveFocus();
   });
+
+  it('keeps focus on main across layouts: /sign-in -> footer About link -> /about', async () => {
+    const user = userEvent.setup();
+    const router = renderAt('/sign-in');
+    expect(screen.getByRole('main')).not.toHaveFocus();
+    await user.click(within(screen.getByRole('contentinfo')).getByRole('link', { name: 'About' }));
+    expect(router.state.location.pathname).toBe('/about');
+    expect(screen.getByRole('main')).toHaveFocus();
+  });
+
+  it('keeps focus on main across layouts: /about -> /sign-in', async () => {
+    const router = renderAt('/about');
+    await act(() => router.navigate('/sign-in'));
+    expect(screen.getByRole('main')).toHaveFocus();
+    expect(document.activeElement?.id).toBe('main');
+  });
 });
 
 describe('compact menu toggle (S-1.6.2 AC2/AC3)', () => {

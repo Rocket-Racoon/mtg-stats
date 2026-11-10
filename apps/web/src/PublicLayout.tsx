@@ -8,7 +8,7 @@ import { Footer } from './Footer';
 export function PublicLayout() {
   return (
     <div className="shell shell-public">
-      <main id="main" className="shell-main">
+      <main id="main" tabIndex={-1} className="shell-main">
         <Outlet />
       </main>
       <Footer />

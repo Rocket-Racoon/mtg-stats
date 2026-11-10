@@ -6,5 +6,5 @@ export interface Env {
 export const DEFAULT_API_BASE_URL = 'http://localhost:8000/api/v1';
 
 export const env: Env = {
-  apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL,
+  apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL,
 };

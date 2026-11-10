@@ -1,5 +1,7 @@
 import { Link } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
+// Kept until S-1.5.3 hooks import `api`; proves the client bundles (S-1.5.2 AC4).
+import '../api';
 import { env } from '../env';
 import { linkedPackages } from '../linkedPackages';
 

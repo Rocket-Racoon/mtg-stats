@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtempSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -93,6 +93,13 @@ describe('vite build (slow, S-1.6.1 AC2 success path)', () => {
         build: { outDir, emptyOutDir: true },
       });
       expect(existsSync(join(outDir, 'index.html'))).toBe(true);
+      // The api-client must survive tree-shaking (S-1.5.2 AC4); drop this and the proof is lost.
+      const assets = join(outDir, 'assets');
+      const js = readdirSync(assets)
+        .filter((f) => f.endsWith('.js'))
+        .map((f) => readFileSync(join(assets, f), 'utf8'))
+        .join('\n');
+      expect(js).toContain('network_error');
     } finally {
       rmSync(outDir, { recursive: true, force: true });
     }

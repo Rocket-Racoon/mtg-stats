@@ -10,7 +10,9 @@ A domain `<name>` is one of `system`, `identity`, `playgroups`, `cards`, `decks`
 
 ## Files
 
-Create these under `apps/api/app/<name>/` (the layout test fails if one is missing):
+Create these under `apps/api/app/<name>/` (the layout test fails if `__init__.py`, `models.py`,
+`schemas.py`, `router.py`, `services/__init__.py`, `repository.py` or `tests/__init__.py` is
+missing; `tests/__init__.py` also prevents pytest module-name clashes between domains):
 
 ```
 app/<name>/
@@ -31,25 +33,35 @@ app/<name>/
 |---|---|---|
 | `models.py` | Tables and behavior about a model's own fields | UUID v7 keys (`app/core/ids.py`), `DateTime(timezone=True)`, non-null strings default to `""`, money is `Numeric(12, 2)` plus a currency code. No ORM event listeners for business logic. Other domains never import it. |
 | `schemas.py` | Pydantic v2 in/out | Errors use the envelope; list responses are `{items, next_cursor}`. |
-| `router.py` | Parse, resolve auth (`core.auth`), call **one** service function, respond | Imports no `sqlalchemy` module and not its own `repository`. No transactions and no permission checks (those live in services). |
-| `services/` | Business rules, transactions, permission checks | `services/__init__.py` re-exports what other code may call, with an `__all__`. A public function accepts an optional caller session and then never commits, enqueues or publishes directly (use `core.db.after_commit` / `core.jobs.enqueue_after_commit`). Other domains reach this one only through `services/__init__.py`. |
+| `router.py` | Parse, resolve auth (`core.auth`), call **one** service function, respond | A router module is any module that imports `APIRouter` (`router.py`, split router files, a `routers/` package). It imports no `sqlalchemy` module and not its own `repository`. No transactions and no permission checks beyond the `core.auth` dependencies it declares (the rest live in services). |
+| `services/` | Business rules, transactions, permission checks | `services/__init__.py` re-exports what other code may call, with an `__all__`. A public function that is given a caller session never commits, enqueues or publishes directly (use `core.db.after_commit` / `core.jobs.enqueue_after_commit`). Other domains reach this one only through `services/__init__.py`. |
 | `repository.py` | Reusable queries | Queries only this domain's tables; data from another domain comes through that domain's `services`. Every **list query eager-loads** what it serializes (`selectinload`/`joinedload`), with a test that counts queries. Cursor paging on list endpoints. |
-| `tests/` | Unit tests for the domain's internals | Names describe behavior. Acceptance tests live elsewhere. |
+| `tests/` | Unit tests for the domain's internals | Names describe behavior. Domain tests obey the same import boundaries as their domain (registry rule included). Cross-domain factories live in `apps/api/tests/factories.py`; acceptance tests live in `apps/api/tests/`, which may import `app.main` (`tests/app_factory.py` gives domain tests a fresh app). |
 
 ## Import rules (architecture §4.2)
 
 - Import another domain only as `app.<other>.services`, and only if `<other>` is reachable from
   this domain by following the §4.2 arrows (the graph is transitive). Never `app.<other>.models`,
   `.repository` or `.services.<submodule>`.
-- Never import `app.workflows`, and never `app.model_registry` (only `migrations/env.py` and tests
-  may).
-- `workflows/` and `workers/` follow the same "only `services`" rule for every domain.
-- `core/` never imports a domain, `workflows` or `workers`.
+- Never import `app.workflows` or `app.workers` (jobs are enqueued by name), `app.main` or
+  `app.scripts`, or any `app.*` package that isn't this domain, `core` or another domain's
+  `services`.
+- Never import `app.model_registry` (only `migrations/env.py` and the tests under `apps/api/tests/`
+  may; `app/main.py` may not either).
+- `workflows/` and `workers/` follow the same "only `services`" rule for every domain, and also
+  never import `app.main` or `app.scripts`. `workflows/` never imports `workers/`.
+- `core/` never imports a domain, `workflows`, `workers`, `main` or `scripts`.
+- A package directly under `app/` must be a domain, `core`, `workflows`, `workers` or `scripts`.
 - If a story needs an upward call, §4.3 lists the five mechanisms. A new case needs a row there
   before any code.
 
 A SQLAlchemy query API in a router means any `sqlalchemy` or `sqlalchemy.*` import, typing-only
-imports included. Session types come from `core.db` (`SessionDep`, `AppSession`).
+imports included; the same holds for a router module in `workflows/`. Session types come from
+`core.db` (`SessionDep`, `AppSession`).
+
+Left to review (the checker doesn't see them): attribute access through an allowed import
+(`app.decks.services.helpers` after `import app.decks.services`), non-literal dynamic imports, and
+a router using `SessionDep` with its own `models` directly.
 
 ## Registering the models
 

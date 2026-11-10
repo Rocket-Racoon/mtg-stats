@@ -10,11 +10,26 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 from alembic import command
+from alembic.script import ScriptDirectory
 from alembic.util.exc import CommandError
-from sqlalchemy import Column, Index, Integer, MetaData, String, Table, create_engine, inspect
+from sqlalchemy import (
+    Column,
+    ForeignKey,
+    Index,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    UniqueConstraint,
+    create_engine,
+    inspect,
+    text,
+)
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 import app.model_registry as registry
@@ -30,6 +45,7 @@ from tests.migration_support import (
 
 REAL_VERSIONS = API_ROOT / "migrations" / "versions"
 LONG_TABLE = "sample_extraordinarily_long_table_name_for_identifier_limits"
+LONG_CONSTRAINED_TABLE = "sample_long_constrained_table_for_fk_and_unique_limits"
 LONG_COLUMNS = ("first_long_column_name", "second_long_column_name")
 
 
@@ -51,6 +67,18 @@ class _LongNamed(IdMixin, _Meta):
     second_long_column_name: Mapped[str] = mapped_column(String(10), default="")
 
 
+class _LongConstrained(IdMixin, _Meta):
+    """Generated FK and unique names for this table also exceed Postgres' 63 characters."""
+
+    __tablename__ = LONG_CONSTRAINED_TABLE
+    __table_args__ = (UniqueConstraint(*LONG_COLUMNS),)
+    first_long_column_name: Mapped[str] = mapped_column(String(10), default="")
+    second_long_column_name: Mapped[str] = mapped_column(String(10), default="")
+    item_reference_identifier: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("mig_items.id")
+    )
+
+
 def _metadata_with_drift() -> MetaData:
     """Same models as ``_Meta`` plus one extra table, as if a model changed without a migration."""
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
@@ -69,6 +97,32 @@ def _table_names(url: str) -> set[str]:
         engine.dispose()
 
 
+def _versions(url: str) -> list[str]:
+    engine = create_engine(url)
+    try:
+        with engine.connect() as conn:
+            return [row[0] for row in conn.execute(text("SELECT version_num FROM alembic_version"))]
+    finally:
+        engine.dispose()
+
+
+def _cli(url: str, *args: str, ini: Path | None = None) -> subprocess.CompletedProcess[str]:
+    """Run the real ``python -m alembic`` CLI; DATABASE_URL is the only URL it is given."""
+    env = {**os.environ, "APP_ENV": "test", "DATABASE_URL": url}
+    argv = [sys.executable, "-m", "alembic"]
+    if ini is not None:
+        argv += ["-c", str(ini)]
+    return subprocess.run(  # noqa: S603
+        [*argv, *args],
+        cwd=API_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+
+
 def test_upgrade_downgrade_upgrade_round_trip_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
     with temporary_database(monkeypatch) as url:
         config = alembic_config()
@@ -77,6 +131,17 @@ def test_upgrade_downgrade_upgrade_round_trip_succeeds(monkeypatch: pytest.Monke
         command.downgrade(config, "base")
         command.upgrade(config, "head")
         command.check(config)
+        head = ScriptDirectory.from_config(config).get_current_head()
+        assert head is not None
+        assert _versions(url) == [head]
+
+
+def test_downgrade_to_base_clears_the_version_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    with temporary_database(monkeypatch) as url:
+        config = alembic_config()
+        command.upgrade(config, "head")
+        command.downgrade(config, "base")
+        assert _versions(url) == []
 
 
 def test_cli_check_exits_zero_when_models_and_migrations_are_in_sync(
@@ -166,8 +231,83 @@ def test_long_generated_constraint_names_are_stable_across_autogenerate_and_chec
         finally:
             engine.dispose()
     long_index = next(iter(names))
+    assert long_index is not None
+    assert pk is not None
     assert len(long_index) <= 63
     assert long_index.startswith("ix_sample_extraordinarily_long")
     assert len(pk) <= 63
     unrendered = f"ix_{LONG_TABLE}_{'_'.join(LONG_COLUMNS)}"
     assert len(unrendered) > 63
+
+
+def test_cli_check_exits_non_zero_when_database_and_models_have_drifted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Drift through the real CLI: the DB holds a table the registry's models do not define."""
+    with temporary_database(monkeypatch) as url:
+        assert _cli(url, "upgrade", "head").returncode == 0
+        assert _cli(url, "check").returncode == 0
+        engine = create_engine(url)
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("CREATE TABLE drifted_table (id integer PRIMARY KEY)"))
+        finally:
+            engine.dispose()
+        result = _cli(url, "check")
+        assert result.returncode != 0
+        assert "New upgrade operations detected" in result.stderr + result.stdout
+
+
+def test_cli_ignores_a_bogus_sqlalchemy_url_in_the_ini_and_uses_the_settings_url(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    with temporary_database(monkeypatch) as url:
+        ini = tmp_path / "alembic.ini"
+        text_ini = ALEMBIC_INI.read_text(encoding="utf-8").replace(
+            "%(here)s/migrations", (API_ROOT / "migrations").as_posix()
+        )
+        ini.write_text(
+            text_ini.replace(
+                "[alembic]\n",
+                "[alembic]\nsqlalchemy.url = postgresql+psycopg://nobody:x@127.0.0.1:1/bogus\n",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        assert "bogus" in ini.read_text(encoding="utf-8")
+        result = _cli(url, "upgrade", "head", ini=ini)
+        assert result.returncode == 0, result.stderr
+        head = ScriptDirectory.from_config(alembic_config()).get_current_head()
+        assert _versions(url) == [head]
+
+
+def test_long_constraint_names_follow_the_naming_convention_prefixes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    with temporary_database(monkeypatch) as url:
+        config = alembic_config(tmp_path, target_metadata=_Meta.metadata)
+        command.revision(config, message="models", autogenerate=True)
+        command.upgrade(config, "head")
+        command.check(config)
+        engine = create_engine(url)
+        try:
+            insp = inspect(engine)
+            table = LONG_CONSTRAINED_TABLE
+            fk = insp.get_foreign_keys(table)[0]["name"]
+            uq = insp.get_unique_constraints(table)[0]["name"]
+            pk = insp.get_pk_constraint(table)["name"]
+            ix = insp.get_indexes(LONG_TABLE)[0]["name"]
+        finally:
+            engine.dispose()
+    assert fk is not None
+    assert uq is not None
+    assert pk is not None
+    assert ix is not None
+    assert len(f"fk_{table}_item_reference_identifier_mig_items") > 63
+    assert len(f"uq_{table}_{'_'.join(LONG_COLUMNS)}") > 63
+    for name, prefix in ((fk, "fk_"), (uq, "uq_"), (pk, "pk_"), (ix, "ix_")):
+        assert name.startswith(prefix), name
+        assert len(name) <= 63, name
+    assert fk.startswith("fk_sample_long_constrained")
+    assert uq.startswith("uq_sample_long_constrained")
+    assert pk == f"pk_{table}"

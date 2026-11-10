@@ -232,12 +232,10 @@ def test_engine_is_async_psycopg3(monkeypatch: pytest.MonkeyPatch) -> None:
     assert engine.url.drivername == "postgresql+psycopg"
 
 
-def test_alembic_files_if_present_use_the_psycopg_driver() -> None:
+def test_alembic_files_use_the_psycopg_driver() -> None:
     root = Path(__file__).resolve().parents[1]
-    files = [p for p in root.glob("alembic*") if p.is_file()]
-    files += list((root / "alembic").rglob("*.py"))
-    if not files:
-        pytest.skip("deferred to S-1.4.3 (#20) by product-owner decision")
+    files = [root / "alembic.ini", *sorted((root / "migrations").rglob("*.py"))]
+    assert root / "migrations" / "env.py" in files
     joined = "\n".join(p.read_text(encoding="utf-8") for p in files)
     assert "psycopg2" not in joined
     assert "asyncpg" not in joined

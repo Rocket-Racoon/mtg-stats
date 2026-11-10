@@ -44,6 +44,7 @@ ignore = ["PLR2004", "PLR0913"]
 
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**" = ["S101", "S105", "S106"]
+"migrations/versions/*" = ["F401"]  # templates import `sa`/`op` even when unused
 
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = [

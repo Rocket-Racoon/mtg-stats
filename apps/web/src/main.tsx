@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { createBrowserRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 import { routes } from './routes';
+// Kept until S-1.5.3 hooks import `api`; proves the client bundles (S-1.5.2 AC4).
 import './api';
 import './theme/theme.css';
 import './App.css';

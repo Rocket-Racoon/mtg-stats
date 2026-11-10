@@ -4,5 +4,8 @@
  * purpose: React Native's `URL` does not implement `origin`.
  */
 export function apiOrigin(apiBaseUrl: string): string {
-  return apiBaseUrl.replace(/\/+$/, '').replace(/\/api\/v1$/, '');
+  return apiBaseUrl
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\/api\/v1$/, '');
 }

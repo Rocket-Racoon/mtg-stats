@@ -222,4 +222,50 @@ describe('createApiClient errors', () => {
     expect(error).toBe(abort);
     expect(error).not.toBeInstanceOf(ApiError);
   });
+
+  it('falls back to the X-Request-ID header when request_id is an empty string', async () => {
+    const api = clientWith((async () =>
+      jsonResponse(
+        { error: { code: 'internal_error', message: 'Boom.', details: null, request_id: '' } },
+        { status: 500, headers: { 'X-Request-ID': 'req-header' } },
+      )) as typeof fetch);
+
+    const error = (await caught(api.GET('/api/v1/health/live'))) as ApiError;
+
+    expect(error.requestId).toBe('req-header');
+  });
+
+  it('uses a null requestId when request_id is empty and there is no header', async () => {
+    const api = clientWith((async () =>
+      jsonResponse(
+        { error: { code: 'internal_error', message: 'Boom.', details: null, request_id: '' } },
+        { status: 500 },
+      )) as typeof fetch);
+
+    const error = (await caught(api.GET('/api/v1/health/live'))) as ApiError;
+
+    expect(error.requestId).toBeNull();
+  });
+
+  it('throws unexpected_response with the real status for a 200 with an HTML body', async () => {
+    const api = clientWith(
+      (async () =>
+        new Response('<!doctype html><html></html>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/html', 'X-Request-ID': 'req-7' },
+        })) as typeof fetch,
+    );
+
+    const error = (await caught(api.GET('/api/v1/health/live'))) as ApiError;
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 200, code: 'unexpected_response', requestId: 'req-7' });
+    expect(error.cause).toBeInstanceOf(SyntaxError);
+  });
+
+  it('resolves to undefined for a 204 with no body', async () => {
+    const api = clientWith((async () => new Response(null, { status: 204 })) as typeof fetch);
+
+    await expect(api.GET('/api/v1/health/live')).resolves.toBeUndefined();
+  });
 });

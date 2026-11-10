@@ -6,7 +6,13 @@ import createClient, {
   type MaybeOptionalInit,
   type Middleware,
 } from 'openapi-fetch';
-import { ApiError, NETWORK_ERROR, apiErrorFromResponse, isAbortError } from './errors';
+import {
+  ApiError,
+  NETWORK_ERROR,
+  UNEXPECTED_RESPONSE,
+  apiErrorFromResponse,
+  isAbortError,
+} from './errors';
 import type { paths } from './generated/schema';
 
 type HttpMethod = 'get' | 'put' | 'post' | 'delete' | 'options' | 'head' | 'patch' | 'trace';
@@ -48,7 +54,10 @@ export interface ApiClient<P extends object = paths> {
   POST: ApiMethod<P, 'post'>;
   PATCH: ApiMethod<P, 'patch'>;
   DELETE: ApiMethod<P, 'delete'>;
-  /** Register openapi-fetch middleware (auth, refresh, ...). `onResponse` sees non-2xx responses. */
+  /**
+   * Register openapi-fetch middleware (auth, refresh, ...). `onResponse` sees non-2xx responses.
+   * Network failures reach `onError` middleware already wrapped as `ApiError` (`network_error`).
+   */
   use(...middleware: Middleware[]): void;
   /** Unregister middleware. */
   eject(...middleware: Middleware[]): void;
@@ -100,7 +109,28 @@ export function createApiClient<P extends object = paths>(options: ApiClientOpti
   const method = (name: 'GET' | 'PUT' | 'POST' | 'PATCH' | 'DELETE') => {
     return async (url: string, init?: object) => {
       const call = inner[name] as unknown as RawCall;
-      const result = await call(url, init);
+      // Remember the response so a body that fails to parse can still report the real status.
+      let seen: Response | undefined;
+      const trackingFetch = async (input: Request): Promise<Response> => {
+        seen = await safeFetch(input);
+        return seen;
+      };
+      let result: RawResult;
+      try {
+        result = await call(url, { ...init, fetch: trackingFetch });
+      } catch (error) {
+        if (seen && !(error instanceof ApiError) && !isAbortError(error)) {
+          // A 2xx whose body is not the JSON the spec promises (for example an SPA index.html).
+          throw new ApiError({
+            status: seen.status,
+            code: UNEXPECTED_RESPONSE,
+            message: 'The response body could not be parsed.',
+            requestId: seen.headers.get('X-Request-ID') || null,
+            cause: error,
+          });
+        }
+        throw error;
+      }
       if (!result.response.ok) {
         throw apiErrorFromResponse(result.response, result.error);
       }

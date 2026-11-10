@@ -32,6 +32,15 @@ export class ApiError extends Error {
     this.code = init.code;
     this.details = init.details ?? null;
     this.requestId = init.requestId ?? null;
+    if (init.cause !== undefined && this.cause !== init.cause) {
+      // Hermes may ignore the Error options bag; assign it explicitly.
+      Object.defineProperty(this, 'cause', {
+        value: init.cause,
+        writable: true,
+        configurable: true,
+        enumerable: false,
+      });
+    }
     // Keep `instanceof ApiError` working even if the class is down-levelled to ES5.
     Object.setPrototypeOf(this, new.target.prototype);
   }
@@ -58,7 +67,10 @@ export function apiErrorFromResponse(response: Response, body: unknown): ApiErro
       code: envelope.code,
       message: envelope.message,
       details: isRecord(envelope.details) ? envelope.details : null,
-      requestId: typeof envelope.request_id === 'string' ? envelope.request_id : headerRequestId,
+      requestId:
+        typeof envelope.request_id === 'string' && envelope.request_id !== ''
+          ? envelope.request_id
+          : headerRequestId,
     });
   }
   return new ApiError({

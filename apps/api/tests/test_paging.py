@@ -679,11 +679,6 @@ async def test_cursor_with_unexpected_json_structure_is_422_invalid_cursor(
     assert response.json()["error"]["code"] == "invalid_cursor"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BUG: an over-long cursor is rejected by the Query max_length with code "
-    "validation_error, not invalid_cursor (AC3). Remove this marker when fixed.",
-)
 async def test_oversized_cursor_is_rejected_quickly_with_422_invalid_cursor(
     paged: AppSession, client: httpx.AsyncClient
 ) -> None:

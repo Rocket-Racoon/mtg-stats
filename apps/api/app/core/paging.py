@@ -61,7 +61,9 @@ class PageParams:
 def page_params(
     cursor: Annotated[
         str | None,
-        Query(max_length=MAX_CURSOR_LENGTH, description="Opaque cursor from `next_cursor`."),
+        # No Query max_length: an over-long cursor must be `invalid_cursor` (decode_cursor checks
+        # MAX_CURSOR_LENGTH first), not a generic validation_error.
+        Query(description="Opaque cursor from `next_cursor`."),
     ] = None,
     limit: Annotated[
         int, Query(ge=1, le=MAX_LIMIT, description="Page size (1 to 200).")
@@ -173,6 +175,8 @@ def encode_cursor(sort: Sort, values: Sequence[Any]) -> str:
 def decode_cursor(sort: Sort, cursor: str) -> list[Any]:
     """Decode ``cursor`` for ``sort``; raise :class:`InvalidCursorError` if it is not valid."""
     try:
+        if len(cursor) > MAX_CURSOR_LENGTH:
+            raise ValueError("cursor too long")
         raw = base64.urlsafe_b64decode(cursor.encode("ascii") + b"=" * (-len(cursor) % 4))
         if _b64(raw) != cursor:  # reject non-canonical encodings
             raise ValueError("non-canonical base64")

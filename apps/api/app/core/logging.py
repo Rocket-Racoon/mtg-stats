@@ -27,7 +27,7 @@ _CONTEXT_VARS = {
 }
 _HANDLER_MARK = "_mtg_stats_json_handler"
 # Keys a caller may pass via ``extra={...}``; anything else is dropped.
-_EXTRA_KEYS = ("method", "path", "status", "duration_ms", "game_id")
+_EXTRA_KEYS = ("method", "path", "status", "duration_ms", "game_id", "try", "outcome")
 _UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
 
 

@@ -26,7 +26,7 @@ async def run_job_in_process(
     non-JSON argument raises ``TypeError`` and a result comes back as JSON (a tuple becomes a
     list). A non-JSON result raises ``TypeError`` too.
     """
-    function = JOBS[job] if isinstance(job, str) else job
+    function = JOBS[job].fn if isinstance(job, str) else job
     fake_ctx: dict[str, Any] = {"job_id": "test-job", "job_try": 1, **(ctx or {})}
     wire_kwargs: dict[str, Any] = deserialize_job(serialize_job({"kwargs": kwargs}))["kwargs"]
     result = await function(fake_ctx, **wire_kwargs)

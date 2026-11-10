@@ -21,7 +21,7 @@ from arq.worker import Worker, create_worker
 from app.core.config import get_settings
 from app.core.jobs import JobFunction
 from app.core.logging import configure_logging
-from app.workers.registry import build_functions
+from app.workers.registry import JobSpec, build_functions
 from app.workers.settings import WorkerSettings
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ def _install_windows_signal_handlers(worker: Worker, loop: asyncio.AbstractEvent
         signal.signal(sig, handler)
 
 
-async def serve(extra_jobs: Mapping[str, JobFunction] | None = None) -> None:
+async def serve(extra_jobs: Mapping[str, JobSpec | JobFunction] | None = None) -> None:
     """Run one worker until it is stopped by a signal (or its Redis pool fails)."""
     overrides: dict[str, Any] = {}
     if extra_jobs:
@@ -65,7 +65,7 @@ async def serve(extra_jobs: Mapping[str, JobFunction] | None = None) -> None:
         await worker.close()
 
 
-def run_worker_process(extra_jobs: Mapping[str, JobFunction] | None = None) -> None:
+def run_worker_process(extra_jobs: Mapping[str, JobSpec | JobFunction] | None = None) -> None:
     """Configure logging and run the worker; ``extra_jobs`` is for tests only."""
     settings = get_settings()
     configure_logging(settings.log_level)

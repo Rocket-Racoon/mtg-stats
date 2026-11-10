@@ -175,7 +175,9 @@ async def list_gadgets(
         parts = [SprocketOut(label=p.label) for p in gadget.parts] if eager else []
         return GadgetOut(id=gadget.id, name=gadget.name, created_at=gadget.created_at, parts=parts)
 
-    page = await paginate_page(session, stmt, SORTS[sort](), params, GadgetOutPage, to_schema)
+    page = await paginate_page(
+        session, stmt, SORTS[sort](), params, page_cls=GadgetOutPage, to_schema=to_schema
+    )
     if not eager:
         for item in page.items:  # deliberate N+1: one query per item
             rows = await session.scalars(select(Sprocket).where(Sprocket.gadget_id == item.id))
@@ -711,8 +713,8 @@ async def test_cursor_from_another_endpoint_with_the_same_sort_is_accepted_and_s
             stmt,
             created_at_desc(Gadget),
             params,
-            GadgetOutPage,
-            lambda g: GadgetOut(id=g.id, name=g.name, created_at=g.created_at, parts=[]),
+            page_cls=GadgetOutPage,
+            to_schema=lambda g: GadgetOut(id=g.id, name=g.name, created_at=g.created_at, parts=[]),
         )
 
     api_app.include_router(other)
@@ -1037,6 +1039,12 @@ def test_sort_rejects_keys_that_a_forged_or_oversized_cursor_would_break(
 def test_sort_accepts_bounded_strings_small_ints_and_decorated_ints() -> None:
     for column in (Oddity.short, Oddity.tiny, Oddity.wrapped):
         Sort((SortKey(column), SortKey(Oddity.id)))
+
+
+def test_sort_accepts_a_realistic_name_created_at_id_order_within_the_cursor_budget() -> None:
+    # A bounded name, then created_at, then the id tie-breaker: the shape real list endpoints
+    # use. Guards the budget against becoming so strict that it rejects normal sorts.
+    Sort((SortKey(Gadget.name), SortKey(Gadget.created_at, True), SortKey(Gadget.id, True)))
 
 
 def _decode_error(sort: Sort, *values: Any) -> str:

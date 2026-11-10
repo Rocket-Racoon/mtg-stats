@@ -364,11 +364,12 @@ async def paginate[E](
     return items, encode_cursor(sort, [getattr(last, k.attr) for k in sort.keys])
 
 
-async def paginate_page[E, P: Page[Any]](  # noqa: PLR0917  # the documented call shape
+async def paginate_page[E, P: Page[Any]](
     session: AsyncSession,
     stmt: Select[E],
     sort: Sort,
     params: PageParams,
+    *,
     page_cls: type[P],
     to_schema: Callable[[E], Any],
 ) -> P:

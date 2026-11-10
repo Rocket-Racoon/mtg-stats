@@ -61,8 +61,8 @@ async def list_decks(session: SessionDep, params: PageParamsDep) -> DeckPage:
         stmt,
         created_at_desc(Deck),
         params,
-        DeckPage,
-        lambda d: DeckOut(id=d.id, name=d.name),
+        page_cls=DeckPage,
+        to_schema=lambda d: DeckOut(id=d.id, name=d.name),
     )
 
 

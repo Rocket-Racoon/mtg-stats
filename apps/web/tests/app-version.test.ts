@@ -20,8 +20,6 @@ describe('app version', () => {
       { command: 'serve', mode: 'development' },
       webRoot + 'vite.config.ts',
     );
-    expect(loaded?.config.define?.['import.meta.env.VITE_APP_VERSION']).toBe(
-      JSON.stringify(pkg.version),
-    );
+    expect(loaded?.config.define?.__APP_VERSION__).toBe(JSON.stringify(pkg.version));
   });
 });

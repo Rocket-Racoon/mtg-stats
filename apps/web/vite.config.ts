@@ -40,7 +40,7 @@ export default defineConfig(({ command, mode }) => {
     plugins: [react()],
     define: {
       'import.meta.env.VITE_API_BASE_URL': JSON.stringify(apiBaseUrl),
-      'import.meta.env.VITE_APP_VERSION': JSON.stringify(pkg.version),
+      __APP_VERSION__: JSON.stringify(pkg.version),
     },
     appType: 'spa',
     server: { port: 5173, strictPort: true },

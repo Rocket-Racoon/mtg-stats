@@ -18,9 +18,20 @@ Design notes:
 - **Results are kept for** :data:`KEEP_RESULT_SECONDS` (one day). That is the window in which
   :func:`job_status` can report ``complete`` or ``failed``; afterwards the ID is ``not_found``.
   The durable record is the ``job_runs`` table (S-1.9.4).
-- **A fixed ``_job_id`` blocks re-enqueueing** while the job is queued, running, or has a stored
-  result, so for up to :data:`KEEP_RESULT_SECONDS` after it finished (arq refuses an ID whose job
-  key or result key still exists). Deduplication semantics proper belong to S-1.9.2.
+- **Deterministic job IDs de-duplicate (S-1.9.2).** Build one with :func:`job_id`, for example
+  ``job_id("workflows.scryfall_daily_sync", "2026-11-07")``. While a job with that ID is queued
+  or running, a second :func:`enqueue` is a no-op and returns the same ID (arq enqueues nothing
+  when the job or result key exists). The ID stays blocked after the run finishes for as long as
+  the result is kept (:data:`KEEP_RESULT_SECONDS`, 24 h): that is deliberate, it stops a second
+  daily sync on the same day. A manual re-run uses a different ID (for example a ``manual-<n>``
+  part).
+- **Timeouts, retries and errors (S-1.9.2).** Every job runs inside the wrapper in
+  ``app.workers.registry``. A job that outlives its timeout (:data:`DEFAULT_TIMEOUT_SECONDS`,
+  10 minutes, unless its registry entry sets one) is cancelled and failed, never retried. A job
+  raising :class:`RetryableJobError` is retried up to :data:`MAX_RETRIES` times (so at most 4
+  attempts) after the delays in :data:`RETRY_DELAYS_SECONDS`. Any other exception, including
+  :class:`NonRetryableJobError`, fails the job at once. Services raise these classes; they never
+  import ``workers``.
 """
 
 import asyncio
@@ -44,10 +55,46 @@ from app.core.db import after_commit
 logger = logging.getLogger(__name__)
 
 KEEP_RESULT_SECONDS = 24 * 3600
+DEFAULT_TIMEOUT_SECONDS = 600
+MAX_RETRIES = 3
+RETRY_DELAYS_SECONDS = (10, 60, 300)
+"""Delay before retry 1, 2 and 3 (a later retry reuses the last entry): growing, fixed."""
 JOB_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$")
 
 JobFunction = Callable[..., Awaitable[Any]]
 """A job: ``async def job(ctx: dict[str, Any], **kwargs) -> JSON-serializable``."""
+
+
+class RetryableJobError(Exception):
+    """Raise (or wrap a transient error in) this to have the job retried with growing delays."""
+
+
+class NonRetryableJobError(Exception):
+    """Raise this to fail the job at once. Any other exception is non-retryable too."""
+
+
+def job_id(name: str, *parts: str) -> str:
+    """Return the deterministic job ID ``"<name>:<part>:..."``, for example
+    ``job_id("workflows.scryfall_daily_sync", "2026-11-07")``.
+
+    Pass it as ``_job_id`` to :func:`enqueue`: while a job with this ID is queued, running or
+    still has its stored result (24 h), a second enqueue does not start another run.
+
+    Use deterministic IDs for "once per period" jobs (the daily sync), not to coalesce pending
+    work: ``stats.refresh_game_stats:<game_id>`` would silently drop a second refresh of the same
+    game within 24 h.
+
+    Raises:
+        ValueError: ``name`` is not ``<owner>.<job>``, or a part is empty or contains ``":"``.
+        TypeError: a part is not a string.
+    """
+    _check_name(name)
+    for part in parts:
+        if not isinstance(part, str):
+            raise TypeError(f"job id parts must be strings, got {type(part).__name__}")
+        if not part or ":" in part:
+            raise ValueError(f"invalid job id part {part!r}: must be non-empty and contain no ':'")
+    return ":".join((name, *parts))
 
 
 class JobStatus(StrEnum):
@@ -149,8 +196,7 @@ async def enqueue(
         _job_id: optional fixed ID. arq enqueues nothing while the ID is queued, running, or
             finished within the last :data:`KEEP_RESULT_SECONDS` (a stored result also blocks it);
             the call then returns the same ID without enqueueing. A completed or failed job
-            therefore cannot be re-enqueued under its ID for 24 h. Deduplication semantics are
-            S-1.9.2's concern.
+            therefore cannot be re-enqueued under its ID for 24 h. Build it with :func:`job_id`.
         _defer_by: delay before the job may start.
         **kwargs: JSON-serializable arguments for the job.
 

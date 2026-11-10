@@ -6,8 +6,11 @@ Importing this module reads settings, so ``REDIS_URL`` must be set. Run the work
 
 Tuning:
 
-- ``job_timeout`` 300 s: the default budget of one run; a longer job registers its own timeout.
-- ``max_tries`` 5: a job cancelled by shutdown or a crash is retried, so jobs must be idempotent.
+- ``job_timeout`` 600 s (10 minutes): the default budget of one run; a job sets its own in its
+  registry entry. The wrapper in ``registry`` enforces it (arq's per-job value is 5 s longer).
+- ``max_tries`` 7 (``max_retries + 1 + SHUTDOWN_SPARE_TRIES``, see ``registry``): arq's safety
+  net. A job cancelled by
+  shutdown or a crash is run again, so jobs must be idempotent.
 - ``job_completion_wait``: on SIGTERM/SIGINT the worker stops taking jobs, waits up to
   ``WORKER_SHUTDOWN_GRACE_SECONDS`` (30) for running jobs, then cancels them; a cancelled job
   stays queued and is retried by the next worker.
@@ -17,11 +20,17 @@ Tuning:
 from arq.connections import RedisSettings
 
 from app.core.config import get_settings
-from app.core.jobs import KEEP_RESULT_SECONDS, deserialize_job, serialize_job
-from app.workers.registry import build_functions
+from app.core.jobs import (
+    DEFAULT_TIMEOUT_SECONDS,
+    KEEP_RESULT_SECONDS,
+    MAX_RETRIES,
+    deserialize_job,
+    serialize_job,
+)
+from app.workers.registry import SHUTDOWN_SPARE_TRIES, build_functions
 
-JOB_TIMEOUT_SECONDS = 300
-MAX_TRIES = 5
+JOB_TIMEOUT_SECONDS = DEFAULT_TIMEOUT_SECONDS
+MAX_TRIES = MAX_RETRIES + 1 + SHUTDOWN_SPARE_TRIES
 MAX_JOBS = 10
 HEALTH_CHECK_INTERVAL_SECONDS = 30
 

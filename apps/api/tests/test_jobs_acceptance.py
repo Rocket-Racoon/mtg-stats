@@ -242,9 +242,9 @@ def test_worker_package_has_no_boundary_violations() -> None:
 
 
 def test_registered_jobs_live_in_their_owners_services_package() -> None:
-    for name, function in JOBS.items():
+    for name, spec in JOBS.items():
         owner = name.split(".")[0]
-        assert function.__module__.startswith(f"app.{owner}.services"), name
+        assert spec.fn.__module__.startswith(f"app.{owner}.services"), name
 
 
 # --- isolation: tests never flush Redis --------------------------------------------------------

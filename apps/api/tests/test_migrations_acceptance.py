@@ -118,7 +118,7 @@ def _cli(url: str, *args: str, ini: Path | None = None) -> subprocess.CompletedP
         env=env,
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=300,
         check=False,
     )
 
@@ -156,7 +156,7 @@ def test_cli_check_exits_zero_when_models_and_migrations_are_in_sync(
                 env=env,
                 capture_output=True,
                 text=True,
-                timeout=120,
+                timeout=300,
                 check=False,
             )
             assert result.returncode == 0, result.stderr

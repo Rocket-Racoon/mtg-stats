@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import { NAV_ITEMS } from './nav';
-import { ThemeToggle } from './theme/ThemeToggle';
+import { Footer } from './Footer';
 import './theme/theme.css';
 import './App.css';
 
@@ -84,10 +84,7 @@ export function App() {
       <main id="main" ref={mainRef} tabIndex={-1} className="shell-main">
         <Outlet />
       </main>
-      <footer className="shell-footer">
-        <small>Footer placeholder</small>
-        <ThemeToggle />
-      </footer>
+      <Footer />
     </div>
   );
 }

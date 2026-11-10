@@ -50,7 +50,21 @@ function renderApp() {
 const INTERACTIVE =
   "a[href], button, input:not([type='hidden']), select, textarea, summary, [role='button'], [tabindex]:not([tabindex='-1'])";
 
+// The only exemption: links inside the notice paragraphs. Anything else that is not selected by
+// the 44px rule fails the "matches every interactive element" test below.
+const INLINE_LINK = '.attribution p a';
+
 describe('44px tap targets below 768px (S-1.6.5 AC3)', () => {
+  it('exempts only inline links in the notice sentences, and covers the standalone footer link', () => {
+    const { container } = renderApp();
+    const inline = [...container.querySelectorAll<HTMLElement>(INLINE_LINK)];
+    expect(inline.map((a) => a.textContent)).toEqual(['Fan Content Policy', 'Scryfall']);
+    for (const a of inline) expect(a.closest('p')?.textContent?.length).toBeGreaterThan(20);
+    const about = container.querySelector<HTMLElement>('.footer-link');
+    expect(about?.textContent).toBe('About');
+    expect(selectorList.some((sel) => about?.matches(sel))).toBe(true);
+  });
+
   it('declares min-width and min-height of 44px inside a < 768px media query', () => {
     expect(tapRule).toBeDefined();
     expect(tapRule?.[2]).toMatch(/min-width:\s*44px/);
@@ -64,7 +78,10 @@ describe('44px tap targets below 768px (S-1.6.5 AC3)', () => {
 
   it('matches every interactive element rendered today', () => {
     const { container } = renderApp();
-    const elements = [...container.querySelectorAll<HTMLElement>(INTERACTIVE)];
+    // Inline links inside a sentence (the legal notices) are exempt: WCAG 2.5.8 "Inline" exception.
+    const elements = [...container.querySelectorAll<HTMLElement>(INTERACTIVE)].filter(
+      (el) => !el.matches(INLINE_LINK),
+    );
     // skip link, menu button, theme toggle and the nav links at minimum
     expect(elements.length).toBeGreaterThanOrEqual(4);
     const unmatched = elements.filter((el) => !selectorList.some((sel) => el.matches(sel)));

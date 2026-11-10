@@ -27,12 +27,14 @@ const TIMEOUT = 120_000;
 const HINT = 'Run `pnpm client:generate` and commit the result.';
 
 let dir: string;
+/** Private temp dir handed to every spawned run, so temp-dir assertions ignore other processes. */
+let priv: string;
 
 function run(args: string[], env: Record<string, string> = {}) {
   const r = spawnSync(process.execPath, [script, ...args], {
     encoding: 'utf8',
     cwd: root,
-    env: { ...process.env, ...env },
+    env: { ...process.env, TMPDIR: priv, TMP: priv, TEMP: priv, ...env },
   });
   return { code: r.status, out: r.stdout, err: r.stderr };
 }
@@ -72,18 +74,19 @@ function staleSpec(path: string): void {
     components: { schemas: Record<string, { properties?: Record<string, unknown> }> };
   };
   for (const schema of Object.values(spec.components.schemas)) {
-    const keys = Object.keys(schema.properties ?? {});
-    if (schema.properties && keys.length > 0) {
-      schema.properties[`${keys[0]}_drifted`] = schema.properties[keys[0]];
-      delete schema.properties[keys[0]];
+    const [first] = Object.keys(schema.properties ?? {});
+    if (schema.properties && first !== undefined) {
+      schema.properties[`${first}_drifted`] = schema.properties[first];
+      delete schema.properties[first];
       break;
     }
   }
   writeFileSync(path, JSON.stringify(spec, null, 2) + '\n');
 }
 
-function driftTmpDirs(): string[] {
-  return readdirSync(tmpdir()).filter((n) => n.startsWith('client-drift-'));
+/** The script's own temp dirs left in the private temp dir (uv drops its own lock files there). */
+function driftDirs(): string[] {
+  return readdirSync(priv).filter((n) => n.startsWith('client-drift-'));
 }
 
 function snapshot(): { bytes: Buffer; mtime: number }[] {
@@ -95,8 +98,12 @@ function snapshot(): { bytes: Buffer; mtime: number }[] {
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), 'drift-acc-'));
+  priv = mkdtempSync(join(tmpdir(), 'drift-priv-'));
 });
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+afterAll(() => {
+  rmSync(dir, { recursive: true, force: true });
+  rmSync(priv, { recursive: true, force: true });
+});
 
 describe('AC2: freshly regenerated client (real exporter)', () => {
   it(
@@ -168,15 +175,14 @@ describe('side effects', () => {
     () => {
       const exporter = writeExporter('other-export2.mjs', otherSpecBody);
       const before = snapshot();
-      const tmpBefore = driftTmpDirs();
       const r = run(['--export-cmd', JSON.stringify([process.execPath, exporter])]);
       expect(r.code).toBe(1);
       const after = snapshot();
-      for (const i of [0, 1]) {
-        expect(after[i].bytes.equals(before[i].bytes)).toBe(true);
-        expect(after[i].mtime).toBe(before[i].mtime);
-      }
-      expect(driftTmpDirs()).toEqual(tmpBefore);
+      expect(after.map((f) => f.bytes.toString('base64'))).toEqual(
+        before.map((f) => f.bytes.toString('base64')),
+      );
+      expect(after.map((f) => f.mtime)).toEqual(before.map((f) => f.mtime));
+      expect(driftDirs()).toEqual([]);
     },
     TIMEOUT,
   );
@@ -184,10 +190,9 @@ describe('side effects', () => {
   it(
     'removes its temp dir after a failed export',
     () => {
-      const tmpBefore = driftTmpDirs();
       const r = run(['--export-cmd', JSON.stringify([process.execPath, exitScript(3)])]);
       expect(r.code).toBe(2);
-      expect(driftTmpDirs()).toEqual(tmpBefore);
+      expect(driftDirs()).toEqual([]);
     },
     TIMEOUT,
   );
@@ -229,6 +234,29 @@ describe('exit 2 paths', () => {
     expect(r.code).toBe(2);
     expect(r.err.startsWith('client:check error:')).toBe(true);
   });
+
+  it('exits 2 when a flag value looks like another flag', () => {
+    const r = run(['--spec', '--schema', 'x']);
+    expect(r.code).toBe(2);
+    expect(r.err.startsWith('client:check error:')).toBe(true);
+    expect(r.err).toContain('--spec needs a value');
+  });
+
+  it(
+    'exits 2 with a failure message when a step exceeds the timeout',
+    () => {
+      const sleeper = join(dir, 'sleeper.mjs');
+      writeFileSync(sleeper, 'setTimeout(() => {}, 30000);\n');
+      const r = run(['--export-cmd', JSON.stringify([process.execPath, sleeper])], {
+        CLIENT_CHECK_TIMEOUT_MS: '500',
+      });
+      expect(r.code).toBe(2);
+      expect(r.err).toContain('OpenAPI export failed:');
+      expect(r.err).toContain('ETIMEDOUT');
+      expect(driftDirs()).toEqual([]);
+    },
+    TIMEOUT,
+  );
 
   it('exits 2 when a flag has no value', () => {
     const r = run(['--spec']);

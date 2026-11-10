@@ -126,7 +126,7 @@ describe('client drift check', () => {
   it('exits 2 when the export command cannot start', () => {
     const r = check(['definitely-not-a-real-command-xyz']);
     expect(r.code).toBe(2);
-    expect(r.err).toContain('failed to start');
+    expect(r.err).toContain('OpenAPI export failed:');
   }, 60_000);
 
   it('exits 2 on an unknown argument', () => {

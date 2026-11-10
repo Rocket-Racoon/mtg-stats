@@ -1,4 +1,4 @@
-"""Shared pytest configuration for the API test suite."""
+"""Shared pytest configuration for the API test suite (``tests/`` and every ``app/**/tests/``)."""
 
 import asyncio
 import os
@@ -19,11 +19,14 @@ from tests.sample_models import SampleBase
 
 pytest_plugins = ["pytester"]
 
+DEFAULT_TEST_REDIS_URL = "redis://127.0.0.1:6379/15"
+
 # `app.main` builds `app = create_app()` at import time, which needs valid settings.
 # Forced, not defaulted, so a shell with APP_ENV=dev cannot leak into the run.
 TEST_DATABASE_URL = resolve_test_database_url(os.environ)
 os.environ["APP_ENV"] = "test"
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+os.environ["REDIS_URL"] = os.environ.get("TEST_REDIS_URL", "").strip() or DEFAULT_TEST_REDIS_URL
 
 if sys.platform == "win32":
     # psycopg's async mode cannot run on the default Proactor loop.

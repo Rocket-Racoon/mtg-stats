@@ -214,6 +214,7 @@ Each row is a need from the backlog that would otherwise require an upward call.
   - `code` is stable (`forbidden`, `section_hidden`, `game_closed` …), and clients switch on it, never on `message`.
   - Validation errors go in `details`.
   - `request_id` also appears in the logs and the response headers. An unknown `/api/...` path returns this JSON 404 rather than the web app.
+  - Health probes (`/api/v1/health/*`, S-1.4.4) are the exception: they return their own body for every status, including the 503 from `ready`, which reports each dependency check. A probe result is not a request error.
 - **Paging** uses a cursor: `?cursor=<opaque>&limit=50` (max 200) and returns `{items, next_cursor}`. Keyset order is `(created_at, id)` unless an endpoint documents another order.
 - **Time**: every timestamp is UTC (ISO 8601 with `Z`). Day and week boundaries use the effective time zone: the user's override, else the playgroup's. Weeks start on ISO Monday.
 - **Money**: `{amount: "12.34", currency: "USD"}` as a decimal string. Each user picks one currency, USD or EUR, and nothing is ever converted.

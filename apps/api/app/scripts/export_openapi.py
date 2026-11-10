@@ -38,6 +38,7 @@ def render_spec() -> str:
     dummy = {
         "APP_ENV": "test",
         "DATABASE_URL": "postgresql+psycopg://mtg:CHANGE_ME@localhost:5432/mtg_stats",
+        "REDIS_URL": "redis://localhost:6379/0",
     }
     # ``app.main`` builds a module-level ``app`` on import, which reads the environment. Run the
     # import and the build with only the dummy values (ambient variables such as

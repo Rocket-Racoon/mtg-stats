@@ -17,6 +17,7 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 WORKSPACE_MARKER = "pnpm-workspace.yaml"
 DEV_WEB_ORIGIN = "http://localhost:5173"
 DATABASE_URL_PREFIX = "postgresql+psycopg://"
+REDIS_URL_SCHEMES = ("redis://", "rediss://")
 
 AppEnv = Literal["dev", "test", "prod"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -36,6 +37,8 @@ class Settings(BaseSettings):
     database_url: str = Field(validation_alias="DATABASE_URL")
     log_level: LogLevel = Field(default="INFO", validation_alias="LOG_LEVEL")
     db_connect_timeout: int = Field(default=5, ge=1, validation_alias="DB_CONNECT_TIMEOUT")
+    redis_url: str = Field(validation_alias="REDIS_URL")
+    git_sha: str = Field(default="dev", validation_alias="GIT_SHA")
     cors_allowed_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=list, validation_alias="CORS_ALLOWED_ORIGINS"
     )
@@ -43,17 +46,17 @@ class Settings(BaseSettings):
     @field_validator("database_url")
     @classmethod
     def _check_database_url(cls, value: str) -> str:
-        msg = f"must start with {DATABASE_URL_PREFIX} and have a host and a valid port"
-        if not value.startswith(DATABASE_URL_PREFIX):
-            raise ValueError(msg)
-        try:
-            parts = urlsplit(value)
-            parts.port  # noqa: B018  (raises ValueError on an invalid port)
-        except ValueError:
-            raise ValueError(msg) from None
-        if not parts.hostname:
-            raise ValueError(msg)
-        return value
+        return _check_url(value, (DATABASE_URL_PREFIX,), f"must start with {DATABASE_URL_PREFIX}")
+
+    @field_validator("redis_url")
+    @classmethod
+    def _check_redis_url(cls, value: str) -> str:
+        return _check_url(value, REDIS_URL_SCHEMES, "must start with redis:// or rediss://")
+
+    @field_validator("git_sha")
+    @classmethod
+    def _empty_git_sha_is_dev(cls, value: str) -> str:
+        return value.strip() or "dev"
 
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod
@@ -72,6 +75,21 @@ class Settings(BaseSettings):
         if self.app_env == "dev" and DEV_WEB_ORIGIN not in self.cors_allowed_origins:
             self.cors_allowed_origins = [DEV_WEB_ORIGIN, *self.cors_allowed_origins]
         return self
+
+
+def _check_url(value: str, prefixes: tuple[str, ...], start_msg: str) -> str:
+    """Check a connection URL's scheme prefix, host and port; return it unchanged."""
+    msg = f"{start_msg} and have a host and a valid port"
+    if not value.startswith(prefixes):
+        raise ValueError(msg)
+    try:
+        parts = urlsplit(value)
+        parts.port  # noqa: B018  (raises ValueError on an invalid port)
+    except ValueError:
+        raise ValueError(msg) from None
+    if not parts.hostname:
+        raise ValueError(msg)
+    return value
 
 
 def _normalise_origin(origin: str) -> str:

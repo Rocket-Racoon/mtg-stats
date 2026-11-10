@@ -13,6 +13,7 @@ dependencies = [
     "httpx>=0.27",
     "pyjwt>=2.9",
     "arq>=0.28",
+    "redis>=5.3.1",
 ]
 
 [dependency-groups]
@@ -58,7 +59,7 @@ max-returns = 10
 max-branches = 20
 
 [tool.ruff.lint.isort]
-known-first-party = ["app"]
+known-first-party = ["app", "tests"]
 
 [tool.mypy]
 strict = true
@@ -75,6 +76,7 @@ asyncio_default_fixture_loop_scope = "function"
 [tool.coverage.run]
 source = ["app"]
 branch = true
+omit = ["app/*/tests/*"]
 
 [tool.coverage.report]
 show_missing = true

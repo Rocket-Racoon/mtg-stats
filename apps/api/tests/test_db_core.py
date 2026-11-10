@@ -13,7 +13,6 @@ from sqlalchemy.schema import CreateIndex, CreateTable
 
 from app.core import db
 from app.core.db import AppSession, after_commit
-from tests.conftest import TEST_DATABASE_URL
 from tests.factories import create
 from tests.sample_models import Part, SampleBase, Widget, WidgetFactory
 
@@ -55,7 +54,7 @@ def test_importing_db_does_not_create_an_engine() -> None:
         "assert db.get_engine.cache_info().currsize == 0; "
         "assert db.get_sessionmaker.cache_info().currsize == 0"
     )
-    env = {**os.environ, "APP_ENV": "test", "DATABASE_URL": TEST_DATABASE_URL}
+    env = {**os.environ, "APP_ENV": "test", "DATABASE_URL": os.environ["DATABASE_URL"]}
     result = subprocess.run(  # noqa: S603
         [sys.executable, "-c", code],
         cwd=API_ROOT,

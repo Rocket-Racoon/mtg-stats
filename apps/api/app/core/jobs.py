@@ -24,6 +24,7 @@ Design notes:
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import re
@@ -95,6 +96,12 @@ async def get_jobs_pool() -> ArqRedis:
         _pool_lock, _pool_lock_loop = asyncio.Lock(), loop
     async with _pool_lock:  # two concurrent first callers must not each create a pool
         if _pool is None or _pool_loop is not loop:
+            if _pool is not None:
+                # Made on another loop (usually closed): its connections cannot be reused here.
+                # Try to close it anyway so sockets are not leaked; failure is expected and fine.
+                stale, _pool = _pool, None
+                with contextlib.suppress(Exception):
+                    await stale.aclose()
             settings = get_settings()
             redis_settings = RedisSettings.from_dsn(settings.redis_url)
             redis_settings.conn_retries = 1  # fail fast on the request path
@@ -111,7 +118,13 @@ async def get_jobs_pool() -> ArqRedis:
 async def close_jobs_pool() -> None:
     """Close the pool if it exists, and forget it (app shutdown, test cleanup)."""
     global _pool, _pool_loop
-    pool, _pool, _pool_loop = _pool, None, None
+    loop = asyncio.get_running_loop()
+    if _pool_lock is not None and _pool_lock_loop is loop:
+        # Wait for a concurrent get_jobs_pool() so its pool is not stored after we close.
+        async with _pool_lock:
+            pool, _pool, _pool_loop = _pool, None, None
+    else:
+        pool, _pool, _pool_loop = _pool, None, None
     if pool is not None:
         await pool.aclose()
 
@@ -180,18 +193,20 @@ def enqueue_after_commit(
     """
     _check_name(job_name)
     try:
-        serialize_job({"kwargs": kwargs})
+        # JSON round trip: a private copy, so the caller mutating its arguments after this call
+        # cannot change (or break) the enqueue that runs after the commit.
+        frozen_kwargs: dict[str, Any] = deserialize_job(serialize_job({"kwargs": kwargs}))["kwargs"]
     except TypeError as exc:
         raise TypeError(f"arguments of {job_name} are not JSON serializable: {exc}") from exc
 
     async def _enqueue() -> None:
         try:
-            await enqueue(job_name, _job_id=_job_id, **kwargs)
+            await enqueue(job_name, _job_id=_job_id, **frozen_kwargs)
         except Exception as exc:
             # app.core.db logs the raised error and carries on; no argument values in the message.
+            id_part = f" (job id {_job_id})" if _job_id is not None else ""
             raise RuntimeError(
-                f"enqueue of {job_name} (job id {_job_id}) failed after commit: "
-                f"{type(exc).__name__}"
+                f"enqueue of {job_name}{id_part} failed after commit: {type(exc).__name__}"
             ) from exc
 
     after_commit(session, _enqueue)

@@ -4,8 +4,9 @@ import logging
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
-from app.core.db import AppSession, after_commit, get_sessionmaker
+from app.core.db import AppSession, after_commit
 
 
 async def test_callback_in_a_rolled_back_savepoint_is_dropped(db_session: AppSession) -> None:
@@ -118,11 +119,15 @@ async def test_callbacks_registered_before_the_session_began_run_at_the_first_co
     assert calls == ["early"]  # run once
 
 
+def _session(engine: AsyncEngine) -> AppSession:
+    return async_sessionmaker(engine, class_=AppSession, expire_on_commit=False)()
+
+
 async def test_callbacks_parked_by_a_commit_that_bypassed_session_commit_are_dropped(
-    caplog: pytest.LogCaptureFixture,
+    db_engine: AsyncEngine, caplog: pytest.LogCaptureFixture
 ) -> None:
     calls: list[str] = []
-    async with get_sessionmaker()() as session:
+    async with _session(db_engine) as session:
         async with session.begin():  # bypasses AppSession.commit
             await session.execute(text("select 1"))
             after_commit(session, lambda: calls.append("bypassed"))
@@ -132,3 +137,31 @@ async def test_callbacks_parked_by_a_commit_that_bypassed_session_commit_are_dro
             await session.commit()
     assert calls == ["next"]
     assert any("did not go through session.commit()" in r.getMessage() for r in caplog.records)
+
+
+async def test_callbacks_parked_by_a_bypassing_commit_are_logged_and_dropped_on_close(
+    db_engine: AsyncEngine, caplog: pytest.LogCaptureFixture
+) -> None:
+    calls: list[str] = []
+    session = _session(db_engine)
+    async with session.begin():  # bypasses AppSession.commit
+        await session.execute(text("select 1"))
+        after_commit(session, lambda: calls.append("bypassed"))
+    with caplog.at_level(logging.WARNING, logger="app.core.db"):
+        await session.close()
+    assert calls == []
+    assert any("commit bypassed AppSession.commit" in r.getMessage() for r in caplog.records)
+
+
+async def test_rolled_back_callbacks_are_dropped_on_close_without_a_warning(
+    db_engine: AsyncEngine, caplog: pytest.LogCaptureFixture
+) -> None:
+    calls: list[str] = []
+    session = _session(db_engine)
+    await session.execute(text("select 1"))
+    after_commit(session, lambda: calls.append("rolled back"))
+    with caplog.at_level(logging.WARNING, logger="app.core.db"):
+        await session.rollback()
+        await session.close()
+    assert calls == []
+    assert not [r for r in caplog.records if "dropped" in r.getMessage()]

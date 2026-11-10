@@ -156,6 +156,26 @@ async def test_job_registered_in_a_rolled_back_savepoint_is_dropped(
     assert await job_status(job_id) is JobStatus.NOT_FOUND
 
 
+async def test_enqueue_after_commit_keeps_the_arguments_as_they_were_when_called(
+    db_session: AppSession, job_queue: JobQueue
+) -> None:
+    job_id = job_queue.job_id("mutated")
+    items = ["a", "b"]
+    enqueue_after_commit(db_session, "system.ping", _job_id=job_id, items=items)
+    items.append("c")  # the caller reuses its list; the job must still get the original
+    await db_session.commit()
+    pool = await core_jobs.get_jobs_pool()
+    job = Job(
+        job_id,
+        pool,
+        _queue_name=get_settings().worker_queue_name,
+        _deserializer=core_jobs.deserialize_job,
+    )
+    info = await job.info()
+    assert info is not None
+    assert info.kwargs == {"items": ["a", "b"]}
+
+
 async def test_redis_failure_after_commit_is_logged_and_does_not_raise(
     db_session: AppSession, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -169,6 +189,8 @@ async def test_redis_failure_after_commit_is_logged_and_does_not_raise(
             await db_session.commit()  # must not raise
         assert any("after_commit callback failed" in r.getMessage() for r in caplog.records)
         assert any(r.exc_info for r in caplog.records)
+        causes = [r.exc_info[1].__cause__ for r in caplog.records if r.exc_info and r.exc_info[1]]
+        assert any(c is not None and not isinstance(c, RuntimeError) for c in causes)  # chain kept
         logged = " ".join(
             f"{r.getMessage()} {r.exc_text or ''} {r.exc_info[1] if r.exc_info else ''}"
             for r in caplog.records

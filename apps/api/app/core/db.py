@@ -12,7 +12,8 @@ Schema conventions for models built on :class:`Base`:
   ``name=`` because the ``ck`` naming convention uses the constraint name.
 - Commit through ``session.commit()``. A commit that bypasses it (``async with session.begin():``,
   ``AsyncSessionTransaction.commit()``) does not run :func:`after_commit` callbacks; they are
-  logged and dropped when the next transaction starts.
+  logged and dropped when the next transaction starts, or when the session is closed or rolled
+  back.
 - Only the :class:`TimestampMixin` columns validate at assignment. Any other ``Mapped[datetime]``
   column is typed :class:`UtcDateTime` and rejects naive values at flush time instead.
 """
@@ -258,6 +259,11 @@ class AppSession(AsyncSession):
 
 def _drop_callbacks(session: AsyncSession) -> None:
     state = _state(session)
+    if state.ready:  # only a commit that bypassed AppSession.commit leaves callbacks here
+        logger.warning(
+            "after-commit callbacks dropped: commit bypassed AppSession.commit (%d callback(s))",
+            len(state.ready),
+        )
     state.frames.clear()
     state.unstarted.clear()
     state.ready.clear()
@@ -322,7 +328,8 @@ def after_commit(session: AsyncSession, callback: AfterCommitCallback) -> None:
 
     Commit through ``session.commit()``: a commit that bypasses it (``session.begin()`` as a
     context manager, ``AsyncSessionTransaction.commit()``) never runs the callbacks, which are
-    logged and dropped when the next transaction starts.
+    logged and dropped when the next transaction starts, or when the session is closed or
+    rolled back.
 
     Raises:
         TypeError: if ``session`` is not an :class:`AppSession`, since the callback would never run.

@@ -41,15 +41,14 @@ const pnpm = (...args) => ({ tool: 'pnpm', args, cwd: '.' });
 const pnpmTest = (workspace, ...args) =>
   pnpm('--filter', workspace, '--fail-if-no-match', 'test', ...args);
 const vitestFlags = ['--pool=forks', '--maxWorkers=1'];
-// Every workspace with a `test` script. Exported so a test can check this list stays complete:
-// vitest workspaces run in the `vitest` step, jest workspaces in the `jest` step.
-export const VITEST_WORKSPACES = [
+// Every workspace with a `test` script; the `vitest` and `jest` steps are built from these lists.
+const VITEST_WORKSPACES = [
   '@mtg-stats/web',
   '@mtg-stats/api-client',
   '@mtg-stats/game-core',
   '@mtg-stats/card-utils',
 ];
-export const JEST_WORKSPACES = ['@mtg-stats/mobile'];
+const JEST_WORKSPACES = ['@mtg-stats/mobile'];
 
 // Order matters: it is the order of acceptance criterion 1. Test steps run one workspace at a
 // time on purpose (memory-constrained machines).
@@ -105,17 +104,16 @@ export const STEPS = [
     name: 'vitest',
     half: 'ts',
     commands: [
-      pnpmTest('@mtg-stats/web'),
-      pnpmTest('@mtg-stats/api-client', ...vitestFlags),
-      pnpmTest('@mtg-stats/game-core'),
-      pnpmTest('@mtg-stats/card-utils'),
+      ...VITEST_WORKSPACES.map((workspace) =>
+        pnpmTest(workspace, ...(workspace === '@mtg-stats/api-client' ? vitestFlags : [])),
+      ),
       pnpm('exec', 'vitest', 'run', '--dir', 'tests', ...vitestFlags),
     ],
   },
   {
     name: 'jest',
     half: 'ts',
-    commands: [pnpmTest('@mtg-stats/mobile', '--maxWorkers=2')],
+    commands: JEST_WORKSPACES.map((workspace) => pnpmTest(workspace, '--maxWorkers=2')),
   },
 ];
 
@@ -197,7 +195,7 @@ function resolveCommand(command, env) {
     }
     if (process.platform === 'win32') {
       throw new Error(
-        'cannot locate pnpm: npm_execpath is not set. Start the gate with `pnpm verify` (not `node scripts/verify.js`).',
+        'cannot locate pnpm: npm_execpath is not set or is not pnpm. Start the gate with `pnpm verify` (not `node scripts/verify.js`).',
       );
     }
     return { file: 'pnpm', args: command.args, cwd };

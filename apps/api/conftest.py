@@ -18,6 +18,7 @@ from sqlalchemy.pool import NullPool
 from app.core.db import AppSession, get_session
 from tests.db_policy import must_fail_when_db_unreachable, resolve_test_database_url
 from tests.sample_models import SampleBase
+from tests.statement_counter import StatementCounter
 
 pytest_plugins = ["pytester"]
 
@@ -130,14 +131,6 @@ async def client(api_app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
         yield http_client
 
 
-class StatementCounter:
-    """Number of SQL statements executed while a :func:`count_statements` block was open."""
-
-    def __init__(self) -> None:
-        self.count = 0
-        self.statements: list[str] = []
-
-
 @pytest.fixture
 def count_statements(
     db_engine: AsyncEngine,
@@ -147,6 +140,9 @@ def count_statements(
     Use ``with count_statements() as counter: ...`` then read ``counter.count``. It counts every
     cursor execution, including SAVEPOINT bookkeeping of the test session, which is constant per
     request, so equal counts for different data sizes prove there is no N+1.
+
+    Only statements on ``db_engine`` are counted: code that opens sessions through
+    ``get_sessionmaker()`` directly uses another engine and is not counted.
 
     The ``before_cursor_execute`` listener is test instrumentation only; the "no ORM event
     listeners for business logic" rule does not apply to it.

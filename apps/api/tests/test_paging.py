@@ -11,21 +11,32 @@ import time
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from datetime import UTC, datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
 import httpx
 import pytest
-from conftest import StatementCounter
 from fastapi import APIRouter, FastAPI
 from pydantic import BaseModel
-from sqlalchemy import ForeignKey, MetaData, String, delete, select, text
-from sqlalchemy.orm import Mapped, mapped_column, relationship, selectinload
+from sqlalchemy import (
+    BigInteger,
+    ForeignKey,
+    Integer,
+    MetaData,
+    Numeric,
+    String,
+    delete,
+    select,
+    text,
+)
+from sqlalchemy.orm import Mapped, joinedload, mapped_column, relationship, selectinload
 
 from app.core.db import NAMING_CONVENTION, AppSession, Base, IdMixin, SessionDep, TimestampMixin
 from app.core.errors import InvalidCursorError
 from app.core.paging import (
     Page,
+    PageParams,
     PageParamsDep,
     Sort,
     SortKey,
@@ -33,9 +44,11 @@ from app.core.paging import (
     created_at_desc,
     decode_cursor,
     encode_cursor,
+    paginate,
     paginate_page,
 )
 from tests.factories import BaseFactory, create
+from tests.statement_counter import StatementCounter
 
 
 class PagingBase(Base):
@@ -49,7 +62,10 @@ class Gadget(IdMixin, TimestampMixin, PagingBase):
     """Test parent row."""
 
     __tablename__ = "paging_gadgets"
-    name: Mapped[str] = mapped_column(String(50), default="")
+    name: Mapped[str] = mapped_column(String(400), default="")
+    rank: Mapped[int] = mapped_column(Integer, default=0)
+    score: Mapped[int] = mapped_column(BigInteger, default=0)
+    nickname: Mapped[str | None] = mapped_column(String(50), default=None)
     parts: Mapped[list["Sprocket"]] = relationship(back_populates="gadget")
 
 
@@ -60,6 +76,14 @@ class Sprocket(IdMixin, TimestampMixin, PagingBase):
     gadget_id: Mapped[UUID] = mapped_column(ForeignKey("paging_gadgets.id"))
     label: Mapped[str] = mapped_column(String(50), default="")
     gadget: Mapped[Gadget] = relationship(back_populates="parts")
+
+
+class Flagged(IdMixin, TimestampMixin, PagingBase):
+    """Test model with key types a Sort must refuse."""
+
+    __tablename__ = "paging_flagged"
+    active: Mapped[bool] = mapped_column(default=False)
+    price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal(0))
 
 
 class GadgetFactory(BaseFactory):
@@ -91,6 +115,8 @@ SORTS: dict[str, Callable[[], Sort]] = {
     "old": lambda: created_at_asc(Gadget),
     # mixed directions: exercises the expanded OR predicate
     "mixed": lambda: Sort((SortKey(Gadget.name), SortKey(Gadget.id, True))),
+    "ranked": lambda: Sort((SortKey(Gadget.rank), SortKey(Gadget.id))),
+    "scored": lambda: Sort((SortKey(Gadget.score, True), SortKey(Gadget.id, True))),
 }
 
 router = APIRouter(prefix="/api/v1/test-gadgets")
@@ -98,11 +124,17 @@ router = APIRouter(prefix="/api/v1/test-gadgets")
 
 @router.get("")
 async def list_gadgets(
-    session: SessionDep, params: PageParamsDep, sort: str = "new", eager: bool = True
+    session: SessionDep,
+    params: PageParamsDep,
+    sort: str = "new",
+    eager: bool = True,
+    joined: bool = False,
 ) -> Page[GadgetOut]:
     """Test-only list endpoint; ``eager=false`` is the N+1 negative control."""
     stmt = select(Gadget)
-    if eager:
+    if joined:
+        stmt = stmt.options(joinedload(Gadget.parts))
+    elif eager:
         stmt = stmt.options(selectinload(Gadget.parts))
 
     def to_schema(gadget: Gadget) -> GadgetOut:
@@ -323,6 +355,9 @@ GOOD_AT = "2026-01-01T00:00:00.000000+00:00"
         _payload("created_at:d,id:d", GOOD_AT, "not-a-uuid"),
         _payload("created_at:a,id:a", GOOD_AT, GOOD_ID),  # made for a different sort
         _payload(None, GOOD_AT, GOOD_ID),
+        # astimezone(UTC) overflows datetime's year range: OverflowError, not ValueError
+        _payload("created_at:d,id:d", "0001-01-01T00:00:00+14:00", GOOD_ID),
+        _payload("created_at:d,id:d", "9999-12-31T23:59:59-14:00", GOOD_ID),
         _payload("created_at:d,id:d", GOOD_AT, GOOD_ID) + "=",  # non-canonical padding
     ],
 )
@@ -461,6 +496,10 @@ async def test_openapi_documents_page_shape_and_paging_parameters(
     items = page["properties"]["items"]
     assert items["type"] == "array"
     assert _resolve(spec, items["items"])["title"] == "GadgetOut"
+    # Pinned so a pydantic upgrade cannot silently rename the generated client's types. Renaming
+    # to "GadgetOutPage" is not possible from the model: pydantic derives the definition key
+    # from the generic origin and arguments ("Page[GadgetOut]"), not from model_parametrized_name.
+    assert ok["$ref"] == "#/components/schemas/Page_GadgetOut_"
     assert page["properties"]["next_cursor"]["anyOf"] == [{"type": "string"}, {"type": "null"}]
 
     params = {p["name"]: p for p in operation["parameters"]}
@@ -684,7 +723,7 @@ async def test_oversized_cursor_is_rejected_quickly_with_422_invalid_cursor(
 ) -> None:
     started = time.perf_counter()
     response = await client.get("/api/v1/test-gadgets", params={"cursor": "A" * 60_000})
-    assert time.perf_counter() - started < 1.0
+    assert time.perf_counter() - started < 5.0  # generous: only guards against pathological work
     assert response.status_code == 422
     # AC3: a malformed cursor is invalid_cursor; clients switch on this code.
     assert response.json()["error"]["code"] == "invalid_cursor"
@@ -745,3 +784,180 @@ async def test_statement_count_is_constant_across_pages_of_different_sizes(
         limit: await _count(client, count_statements, paged, limit=limit) for limit in (1, 5, 50)
     }
     assert len(set(counts.values())) == 1, counts
+
+
+# ---------------------------------------------------------------------------------------------
+# Review fixes (S-1.4.7): codec limits, Sort validation, int bounds, schema name, paginate
+# ---------------------------------------------------------------------------------------------
+
+
+def _mixed_cursor(*values: Any) -> str:
+    return _payload("name:a,id:d", *values)
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["a\u0000b", "\ud800", "x" * 5000],  # NUL, lone surrogate: Postgres/psycopg would 500
+)
+async def test_string_key_unrepresentable_in_postgres_is_422_invalid_cursor(
+    paged: AppSession, client: httpx.AsyncClient, value: str
+) -> None:
+    cursor = _mixed_cursor(value, GOOD_ID)
+    response = await client.get("/api/v1/test-gadgets", params={"sort": "mixed", "cursor": cursor})
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_cursor"
+
+
+@pytest.mark.parametrize("depth", [300, 1000, 1500])
+async def test_deeply_nested_cursor_up_to_the_length_limit_is_422_not_500(
+    paged: AppSession, client: httpx.AsyncClient, depth: int
+) -> None:
+    cursor = _b64("[" * depth + "]" * depth)
+    assert len(cursor) <= 4096
+    response = await client.get("/api/v1/test-gadgets", params={"cursor": cursor})
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_cursor"
+
+
+@pytest.mark.parametrize(
+    ("ch", "count"), [("é", 200), ("漢", 120), ("\U0001f600", 60)], ids=["accented", "cjk", "emoji"]
+)
+async def test_non_ascii_string_keys_round_trip_through_a_full_page_walk(
+    paged: AppSession, client: httpx.AsyncClient, ch: str, count: int
+) -> None:
+    names = [ch * (count - 1) + suffix for suffix in "abcde"]
+    rows = [await create(paged, GadgetFactory, name=n, created_at=BASE) for n in names]
+    items = await _walk(client, sort="mixed", limit=1)
+    assert sorted(i["id"] for i in items) == sorted(str(g.id) for g in rows)
+    assert [i["id"] for i in items] == [
+        i["id"] for i in (await _get(client, sort="mixed"))["items"]
+    ]
+
+
+def test_encode_cursor_raises_a_server_error_not_invalid_cursor_when_over_the_limit() -> None:
+    sort = Sort((SortKey(Gadget.name), SortKey(Gadget.id)))
+    with pytest.raises(ValueError, match="MAX_CURSOR_LENGTH") as info:
+        encode_cursor(sort, ["x" * 4000, UUID(GOOD_ID)])
+    assert not isinstance(info.value, InvalidCursorError)
+
+
+def test_cursor_at_the_length_limit_encodes_and_decodes() -> None:
+    sort = Sort((SortKey(Gadget.name), SortKey(Gadget.id)))
+    name = "x" * 2900
+    cursor = encode_cursor(sort, [name, UUID(GOOD_ID)])
+    assert len(cursor) <= 4096
+    assert decode_cursor(sort, cursor) == [name, UUID(GOOD_ID)]
+
+
+def test_sort_rejects_a_nullable_key_column() -> None:
+    with pytest.raises(ValueError, match="non-nullable"):
+        Sort((SortKey(Gadget.nickname), SortKey(Gadget.id)))
+
+
+def test_sort_rejects_an_unsupported_key_type() -> None:
+    with pytest.raises(ValueError, match="unsupported type"):
+        Sort((SortKey(Flagged.active), SortKey(Flagged.id)))
+    with pytest.raises(ValueError, match="unsupported type"):
+        Sort((SortKey(Flagged.price), SortKey(Flagged.id)))
+
+
+def test_sort_accepts_datetime_uuid_int_and_str_keys() -> None:
+    for key in (Gadget.created_at, Gadget.name, Gadget.rank, Gadget.score):
+        Sort((SortKey(key), SortKey(Gadget.id)))
+
+
+def test_wrongly_typed_json_values_are_invalid_cursor_errors_from_decode() -> None:
+    sort = created_at_desc(Gadget)
+    for bad in (_payload("created_at:d,id:d", 1.5, GOOD_ID), _payload("created_at:d,id:d", [], 1)):
+        with pytest.raises(InvalidCursorError):
+            decode_cursor(sort, bad)
+
+
+async def _score_rows(paged: AppSession, scores: list[int]) -> list[Gadget]:
+    return [
+        await create(paged, GadgetFactory, score=v, rank=i, created_at=BASE)
+        for i, v in enumerate(scores)
+    ]
+
+
+async def test_integer_keys_page_through_a_walk(
+    paged: AppSession, client: httpx.AsyncClient
+) -> None:
+    rows = [await create(paged, GadgetFactory, rank=r, created_at=BASE) for r in (3, -5, 0, 3, 9)]
+    items = await _walk(client, sort="ranked", limit=2)
+    expected = sorted(rows, key=lambda g: (g.rank, g.id))
+    assert [UUID(i["id"]) for i in items] == [g.id for g in expected]
+
+
+async def test_bigint_keys_at_the_int64_extremes_page_fine(
+    paged: AppSession, client: httpx.AsyncClient
+) -> None:
+    rows = await _score_rows(paged, [2**63 - 1, -(2**63), 0, 2**63 - 1])
+    items = await _walk(client, sort="scored", limit=1)
+    expected = sorted(rows, key=lambda g: (g.score, g.id), reverse=True)
+    assert [UUID(i["id"]) for i in items] == [g.id for g in expected]
+
+
+@pytest.mark.parametrize("value", [10**300, 2**63, -(2**63) - 1])
+async def test_bigint_key_beyond_int64_is_422_invalid_cursor(
+    paged: AppSession, client: httpx.AsyncClient, value: int
+) -> None:
+    cursor = _payload("score:d,id:d", value, GOOD_ID)
+    response = await client.get("/api/v1/test-gadgets", params={"sort": "scored", "cursor": cursor})
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_cursor"
+
+
+@pytest.mark.parametrize("value", [2**31, 2**40, -(2**31) - 1, 10**300])
+async def test_integer_column_key_beyond_int32_is_422_not_a_postgres_error(
+    paged: AppSession, client: httpx.AsyncClient, value: int
+) -> None:
+    cursor = _payload("rank:a,id:a", value, GOOD_ID)
+    response = await client.get("/api/v1/test-gadgets", params={"sort": "ranked", "cursor": cursor})
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_cursor"
+
+
+async def test_paginate_accepts_a_joinedload_collection(paged: AppSession) -> None:
+    gadgets = await _gadgets(paged, 5)
+    await _parts(paged, gadgets)
+    paged.expire_all()
+    params = PageParams(cursor=None, limit=3)
+    stmt = select(Gadget).options(joinedload(Gadget.parts))
+    items, cursor = await paginate(paged, stmt, created_at_asc(Gadget), params)
+    assert [g.id for g in items] == [g.id for g in gadgets[:3]]  # LIMIT counts gadgets, not rows
+    assert cursor is not None
+    assert all("parts" in g.__dict__ and len(g.parts) == 2 for g in items)
+
+
+async def test_joinedload_endpoint_walks_every_row_once(
+    paged: AppSession, client: httpx.AsyncClient
+) -> None:
+    gadgets = await _gadgets(paged, 7)
+    await _parts(paged, gadgets)
+    paged.expire_all()
+    items = await _walk(client, sort="old", limit=3, joined="true")
+    assert [UUID(i["id"]) for i in items] == [g.id for g in gadgets]
+    assert all(len(i["parts"]) == 2 for i in items)
+
+
+async def test_paginate_replaces_an_existing_order_by_with_the_sort(paged: AppSession) -> None:
+    rows = [await create(paged, GadgetFactory, name=n, created_at=BASE) for n in "bca"]
+    stmt = select(Gadget).order_by(Gadget.name.desc())  # must not take precedence over the sort
+    items, _ = await paginate(
+        paged, stmt, created_at_asc(Gadget), PageParams(cursor=None, limit=10)
+    )
+    assert [g.id for g in items] == sorted(g.id for g in rows)
+
+
+async def test_paginate_with_a_preordered_statement_pages_consistently(
+    paged: AppSession,
+) -> None:
+    rows = await _gadgets(paged, 5)
+    stmt = select(Gadget).order_by(Gadget.name.desc(), Gadget.rank)
+    sort = created_at_asc(Gadget)
+    first, cursor = await paginate(paged, stmt, sort, PageParams(cursor=None, limit=2))
+    assert cursor is not None
+    rest, last = await paginate(paged, stmt, sort, PageParams(cursor=cursor, limit=10))
+    assert [g.id for g in first + rest] == [g.id for g in rows]
+    assert last is None

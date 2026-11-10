@@ -15,30 +15,35 @@ the previous page, and it is used as bound query parameters, so forging one reve
 cannot reach rows the endpoint's own filters exclude (the filters stay in the ``Select``).
 Signing would need a secret setting with no default (S-1.4.1 AC1) for no security gain.
 
+Indexes: every list endpoint needs a composite index matching its :class:`Sort`, or keyset
+paging degrades to a scan and sort. A ``(created_at, id)`` btree serves both ``created_at_asc``
+and ``created_at_desc`` (an all-ascending or all-descending order can be read in either
+direction). Mixed-direction sorts (e.g. ``name ASC, id DESC``) are expanded to an OR of ANDs and
+are only partly index-assisted, even with an index declared in that exact order.
+
 This module must not import any domain.
 """
 
 import base64
-import binascii
 import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Annotated, Any, cast
+from typing import Annotated, Any, Protocol, cast
 from uuid import UUID
 
 from fastapi import Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import ColumnElement, Select, and_, literal, or_, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import InstrumentedAttribute
-from sqlalchemy.types import TypeDecorator, TypeEngine
+from sqlalchemy.orm import InstrumentedAttribute, Mapped
+from sqlalchemy.types import BigInteger, Integer, SmallInteger, TypeDecorator, TypeEngine
 
 from app.core.errors import InvalidCursorError
 
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
-MAX_CURSOR_LENGTH = 1024
+MAX_CURSOR_LENGTH = 4096
 
 
 class Page[T](BaseModel):
@@ -98,6 +103,19 @@ class Sort:
     def __post_init__(self) -> None:
         if len(self.keys) < 2 or self.keys[-1].attr != "id":
             raise ValueError("a Sort needs at least two keys and must end with the id column")
+        for key in self.keys:
+            if getattr(key.column.expression, "nullable", None) is not False:
+                # NULLs have no total order under keyset comparison (NULL < x is never true).
+                raise ValueError(f"sort key {key.attr!r} must be a non-nullable column")
+            try:
+                python_type = _python_type(key.column.type)
+            except NotImplementedError:
+                python_type = object
+            if python_type not in _SORT_KEY_TYPES:
+                raise ValueError(
+                    f"sort key {key.attr!r} has an unsupported type; "
+                    "use datetime, UUID, int or str columns"
+                )
 
     @property
     def ident(self) -> str:
@@ -109,14 +127,25 @@ class Sort:
         return [k.column.desc() if k.descending else k.column.asc() for k in self.keys]
 
 
-def created_at_desc(model: Any) -> Sort:
+class _Timestamped(Protocol):
+    """A model with the ``IdMixin`` and ``TimestampMixin`` columns."""
+
+    created_at: Mapped[datetime]
+    id: Mapped[UUID]
+
+
+def _attr(value: object) -> InstrumentedAttribute[Any]:
+    return cast("InstrumentedAttribute[Any]", value)
+
+
+def created_at_desc(model: type[_Timestamped]) -> Sort:
     """The newest-first order ``(created_at DESC, id DESC)``."""
-    return Sort((SortKey(model.created_at, True), SortKey(model.id, True)))
+    return Sort((SortKey(_attr(model.created_at), True), SortKey(_attr(model.id), True)))
 
 
-def created_at_asc(model: Any) -> Sort:
+def created_at_asc(model: type[_Timestamped]) -> Sort:
     """The oldest-first order ``(created_at, id)``, the default order of architecture section 5."""
-    return Sort((SortKey(model.created_at), SortKey(model.id)))
+    return Sort((SortKey(_attr(model.created_at)), SortKey(_attr(model.id))))
 
 
 def _b64(raw: bytes) -> str:
@@ -143,7 +172,24 @@ def _python_type(sql_type: TypeEngine[Any]) -> type:
     return python_type
 
 
-def _decode_value(raw: Any, python_type: type) -> Any:
+_SORT_KEY_TYPES: tuple[type, ...] = (datetime, UUID, int, str)
+
+
+def _int_bounds(sql_type: TypeEngine[Any]) -> tuple[int, int]:
+    """Inclusive range the database column accepts (a wider bound is a Postgres 500)."""
+    while isinstance(sql_type, TypeDecorator):
+        sql_type = sql_type.impl_instance
+    if isinstance(sql_type, SmallInteger):
+        bits = 16
+    elif isinstance(sql_type, Integer) and not isinstance(sql_type, BigInteger):
+        bits = 32
+    else:
+        bits = 64
+    return -(2 ** (bits - 1)), 2 ** (bits - 1) - 1
+
+
+def _decode_value(raw: Any, sql_type: TypeEngine[Any]) -> Any:
+    python_type = _python_type(sql_type)
     if python_type is datetime:
         if not isinstance(raw, str):
             raise ValueError("expected a string")
@@ -158,18 +204,30 @@ def _decode_value(raw: Any, python_type: type) -> Any:
     if python_type is int:
         if isinstance(raw, bool) or not isinstance(raw, int):
             raise ValueError("expected an integer")
+        low, high = _int_bounds(sql_type)
+        if not low <= raw <= high:
+            raise ValueError("integer out of range for the column")
         return raw
     if python_type is str:
         if not isinstance(raw, str):
             raise ValueError("expected a string")
+        if "\x00" in raw:
+            raise ValueError("NUL in string")  # Postgres text cannot hold it
+        raw.encode("utf-8")  # a lone surrogate raises UnicodeEncodeError (a ValueError)
         return raw
-    raise TypeError(f"unsupported sort key type {python_type.__name__}")
+    raise AssertionError(f"unsupported sort key type {python_type.__name__}")  # Sort checks
 
 
 def encode_cursor(sort: Sort, values: Sequence[Any]) -> str:
     """Encode the sort values of the last item as an opaque cursor."""
     payload = [sort.ident, *(_encode_value(v) for v in values)]
-    return _b64(json.dumps(payload, separators=(",", ":")).encode())
+    # ensure_ascii=False keeps non-ASCII strings at their UTF-8 size (ASCII escapes would inflate
+    # them 6 to 12 times and could push a legitimate cursor over the limit).
+    cursor = _b64(json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+    if len(cursor) > MAX_CURSOR_LENGTH:
+        # Server-side bug (an oversized sort key), not a client error: decode would reject it.
+        raise ValueError(f"cursor of {len(cursor)} chars exceeds MAX_CURSOR_LENGTH")
+    return cursor
 
 
 def decode_cursor(sort: Sort, cursor: str) -> list[Any]:
@@ -186,10 +244,16 @@ def decode_cursor(sort: Sort, cursor: str) -> list[Any]:
         if payload[0] != sort.ident:
             raise ValueError("cursor made for a different sort")
         return [
-            _decode_value(item, _python_type(key.column.type))
+            _decode_value(item, key.column.type)
             for item, key in zip(payload[1:], sort.keys, strict=True)
         ]
-    except (ValueError, TypeError, binascii.Error, UnicodeError, NotImplementedError) as exc:
+    except (ValueError, OverflowError, RecursionError) as exc:
+        # What a forged cursor can trigger: ValueError (bad base64, JSON, UUID, datetime,
+        # integer range, NUL and surrogates; binascii.Error, UnicodeError and JSONDecodeError
+        # are subclasses), OverflowError (datetime beyond year 1..9999 after the UTC shift) and
+        # RecursionError (deeply nested JSON; defensive, json handles the 4096-char maximum on
+        # CPython today). TypeError/NotImplementedError would be
+        # programming errors, which Sort now rejects at construction, so they stay 500s.
         raise InvalidCursorError from exc
 
 
@@ -225,8 +289,10 @@ async def paginate[E](
     """
     if params.cursor is not None:
         stmt = stmt.where(_after(sort, decode_cursor(sort, params.cursor)))
-    result = await session.scalars(stmt.order_by(*sort.order_by()).limit(params.limit + 1))
-    rows = cast(list[E], list(result))
+    # order_by(None) drops any ordering already on stmt so it cannot precede the sort's keys;
+    # unique() lets a joinedload of a collection be used (it raises otherwise).
+    ordered = stmt.order_by(None).order_by(*sort.order_by()).limit(params.limit + 1)
+    rows = cast(list[E], list((await session.scalars(ordered)).unique()))
     if len(rows) <= params.limit:
         return rows, None
     items = rows[: params.limit]

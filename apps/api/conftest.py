@@ -3,6 +3,7 @@
 import asyncio
 import os
 import sys
+import uuid
 import warnings
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
@@ -17,6 +18,7 @@ from sqlalchemy.pool import NullPool
 
 from app.core.db import AppSession, get_session
 from tests.db_policy import must_fail_when_db_unreachable, resolve_test_database_url
+from tests.jobs import JobQueue
 from tests.sample_models import SampleBase
 from tests.statement_counter import StatementCounter
 
@@ -166,3 +168,42 @@ def count_statements(
             event.remove(target, "before_cursor_execute", on_execute)
 
     return counting
+
+
+@pytest.fixture
+async def job_queue(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[JobQueue]:
+    """Point ``core.jobs`` at a unique queue on the test Redis, and delete its keys afterwards.
+
+    Skips when Redis is unreachable (fails on CI). Only keys of this queue are removed; the
+    database is never flushed.
+    """
+    from app.core import jobs as core_jobs  # noqa: PLC0415
+    from app.core.config import get_settings  # noqa: PLC0415
+
+    token = uuid.uuid4().hex[:12]
+    queue = JobQueue(name=f"arq:queue:test-{token}", token=token)
+    monkeypatch.setenv("WORKER_QUEUE_NAME", queue.name)
+    get_settings.cache_clear()
+    await core_jobs.close_jobs_pool()
+    try:
+        pool = await core_jobs.get_jobs_pool()
+        await pool.ping()
+    except Exception as exc:
+        await core_jobs.close_jobs_pool()
+        get_settings.cache_clear()
+        message = f"Redis is not reachable ({type(exc).__name__})"
+        if must_fail_when_db_unreachable(os.environ):
+            pytest.fail(message, pytrace=False)
+        pytest.skip(message)
+    try:
+        yield queue
+    finally:
+        pool = await core_jobs.get_jobs_pool()
+        queued = [m.decode() for m in await pool.zrange(queue.name, 0, -1)]
+        keys = [queue.name, f"{queue.name}:health-check"]
+        for job_id in queued:
+            keys += [f"arq:{kind}:{job_id}" for kind in ("job", "result", "in-progress", "retry")]
+        keys += [k async for k in pool.scan_iter(match=f"arq:*:{token}-*")]
+        await pool.delete(*keys)
+        await core_jobs.close_jobs_pool()
+        get_settings.cache_clear()

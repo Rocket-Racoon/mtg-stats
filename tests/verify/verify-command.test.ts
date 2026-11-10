@@ -8,7 +8,7 @@
  * the `--list` structure checks (steps list their sub-commands in order).
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -165,11 +165,13 @@ describe('AC2: a failing step stops the run', () => {
   });
 
   it('reports a command that cannot start with the step name and a non-zero exit', () => {
-    const cmds = JSON.stringify({ 'ruff check': ['definitely-not-a-real-executable-xyz'] });
-    const r = run(['--step-cmds', cmds]);
+    const cmds = JSON.parse(overrides(ALL_STEPS)) as Record<string, unknown>;
+    cmds['ruff check'] = ['definitely-not-a-real-executable-xyz'];
+    const r = run(['--step-cmds', JSON.stringify(cmds)]);
     expect(r.code).not.toBe(0);
     expect(r.err).toContain('FAILED at step "ruff check"');
     expect(r.err).toContain('could not start');
+    expect(ran()).toEqual(['secrets check']);
   });
 
   it('adds the alembic upgrade hint only when alembic check fails', () => {
@@ -326,5 +328,148 @@ describe('VERIFY_STEP_CMDS environment variable', () => {
     });
     expect(r.code).toBe(6);
     expect(r.err).toContain('FAILED at step "pytest"');
+  });
+});
+
+describe('every filter command fails when it matches no workspace', () => {
+  it('passes --fail-if-no-match on every pnpm --filter command', () => {
+    const lines = run(['--list'])
+      .out.split(/\r?\n/)
+      .filter((l) => l.includes('--filter'));
+    expect(lines.length).toBeGreaterThan(0);
+    for (const line of lines) expect(line).toContain('--fail-if-no-match');
+  });
+
+  it('names every workspace with a test script exactly once, in the right test step', () => {
+    const yaml = readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8');
+    const globs = [...yaml.matchAll(/^\s+-\s+(\S+)\s*$/gm)].map((m) => m[1] as string);
+    const dirs: string[] = [];
+    for (const g of globs) {
+      if (g.endsWith('/*')) {
+        const base = g.slice(0, -2);
+        for (const e of readdirSync(join(root, base), { withFileTypes: true })) {
+          if (e.isDirectory()) dirs.push(join(base, e.name));
+        }
+      } else dirs.push(g);
+    }
+    const tested: { name: string; jest: boolean }[] = [];
+    for (const d of dirs) {
+      const file = join(root, d, 'package.json');
+      if (!existsSync(file)) continue;
+      const pkg = JSON.parse(readFileSync(file, 'utf8')) as {
+        name: string;
+        scripts?: Record<string, string>;
+      };
+      const test = pkg.scripts?.['test'];
+      if (test) tested.push({ name: pkg.name, jest: /\bjest\b/.test(test) });
+    }
+    expect(tested.length).toBeGreaterThan(0);
+
+    const out = run(['--list']).out;
+    const vitest = stepBlock(out, 'vitest');
+    const jest = stepBlock(out, 'jest');
+    const count = (text: string, name: string) =>
+      text.split(/\r?\n/).filter((l) => new RegExp(`--filter ${name}( |$)`).test(l)).length;
+    for (const { name, jest: isJest } of tested) {
+      expect(count(isJest ? jest : vitest, name), name).toBe(1);
+      expect(count(isJest ? vitest : jest, name), name).toBe(0);
+    }
+    const filters = [...(vitest + jest).matchAll(/--filter (\S+)/g)].map((m) => m[1]);
+    expect(filters.sort()).toEqual(tested.map((t) => t.name).sort());
+  });
+
+  it('runs the root tests/ Vitest suite exactly once', () => {
+    const lines = stepBlock(run(['--list']).out, 'vitest')
+      .split(/\r?\n/)
+      .filter((l) => l.includes('exec vitest run --dir tests'));
+    expect(lines).toHaveLength(1);
+  });
+});
+
+describe('pnpm resolution through npm_execpath', () => {
+  const only = (keep: string) => overrides(ALL_STEPS.filter((n) => n !== keep));
+
+  it('runs a pnpm-named JS file under Node with the step arguments', () => {
+    const out = join(dir, 'pnpm-argv.json');
+    const fake = join(dir, 'pnpm-fake.cjs');
+    writeFileSync(
+      fake,
+      'require("node:fs").writeFileSync(process.env.FAKE_OUT, JSON.stringify(process.argv.slice(2)));',
+    );
+    const r = run(['--step-cmds', only('client drift check')], {
+      npm_execpath: fake,
+      FAKE_OUT: out,
+    });
+    expect(r.code).toBe(0);
+    expect(JSON.parse(readFileSync(out, 'utf8'))).toEqual(['client:check']);
+  });
+
+  it('ignores an npm_execpath that is not pnpm', () => {
+    const npmCli = join(dir, 'npm-cli.js');
+    const npmRan = join(dir, 'npm-ran.txt');
+    writeFileSync(npmCli, `require("node:fs").writeFileSync(${JSON.stringify(npmRan)}, "ran");`);
+    const r = run(['--step-cmds', only('client drift check')], {
+      npm_execpath: npmCli,
+      PATH: '',
+      Path: '',
+    });
+    expect(r.code).not.toBe(0);
+    expect(r.err).toContain('FAILED at step "client drift check"');
+    expect(existsSync(npmRan)).toBe(false);
+    if (process.platform === 'win32') expect(r.err).toContain('cannot locate pnpm');
+    else expect(r.err).toContain('could not start');
+  });
+
+  it.runIf(process.platform === 'win32')(
+    'fails with a clear message on Windows when npm_execpath is empty',
+    () => {
+      const r = run(['--step-cmds', only('client drift check')], { npm_execpath: '' });
+      expect(r.code).not.toBe(0);
+      expect(r.err).toContain('FAILED at step "client drift check"');
+      expect(r.err).toContain('cannot locate pnpm');
+    },
+  );
+});
+
+describe('several commands per step', () => {
+  it('stops a step at its first failing command and exits with that code', () => {
+    const cmds = JSON.parse(overrides(ALL_STEPS)) as Record<string, unknown>;
+    cmds['eslint'] = [mark('first', 3), mark('second')];
+    const r = run(['--step-cmds', JSON.stringify(cmds)]);
+    expect(r.code).toBe(3);
+    expect(r.err).toContain('FAILED at step "eslint"');
+    expect(ran()).toEqual([...ALL_STEPS.slice(0, ALL_STEPS.indexOf('eslint')), 'first']);
+  });
+
+  it('runs every command of a step in order when all pass', () => {
+    const cmds = JSON.parse(overrides(ALL_STEPS)) as Record<string, unknown>;
+    cmds['pytest'] = [mark('one'), mark('two')];
+    const r = run(['--step-cmds', JSON.stringify(cmds)]);
+    expect(r.code).toBe(0);
+    const expected = ALL_STEPS.flatMap((n) => (n === 'pytest' ? ['one', 'two'] : [n]));
+    expect(ran()).toEqual(expected);
+  });
+
+  it.each([['[[]]'], ['[["node"],[]]'], ['[["node"],"x"]'], ['[]'], ['[1]']])(
+    'rejects the invalid shape %s with exit 2',
+    (shape) => {
+      const r = run(['--step-cmds', `{"eslint":${shape}}`]);
+      expect(r.code).toBe(2);
+      expect(existsSync(marker)).toBe(false);
+    },
+  );
+});
+
+describe('argument handling', () => {
+  it('ignores a bare -- argument', () => {
+    const r = run(['--', '--list']);
+    expect(r.code).toBe(0);
+    expect(listedNames(r.out)).toEqual(ALL_STEPS);
+  });
+
+  it('rejects a repeated --only with exit 2', () => {
+    const r = run(['--only', 'api', '--only', 'ts', '--list']);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('--only');
   });
 });

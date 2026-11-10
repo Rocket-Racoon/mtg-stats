@@ -4,15 +4,15 @@ import { MIN_TOUCH_TARGET } from '../../components/AppButton';
 const tab = (title: string) => ({
   title,
   headerShown: false,
-  tabBarAccessibilityLabel: `${title} tab`,
+  tabBarAccessibilityLabel: title,
   tabBarButtonTestID: `tab-${title.toLowerCase()}`,
 });
 
 export default function TabsLayout() {
   return (
-    // backBehavior "none": hardware back never hops between tabs, so each tab is a root that exits the app.
+    // backBehavior "firstRoute": hardware back on Decks, Stats or More returns to Play; on Play it exits.
     <Tabs
-      backBehavior="none"
+      backBehavior="firstRoute"
       screenOptions={{
         tabBarItemStyle: { minHeight: MIN_TOUCH_TARGET, minWidth: MIN_TOUCH_TARGET },
         tabBarLabelStyle: { fontSize: 14 },

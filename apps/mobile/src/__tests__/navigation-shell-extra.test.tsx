@@ -1,6 +1,8 @@
 import { router } from 'expo-router';
 import * as lib from 'expo-router/testing-library';
 import { BackHandler, StyleSheet } from 'react-native';
+import { SessionProvider } from '../session/SessionProvider';
+import { RootNavigator } from '../app/_layout';
 import appJson from '../../app.json';
 
 jest.setTimeout(60000);
@@ -10,7 +12,7 @@ const mount = (initialUrl: string) => lib.renderRouter(APP_DIR, { initialUrl });
 
 async function signIn() {
   await lib.fireEvent.press(await lib.screen.findByLabelText('Continue (placeholder)'));
-  await lib.screen.findByLabelText('Play tab');
+  await lib.screen.findByLabelText('Play');
 }
 
 type BackHandlerFn = () => boolean | null | undefined;
@@ -22,8 +24,16 @@ beforeEach(() => {
   backHandlers = [];
   const original = BackHandler.addEventListener.bind(BackHandler);
   addListener = jest.spyOn(BackHandler, 'addEventListener').mockImplementation((name, handler) => {
-    if (name === 'hardwareBackPress') backHandlers.push(handler as BackHandlerFn);
-    return original(name, handler);
+    const fn = handler as BackHandlerFn;
+    if (name !== 'hardwareBackPress') return original(name, handler);
+    backHandlers.push(fn);
+    const subscription = original(name, handler);
+    return {
+      remove: () => {
+        backHandlers = backHandlers.filter((h) => h !== fn); // a removed listener must not fire
+        subscription.remove();
+      },
+    };
   });
   exitApp = jest.spyOn(BackHandler, 'exitApp').mockImplementation(() => undefined);
 });
@@ -56,6 +66,72 @@ function minSize(node: StyleNode) {
   return undefined;
 }
 
+describe('hardware back across tabs (firstRoute)', () => {
+  it('goes from the Decks root to Play without leaving the app, then exits from Play', async () => {
+    await mount('/');
+    await signIn();
+    await lib.fireEvent.press(lib.screen.getByLabelText('Decks'));
+    await lib.screen.findByRole('header', { name: 'Decks' });
+    await pressHardwareBack();
+    expect(await lib.screen.findByRole('header', { name: 'MTG Stats' })).toBeTruthy();
+    expect(exitApp).not.toHaveBeenCalled();
+    await pressHardwareBack();
+    expect(exitApp).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['Stats', 'More'])('goes from the %s root to Play', async (name) => {
+    await mount('/');
+    await signIn();
+    await lib.fireEvent.press(lib.screen.getByLabelText(name));
+    await lib.screen.findByRole('header', { name });
+    await pressHardwareBack();
+    expect(await lib.screen.findByRole('header', { name: 'MTG Stats' })).toBeTruthy();
+    expect(exitApp).not.toHaveBeenCalled();
+  });
+
+  it('pops a screen inside the Play stack before switching tabs or exiting', async () => {
+    await mount('/');
+    await signIn();
+    await lib.fireEvent.press(await lib.screen.findByLabelText('Open details'));
+    await lib.screen.findByText('Play details');
+    await pressHardwareBack();
+    await lib.waitFor(() => expect(lib.screen.queryByText('Play details')).toBeNull());
+    expect(exitApp).not.toHaveBeenCalled();
+    await pressHardwareBack();
+    expect(exitApp).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops the deep-link listener once that screen is left (cold-start join, then back)', async () => {
+    await mount('/join/ABC123');
+    await lib.fireEvent.press(await lib.screen.findByLabelText('Back to app'));
+    await lib.screen.findByLabelText('Continue (placeholder)');
+    await lib.fireEvent.press(lib.screen.getByLabelText('Continue (placeholder)'));
+    await lib.screen.findByLabelText('Play');
+    await pressHardwareBack();
+    expect(exitApp).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('opening the app already signed in', () => {
+  it('shows the tabs straight away when the session starts signed in', async () => {
+    await lib.renderRouter(
+      {
+        appDir: APP_DIR,
+        overrides: {
+          _layout: () => (
+            <SessionProvider initialStatus="signed-in">
+              <RootNavigator />
+            </SessionProvider>
+          ),
+        },
+      },
+      { initialUrl: '/' },
+    );
+    expect(await lib.screen.findByLabelText('Play')).toBeTruthy();
+    expect(lib.screen.queryByLabelText('Continue (placeholder)')).toBeNull();
+  });
+});
+
 describe('app configuration', () => {
   it('registers the mtgstats URL scheme the deep links depend on', () => {
     expect(appJson.expo.scheme).toBe('mtgstats');
@@ -66,7 +142,7 @@ describe('guards', () => {
   it('lands a signed-out user on sign-in when opening /decks', async () => {
     await mount('/decks');
     expect(await lib.screen.findByLabelText('Continue (placeholder)')).toBeTruthy();
-    expect(lib.screen.queryByLabelText('Decks tab')).toBeNull();
+    expect(lib.screen.queryByLabelText('Decks')).toBeNull();
   });
 
   it('does not let a signed-in user reach sign-in by URL', async () => {
@@ -74,17 +150,17 @@ describe('guards', () => {
     await signIn();
     await lib.act(async () => router.replace('/sign-in'));
     expect(lib.screen.queryByLabelText('Continue (placeholder)')).toBeNull();
-    expect(lib.screen.getByLabelText('Play tab')).toBeTruthy();
+    expect(lib.screen.getByLabelText('Play')).toBeTruthy();
   });
 
   it('makes the tabs unreachable again after sign out', async () => {
     await mount('/');
     await signIn();
-    await lib.fireEvent.press(lib.screen.getByLabelText('More tab'));
+    await lib.fireEvent.press(lib.screen.getByLabelText('More'));
     await lib.fireEvent.press(await lib.screen.findByLabelText('Sign out'));
     await lib.screen.findByLabelText('Continue (placeholder)');
     await lib.act(async () => router.replace('/decks'));
-    expect(lib.screen.queryByLabelText('Decks tab')).toBeNull();
+    expect(lib.screen.queryByLabelText('Decks')).toBeNull();
     expect(lib.screen.getByLabelText('Continue (placeholder)')).toBeTruthy();
   });
 });
@@ -94,7 +170,7 @@ describe('tabs', () => {
     await mount('/');
     await signIn();
     for (const name of ['Decks', 'Stats', 'More', 'Play']) {
-      await lib.fireEvent.press(lib.screen.getByLabelText(`${name} tab`));
+      await lib.fireEvent.press(lib.screen.getByLabelText(name));
       const header = name === 'Play' ? 'MTG Stats' : name;
       expect(await lib.screen.findByRole('header', { name: header })).toBeTruthy();
     }
@@ -104,7 +180,7 @@ describe('tabs', () => {
     await mount('/');
     await signIn();
     for (const name of ['Decks', 'Stats']) {
-      await lib.fireEvent.press(lib.screen.getByLabelText(`${name} tab`));
+      await lib.fireEvent.press(lib.screen.getByLabelText(name));
       await lib.screen.findByRole('header', { name });
       expect(lib.screen.getByText(/coming soon/i)).toBeTruthy();
     }
@@ -133,7 +209,7 @@ describe('hardware back (Android)', () => {
   it('pops a join screen pushed over a tab and returns to that tab', async () => {
     await mount('/');
     await signIn();
-    await lib.fireEvent.press(lib.screen.getByLabelText('Stats tab'));
+    await lib.fireEvent.press(lib.screen.getByLabelText('Stats'));
     await lib.screen.findByRole('header', { name: 'Stats' });
     await lib.act(async () => router.push('/join/XYZ'));
     await lib.screen.findByTestId('join-screen');
@@ -167,7 +243,7 @@ describe('deep links', () => {
     expect(await lib.screen.findByTestId('join-screen-value')).toHaveTextContent('ROOM42');
     await lib.fireEvent.press(lib.screen.getByLabelText('Back to app'));
     await lib.waitFor(() => expect(lib.screen.queryByTestId('join-screen')).toBeNull());
-    expect(lib.screen.getByLabelText('Play tab')).toBeTruthy();
+    expect(lib.screen.getByLabelText('Play')).toBeTruthy();
   });
 
   it('opens the invite screen while signed out and Back to app shows sign-in', async () => {
@@ -203,7 +279,7 @@ describe('accessibility', () => {
       expect(s.minWidth).toBeGreaterThanOrEqual(44);
     };
     check('Open details');
-    await lib.fireEvent.press(screen.getByLabelText('More tab'));
+    await lib.fireEvent.press(screen.getByLabelText('More'));
     await screen.findByLabelText('Sign out');
     check('Sign out');
     await lib.act(async () => router.push('/join/ABC'));
@@ -216,7 +292,7 @@ describe('accessibility', () => {
     await signIn();
     for (const name of ['Play', 'Decks', 'Stats', 'More']) {
       const node = lib.screen.getByTestId(`tab-${name.toLowerCase()}`);
-      expect(lib.screen.getByLabelText(`${name} tab`)).toBeTruthy();
+      expect(lib.screen.getByLabelText(name)).toBeTruthy();
       const size = minSize(node as never);
       expect(size?.minHeight).toBeGreaterThanOrEqual(44);
       expect(size?.minWidth).toBeGreaterThanOrEqual(44);

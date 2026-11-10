@@ -14,7 +14,7 @@ async function mount(initialUrl: string) {
 async function signIn() {
   const { screen, fireEvent } = lib;
   await fireEvent.press(await screen.findByLabelText('Continue (placeholder)'));
-  await screen.findByLabelText('Play tab');
+  await screen.findByLabelText('Play');
 }
 
 describe('signed-out navigation', () => {
@@ -22,14 +22,14 @@ describe('signed-out navigation', () => {
     await mount('/');
     const { screen } = lib;
     expect(await screen.findByLabelText('Continue (placeholder)')).toBeTruthy();
-    expect(screen.queryByLabelText('Play tab')).toBeNull();
+    expect(screen.queryByLabelText('Play')).toBeNull();
   });
 
   it('redirects a signed-out user away from a tab route', async () => {
     await mount('/play');
     const { screen } = lib;
     expect(await screen.findByLabelText('Continue (placeholder)')).toBeTruthy();
-    expect(screen.queryByLabelText('Play tab')).toBeNull();
+    expect(screen.queryByLabelText('Play')).toBeNull();
   });
 });
 
@@ -39,7 +39,7 @@ describe('signed-in navigation', () => {
     await signIn();
     const { screen } = lib;
     for (const name of ['Play', 'Decks', 'Stats', 'More']) {
-      expect(screen.getByLabelText(`${name} tab`)).toBeTruthy();
+      expect(screen.getByLabelText(name)).toBeTruthy();
     }
     expect(screen.queryByLabelText('Continue (placeholder)')).toBeNull();
   });
@@ -48,10 +48,10 @@ describe('signed-in navigation', () => {
     await mount('/');
     await signIn();
     const { screen, fireEvent } = lib;
-    await fireEvent.press(screen.getByLabelText('Decks tab'));
+    await fireEvent.press(screen.getByLabelText('Decks'));
     expect(await screen.findByText('Coming soon.')).toBeTruthy();
     expect(screen.getByRole('header', { name: 'Decks' })).toBeTruthy();
-    await fireEvent.press(screen.getByLabelText('Stats tab'));
+    await fireEvent.press(screen.getByLabelText('Stats'));
     expect(await screen.findByRole('header', { name: 'Stats' })).toBeTruthy();
   });
 
@@ -59,10 +59,10 @@ describe('signed-in navigation', () => {
     await mount('/');
     await signIn();
     const { screen, fireEvent } = lib;
-    await fireEvent.press(screen.getByLabelText('More tab'));
+    await fireEvent.press(screen.getByLabelText('More'));
     await fireEvent.press(await screen.findByLabelText('Sign out'));
     expect(await screen.findByLabelText('Continue (placeholder)')).toBeTruthy();
-    expect(screen.queryByLabelText('Play tab')).toBeNull();
+    expect(screen.queryByLabelText('Play')).toBeNull();
   });
 });
 
@@ -79,17 +79,6 @@ describe('back navigation', () => {
     await waitFor(() => expect(screen.queryByText('Play details')).toBeNull());
     expect(screen.getByLabelText('Open details')).toBeTruthy();
     expect(router.canGoBack()).toBe(false);
-  });
-
-  it('has nothing to go back to on every root tab', async () => {
-    await mount('/');
-    await signIn();
-    const { screen, fireEvent } = lib;
-    for (const name of ['Decks', 'Stats', 'More', 'Play']) {
-      await fireEvent.press(screen.getByLabelText(`${name} tab`));
-      await screen.findByRole('header', { name: name === 'Play' ? 'MTG Stats' : name });
-      expect(router.canGoBack()).toBe(false);
-    }
   });
 });
 
@@ -125,7 +114,7 @@ describe('deep links', () => {
     expect(router.canGoBack()).toBe(true);
     await fireEvent.press(screen.getByLabelText('Back to app'));
     await waitFor(() => expect(screen.queryByTestId('invite-screen')).toBeNull());
-    expect(screen.getByLabelText('Play tab')).toBeTruthy();
+    expect(screen.getByLabelText('Play')).toBeTruthy();
   });
 });
 
@@ -145,7 +134,7 @@ describe('accessibility', () => {
     await signIn();
     const { screen } = lib;
     for (const name of ['Play', 'Decks', 'Stats', 'More']) {
-      expect(screen.getByLabelText(`${name} tab`)).toBeTruthy();
+      expect(screen.getByLabelText(name)).toBeTruthy();
       // The item style is applied to the wrapper around the tab button.
       let node = screen.getByTestId(`tab-${name.toLowerCase()}`).parent;
       let minHeight: number | undefined;

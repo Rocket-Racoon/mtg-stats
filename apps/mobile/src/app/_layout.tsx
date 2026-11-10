@@ -2,7 +2,7 @@ import { Stack } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SessionProvider, useSession } from '../session/SessionProvider';
 
-function RootNavigator() {
+export function RootNavigator() {
   const { status } = useSession();
   const signedIn = status === 'signed-in';
   return (

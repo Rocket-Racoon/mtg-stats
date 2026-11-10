@@ -1,5 +1,5 @@
-import { router } from 'expo-router';
-import { useEffect } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback } from 'react';
 import { BackHandler, StyleSheet, Text, View } from 'react-native';
 import { AppButton } from './AppButton';
 
@@ -23,14 +23,17 @@ export function DeepLinkScreen({
   value: string;
   testID: string;
 }) {
-  useEffect(() => {
-    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (router.canGoBack()) return false; // default: pop one screen
-      router.replace('/');
-      return true;
-    });
-    return () => sub.remove();
-  }, []);
+  // Only while focused: a screen left underneath another must not swallow hardware back.
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+        if (router.canGoBack()) return false; // default: pop one screen
+        router.replace('/');
+        return true;
+      });
+      return () => sub.remove();
+    }, []),
+  );
 
   return (
     <View style={styles.container} testID={testID}>

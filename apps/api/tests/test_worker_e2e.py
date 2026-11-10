@@ -134,11 +134,6 @@ async def test_worker_logs_never_contain_the_redis_password(job_queue: JobQueue)
     assert SECRET not in stderr
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="PRODUCTION GAP (S-1.9.1 AC1): the startup log lacks the Redis host and DB it "
-    "connected to. Remove this marker once the worker logs them (without credentials).",
-)
 async def test_worker_startup_log_names_the_redis_host_and_db(job_queue: JobQueue) -> None:
     stderr = await _startup_stderr(job_queue)
     assert any("127.0.0.1" in line and "15" in line for line in stderr.splitlines()), stderr

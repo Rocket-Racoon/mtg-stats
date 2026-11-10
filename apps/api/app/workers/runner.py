@@ -41,6 +41,14 @@ async def serve(extra_jobs: Mapping[str, JobFunction] | None = None) -> None:
     if extra_jobs:
         overrides["functions"] = build_functions(extra_jobs)
     worker = create_worker(cast(Any, WorkerSettings), **overrides)
+    redis = WorkerSettings.redis_settings  # host, port and database only: never user or password
+    logger.info(
+        "worker connecting to redis host=%s port=%s db=%s queue=%s",
+        redis.host,
+        redis.port,
+        redis.database,
+        worker.queue_name,
+    )
     logger.info(
         "registered jobs (%d): %s", len(worker.functions), ", ".join(sorted(worker.functions))
     )

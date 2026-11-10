@@ -21,6 +21,7 @@ from app.core.db import dispose_engine, get_engine, get_sessionmaker
 from app.core.redis import close_redis, get_redis
 from app.system import services
 from app.system.services import health
+from tests.app_factory import new_app
 from tests.db_policy import must_fail_when_db_unreachable
 
 CLOSED_PORT = "127.0.0.1:1"  # nothing listens on port 1 (on Windows the refusal can take ~2 s)
@@ -47,12 +48,10 @@ def health_client(monkeypatch: pytest.MonkeyPatch) -> HealthClient:
 
     @asynccontextmanager
     async def make(**env: str) -> AsyncIterator[httpx.AsyncClient]:
-        from app.main import create_app  # noqa: PLC0415  (import builds the app; env set by conftest)
-
         for name, value in env.items():
             monkeypatch.setenv(name, value)
         await _reset_cached_dependencies()
-        transport = httpx.ASGITransport(app=create_app(), raise_app_exceptions=False)
+        transport = httpx.ASGITransport(app=new_app(), raise_app_exceptions=False)
         try:
             async with httpx.AsyncClient(transport=transport, base_url="http://t") as client:
                 yield client
@@ -341,9 +340,7 @@ async def test_real_down_dependency_logs_without_the_password(
 
 
 def test_openapi_documents_200_and_503_with_the_ready_schema() -> None:
-    from app.main import create_app  # noqa: PLC0415
-
-    operation = create_app().openapi()["paths"]["/api/v1/health/ready"]["get"]
+    operation = new_app().openapi()["paths"]["/api/v1/health/ready"]["get"]
     for code in ("200", "503"):
         ref = operation["responses"][code]["content"]["application/json"]["schema"]["$ref"]
         assert ref.endswith("/ReadyResponse")
@@ -352,10 +349,8 @@ def test_openapi_documents_200_and_503_with_the_ready_schema() -> None:
 async def test_redis_client_and_engine_are_closed_on_app_shutdown(
     health_client: HealthClient,
 ) -> None:
-    from app.main import create_app  # noqa: PLC0415
-
     async with health_client():
-        app = create_app()
+        app = new_app()
         async with app.router.lifespan_context(app):
             client = get_redis()
             get_engine()

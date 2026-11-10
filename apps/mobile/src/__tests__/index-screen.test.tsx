@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react-native';
-import Index from '../app/index';
+import Index from '../app/(tabs)/play/index';
 
-describe('Index screen (AC4 render smoke)', () => {
+describe('Play tab screen (S-1.7.1 AC4 render smoke)', () => {
   it('renders the MTG Stats heading', async () => {
     await render(<Index />);
     expect(screen.getByText('MTG Stats')).toBeTruthy();

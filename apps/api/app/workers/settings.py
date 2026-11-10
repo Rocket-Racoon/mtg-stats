@@ -1,8 +1,9 @@
 """arq ``WorkerSettings`` (S-1.9.1), built from the environment.
 
 Importing this module reads settings, so ``REDIS_URL`` must be set. Run the worker with
-``python -m app.workers`` (it picks the right event loop and signal handling on Windows);
-``arq app.workers.settings.WorkerSettings`` works on Linux and macOS.
+``python -m app.workers``: it is the only supported entry point (it picks the right event loop
+and signal handling on Windows). The ``arq`` CLI is unsupported because it skips logging setup and
+the schedule log.
 
 Tuning:
 
@@ -14,8 +15,11 @@ Tuning:
 - ``job_completion_wait``: on SIGTERM/SIGINT the worker stops taking jobs, waits up to
   ``WORKER_SHUTDOWN_GRACE_SECONDS`` (30) for running jobs, then cancels them; a cancelled job
   stays queued and is retried by the next worker.
+- ``cron_jobs``: the UTC schedules of ``app.workers.schedule``; empty when the scheduler is off.
 - ``keep_result``: see :data:`app.core.jobs.KEEP_RESULT_SECONDS`.
 """
+
+from datetime import UTC
 
 from arq.connections import RedisSettings
 
@@ -28,6 +32,7 @@ from app.core.jobs import (
     serialize_job,
 )
 from app.workers.registry import SHUTDOWN_SPARE_TRIES, build_functions
+from app.workers.schedule import build_cron_jobs
 
 JOB_TIMEOUT_SECONDS = DEFAULT_TIMEOUT_SECONDS
 MAX_TRIES = MAX_RETRIES + 1 + SHUTDOWN_SPARE_TRIES
@@ -41,6 +46,8 @@ class WorkerSettings:
     """Settings class consumed by arq (``create_worker(WorkerSettings)``)."""
 
     functions = build_functions()
+    cron_jobs = build_cron_jobs(_settings)
+    timezone = UTC  # cron schedules are UTC (S-1.9.3)
     redis_settings = RedisSettings.from_dsn(_settings.redis_url)
     queue_name = _settings.worker_queue_name
     job_serializer = staticmethod(serialize_job)

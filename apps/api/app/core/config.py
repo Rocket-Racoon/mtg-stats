@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     worker_shutdown_grace_seconds: int = Field(
         default=30, ge=0, validation_alias="WORKER_SHUTDOWN_GRACE_SECONDS"
     )
+    scheduler_enabled: bool = Field(default=True, validation_alias="SCHEDULER_ENABLED")
     cors_allowed_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=list, validation_alias="CORS_ALLOWED_ORIGINS"
     )

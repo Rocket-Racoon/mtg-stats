@@ -610,7 +610,5 @@ def test_malformed_redis_url_fails_naming_the_variable(
 
 
 def test_rediss_scheme_is_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
-    _env(
-        monkeypatch, APP_ENV="test", DATABASE_URL=DB_URL, REDIS_URL="rediss://:pw@r.example:6380/1"
-    )
+    _env(monkeypatch, APP_ENV="test", DATABASE_URL=DB_URL, REDIS_URL="rediss://r.example:6380/1")
     assert load_settings().redis_url.startswith("rediss://")

@@ -9,24 +9,33 @@ Rules, with ``A`` the domain a module belongs to:
 * A domain may import another domain ``B`` only as ``app.B.services`` (the public interface), and
   only when ``B`` is in the transitive closure of the §4.2 graph from ``A``.
 * ``workflows/`` and ``workers/`` may import a domain only as ``app.<B>.services``.
-* A domain never imports ``app.workflows``.
+* A domain never imports ``app.workflows`` or ``app.workers`` (jobs are enqueued by name).
+  ``app.workers`` may import ``app.workflows`` (the job registry registers workflow jobs).
 * ``app.core`` never imports a domain, ``app.workflows`` or ``app.workers``.
 * Nothing under ``app/`` imports ``app.model_registry`` (only ``migrations/env.py`` and tests do).
-* A domain's ``router.py`` never imports its own ``repository`` nor anything from ``sqlalchemy``
-  (strict: every ``sqlalchemy`` / ``sqlalchemy.*`` import, including typing-only ones). Routers
-  call services; a query API in a router means business logic leaked out of ``services/``.
+* A ``router.py`` (a domain's, or ``workflows/router.py``: workflow routers are as thin as any
+  other) never imports anything from ``sqlalchemy`` (strict: every ``sqlalchemy`` /
+  ``sqlalchemy.*`` import, including typing-only ones). A domain's router also never imports its
+  own ``repository``. Routers call services; a query API in a router means business logic leaked
+  out of ``services/``.
+* Dynamic imports with a literal module name (``importlib.import_module("app.x.models")``,
+  ``__import__("app.x.models")``) are checked exactly like static ones. A non-literal name cannot
+  be resolved without running the code and is out of scope (code review covers it).
 * The declared graph itself has no cycle.
 """
 
 from __future__ import annotations
 
 import ast
+import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 APP_ROOT = Path(__file__).resolve().parents[2] / "app"
-DOC_PATH = Path(__file__).resolve().parents[4] / "docs" / "domain-template.md"
+DOCS_ROOT = Path(__file__).resolve().parents[4] / "docs"
+DOC_PATH = DOCS_ROOT / "domain-template.md"
+ARCHITECTURE_PATH = DOCS_ROOT / "architecture.md"
 
 # Architecture §4.2, one entry per domain: the domains it may call directly.
 DEPENDENCIES: Mapping[str, frozenset[str]] = {
@@ -57,13 +66,13 @@ REQUIRED_DOMAIN_DIRS = ("tests",)
 class Violation:
     """One offending import."""
 
-    path: Path
+    path: Path  # relative to the directory holding ``app/``, e.g. ``app/workflows/x.py``
     line: int
     imported: str
     reason: str
 
     def __str__(self) -> str:
-        return f"{self.path}:{self.line}: imports {self.imported}: {self.reason}"
+        return f"{self.path.as_posix()}:{self.line}: imports {self.imported}: {self.reason}"
 
 
 def find_cycle(graph: Mapping[str, frozenset[str]]) -> list[str] | None:
@@ -118,6 +127,28 @@ def _is_submodule(app_root: Path, module: str, name: str) -> bool:
     return base.with_suffix(".py").is_file() or (base / "__init__.py").is_file()
 
 
+def _dynamic_import_target(call: ast.Call) -> str | None:
+    """The literal module name of ``__import__("x")`` or ``[pkg.]import_module("x")``."""
+    func = call.func
+    name = (
+        func.id
+        if isinstance(func, ast.Name)
+        else func.attr
+        if isinstance(func, ast.Attribute)
+        else ""
+    )
+    if name not in {"__import__", "import_module"} or not call.args:
+        return None
+    arg = call.args[0]
+    if (
+        isinstance(arg, ast.Constant)
+        and isinstance(arg.value, str)
+        and not arg.value.startswith(".")
+    ):
+        return arg.value
+    return None
+
+
 def imported_modules(app_root: Path, path: Path) -> list[tuple[int, str]]:
     """Every ``(line, dotted module)`` the file imports, relative imports resolved.
 
@@ -130,7 +161,11 @@ def imported_modules(app_root: Path, path: Path) -> list[tuple[int, str]]:
         package = package.rpartition(".")[0]
     found: list[tuple[int, str]] = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
+        if isinstance(node, ast.Call):
+            literal = _dynamic_import_target(node)
+            if literal:
+                found.append((node.lineno, literal))
+        elif isinstance(node, ast.Import):
             found.extend((node.lineno, alias.name) for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
             if node.level:
@@ -164,7 +199,10 @@ def check_imports(
     for path in sorted(app_root.rglob("*.py")):
         module = _module_name(app_root, path)
         owner = _top(module)
-        is_router = owner in domains and path == app_root / str(owner) / "router.py"
+        is_router = (owner in domains or owner == "workflows") and path == (
+            app_root / str(owner) / "router.py"
+        )
+        shown = path.relative_to(app_root.parent)
         for line, target in imported_modules(app_root, path):
             reasons: list[str] = []
             top = _top(target)
@@ -174,14 +212,14 @@ def check_imports(
                 if target == "sqlalchemy" or target.startswith("sqlalchemy."):
                     reasons.append("a router must not use a SQLAlchemy query API; call a service")
                 own_repo = f"app.{owner}.repository"
-                if target == own_repo or target.startswith(own_repo + "."):
+                if owner in domains and (target == own_repo or target.startswith(own_repo + ".")):
                     reasons.append("a router must not import its own repository; call a service")
             if owner == "core":
                 if top in domains or top in {"workflows", "workers"}:
                     reasons.append("core must not import a domain, workflows or workers")
             elif owner in domains:
-                if top == "workflows":
-                    reasons.append("a domain must not import workflows")
+                if top in {"workflows", "workers"}:
+                    reasons.append(f"a domain must not import {top}")
                 elif top in domains and top != owner:
                     if top not in closure[str(owner)]:
                         reasons.append(
@@ -195,7 +233,7 @@ def check_imports(
                 and target != f"app.{top}.services"
             ):
                 reasons.append(f"{owner} may import only app.{top}.services")
-            violations.extend(Violation(path, line, target, r) for r in reasons)
+            violations.extend(Violation(shown, line, target, r) for r in reasons)
     return violations
 
 
@@ -267,6 +305,12 @@ _SUBS = {
     "cards/models.py": "",
     "games/services/__init__.py": "",
     "games/models.py": "",
+    "decks/models.py": "",
+    "decks/repository.py": "",
+    "decks/services/__init__.py": "",
+    "decks/services/helpers.py": "",
+    "workflows/__init__.py": "",
+    "workflows/w0.py": "",
 }
 
 
@@ -412,3 +456,336 @@ def test_complete_domain_layout_passes_and_non_domain_packages_are_ignored(tmp_p
     app = _tree(tmp_path, {**files, "workflows/w.py": "", "core/c.py": ""})
     (app / "cards" / "tests").mkdir()
     assert check_layout(app) == {}
+
+
+# --------------------------------------------------------------------------- new rules
+
+
+def test_domain_importing_workers_fails_in_every_form(tmp_path: Path) -> None:
+    files = {
+        "workers/__init__.py": "",
+        "workers/settings.py": "",
+        "cards/services/a.py": (
+            "import app.workers\n"
+            "import app.workers.settings\n"
+            "from app.workers import settings\n"
+            "from app import workers\n"
+            "from ...workers import settings as s2\n"
+        ),
+    }
+    found = _violations(tmp_path, files)
+    assert sorted((v.line, v.imported) for v in found) == [
+        (1, "app.workers"),
+        (2, "app.workers.settings"),
+        (3, "app.workers.settings"),
+        (4, "app.workers"),
+        (5, "app.workers.settings"),
+    ]
+    assert all("workers" in v.reason for v in found)
+
+
+def test_core_importing_workflows_or_workers_fails_individually(tmp_path: Path) -> None:
+    files = {
+        "workers/__init__.py": "",
+        "core/a.py": "import app.workflows.w0\n",
+        "core/b.py": "import app.workers\n",
+    }
+    found = _violations(tmp_path, files)
+    assert sorted((v.path.name, v.imported) for v in found) == [
+        ("a.py", "app.workflows.w0"),
+        ("b.py", "app.workers"),
+    ]
+
+
+def test_workers_importing_workflows_is_allowed(tmp_path: Path) -> None:
+    files = {"workers/registry.py": "from app.workflows import w0\nimport app.workflows\n"}
+    assert _violations(tmp_path, files) == []
+
+
+def test_main_and_scripts_are_outside_the_rules(tmp_path: Path) -> None:
+    body = "import app.decks.models\nimport app.workers\nimport app.workflows.w0\n"
+    files = {"main.py": body, "scripts/seed.py": body}
+    assert _violations(tmp_path, files) == []
+
+
+# --------------------------------------------------------------------------- doc and test agree
+
+
+def _documented_graph() -> dict[str, frozenset[str]]:
+    """Parse the mermaid block of architecture.md section 4.2 into an adjacency mapping."""
+    text = ARCHITECTURE_PATH.read_text(encoding="utf-8")
+    section = text.split("### 4.2", 1)[1].split("### 4.3", 1)[0]
+    block = section.split("```mermaid", 1)[1].split("```", 1)[0]
+    graph: dict[str, set[str]] = {}
+    for raw in block.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("flowchart"):
+            continue
+        parts = [p.strip() for p in line.split("-->")]
+        assert len(parts) <= 2, f"unparsed: {raw!r}"
+        assert all(p.isidentifier() for p in parts), f"unparsed: {raw!r}"
+        graph.setdefault(parts[0], set())
+        if len(parts) == 2:
+            graph.setdefault(parts[1], set())
+            graph[parts[0]].add(parts[1])
+    return {k: frozenset(v) for k, v in graph.items()}
+
+
+def test_dependencies_dict_equals_the_graph_documented_in_architecture_4_2() -> None:
+    documented = _documented_graph()
+    assert len(documented) == 10
+    assert dict(DEPENDENCIES) == documented
+
+
+def test_documented_graph_parser_reads_edges_and_leaf_nodes() -> None:
+    documented = _documented_graph()
+    assert documented["leagues"] == {"stats", "games"}
+    assert documented["system"] == frozenset()
+    assert documented["cards"] == frozenset()
+
+
+# --------------------------------------------------------------------------- import forms
+
+
+def _only(tmp_path: Path, owner_file: str, body: str) -> list[tuple[int, str]]:
+    root = tmp_path / f"case{len(list(tmp_path.iterdir()))}"
+    root.mkdir()
+    return [(v.line, v.imported) for v in _violations(root, {owner_file: body})]
+
+
+def test_import_dotted_module_with_alias_fails(tmp_path: Path) -> None:
+    assert _only(tmp_path, "workflows/a.py", "import app.decks.models as m\n") == [
+        (1, "app.decks.models")
+    ]
+
+
+def test_from_package_import_models_submodule_fails(tmp_path: Path) -> None:
+    assert _only(tmp_path, "workflows/a.py", "from app.decks import models\n") == [
+        (1, "app.decks.models")
+    ]
+
+
+def test_from_package_import_services_is_the_public_interface(tmp_path: Path) -> None:
+    assert _only(tmp_path, "workflows/a.py", "from app.decks import services\n") == []
+    assert _only(tmp_path, "games/services/a.py", "from app.decks import services\n") == []
+
+
+def test_from_services_import_a_function_is_allowed(tmp_path: Path) -> None:
+    assert _only(tmp_path, "workflows/a.py", "from app.decks.services import get_deck\n") == []
+
+
+def test_from_services_import_a_submodule_fails(tmp_path: Path) -> None:
+    body = "from app.decks.services import helpers\n"
+    assert _only(tmp_path, "workflows/a.py", body) == [(1, "app.decks.services.helpers")]
+    assert _only(tmp_path, "games/services/a.py", body) == [(1, "app.decks.services.helpers")]
+
+
+def test_from_app_import_domain_and_import_domain_package_fail(tmp_path: Path) -> None:
+    body = "from app import decks\nimport app.decks\n"
+    assert _only(tmp_path, "workflows/a.py", body) == [(1, "app.decks"), (2, "app.decks")]
+    assert _only(tmp_path, "games/services/a.py", body) == [(1, "app.decks"), (2, "app.decks")]
+
+
+def test_relative_import_from_nested_module_reaching_another_domain_fails(
+    tmp_path: Path,
+) -> None:
+    body = "from ...decks import models\nfrom ..models import Own\n"
+    assert _only(tmp_path, "games/services/a.py", body) == [(1, "app.decks.models")]
+
+
+def test_relative_import_from_a_top_level_domain_module_fails(tmp_path: Path) -> None:
+    assert _only(tmp_path, "games/schemas.py", "from ..decks import models\n") == [
+        (1, "app.decks.models")
+    ]
+
+
+def test_literal_dynamic_imports_are_checked_like_static_ones(tmp_path: Path) -> None:
+    body = (
+        "import importlib\n"
+        "from importlib import import_module\n"
+        'importlib.import_module("app.decks.models")\n'
+        'import_module("app.decks.repository")\n'
+        '__import__("app.identity.models")\n'
+        'importlib.import_module("app.decks.services")\n'
+        'importlib.import_module("os.path")\n'
+    )
+    assert _only(tmp_path, "workflows/a.py", body) == [
+        (3, "app.decks.models"),
+        (4, "app.decks.repository"),
+        (5, "app.identity.models"),
+    ]
+
+
+def test_non_literal_dynamic_imports_are_out_of_scope(tmp_path: Path) -> None:
+    body = 'import importlib\nname = "app.decks.models"\nimportlib.import_module(name)\n'
+    assert _only(tmp_path, "workflows/a.py", body) == []
+
+
+def test_imports_inside_functions_and_try_except_are_checked(tmp_path: Path) -> None:
+    body = (
+        "def f():\n"
+        "    from app.decks.models import D\n"
+        "try:\n"
+        "    import app.identity.repository\n"
+        "except ImportError:\n"
+        "    app = None\n"
+    )
+    assert _only(tmp_path, "workflows/a.py", body) == [
+        (2, "app.decks.models"),
+        (4, "app.identity.repository"),
+    ]
+
+
+def test_type_checking_import_in_a_worker_fails(tmp_path: Path) -> None:
+    body = "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    import app.decks.models\n"
+    assert _only(tmp_path, "workers/a.py", body) == [(3, "app.decks.models")]
+
+
+def test_importing_core_and_own_domain_internals_is_allowed(tmp_path: Path) -> None:
+    body = "from app.core.db import SessionDep\nfrom app.decks.models import D\n"
+    assert _only(tmp_path, "decks/services/a.py", body) == []
+
+
+# --------------------------------------------------------------------------- router rule
+
+
+def test_router_sqlalchemy_in_any_form_fails(tmp_path: Path) -> None:
+    body = (
+        "import sqlalchemy as sa\n"
+        "from sqlalchemy import select\n"
+        "from sqlalchemy.ext.asyncio import AsyncSession\n"
+        "import importlib\n"
+        'importlib.import_module("sqlalchemy.orm")\n'
+    )
+    assert _only(tmp_path, "decks/router.py", body) == [
+        (1, "sqlalchemy"),
+        (2, "sqlalchemy"),
+        (3, "sqlalchemy.ext.asyncio"),
+        (5, "sqlalchemy.orm"),
+    ]
+
+
+def test_router_may_import_core_db_session_dep(tmp_path: Path) -> None:
+    files = {"core/db.py": "", "decks/router.py": "from app.core.db import SessionDep\n"}
+    assert _violations(tmp_path, files) == []
+
+
+def test_router_importing_own_repository_in_every_form_fails(tmp_path: Path) -> None:
+    body = "from app.decks import repository\nimport app.decks.repository as r\n"
+    assert _only(tmp_path, "decks/router.py", body) == [
+        (1, "app.decks.repository"),
+        (2, "app.decks.repository"),
+    ]
+
+
+def test_router_importing_another_domains_repository_fails_as_non_public(
+    tmp_path: Path,
+) -> None:
+    found = _violations(tmp_path, {"games/router.py": "from app.decks.repository import q\n"})
+    assert [v.imported for v in found] == ["app.decks.repository"]
+
+
+def test_workflow_router_may_not_use_sqlalchemy(tmp_path: Path) -> None:
+    body = "from sqlalchemy import select\nfrom app.decks import services\n"
+    assert _only(tmp_path, "workflows/router.py", body) == [(1, "sqlalchemy")]
+
+
+def test_sqlalchemy_in_a_non_router_workflow_is_fine(tmp_path: Path) -> None:
+    assert _only(tmp_path, "workflows/registration.py", "from sqlalchemy import select\n") == []
+
+
+def test_file_named_router_deep_in_services_is_not_a_router(tmp_path: Path) -> None:
+    assert _only(tmp_path, "decks/services/router.py", "from sqlalchemy import select\n") == []
+
+
+# --------------------------------------------------------------------------- reporting
+
+
+def test_several_violations_across_files_are_all_reported_with_relative_paths(
+    tmp_path: Path,
+) -> None:
+    files = {
+        "workflows/one.py": "x = 1\nimport app.decks.models\n",
+        "workers/two.py": "from app.identity.repository import q\n",
+        "cards/services/three.py": "\n\nimport app.games.services\n",
+        "core/four.py": "import app.cards.services\n",
+        "decks/router.py": "from sqlalchemy import select\n",
+        "cards/services/five.py": "import app.workers\n",
+    }
+    found = _violations(tmp_path, files)
+    assert sorted(f"{v.path.as_posix()}:{v.line}|{v.imported}" for v in found) == [
+        "app/cards/services/five.py:1|app.workers",
+        "app/cards/services/three.py:3|app.games.services",
+        "app/core/four.py:1|app.cards.services",
+        "app/decks/router.py:1|sqlalchemy",
+        "app/workers/two.py:1|app.identity.repository",
+        "app/workflows/one.py:2|app.decks.models",
+    ]
+    for v in found:
+        assert v.reason
+        assert str(v) == f"{v.path.as_posix()}:{v.line}: imports {v.imported}: {v.reason}"
+        assert not v.path.is_absolute()
+
+
+# --------------------------------------------------------------------------- AC1 via the template
+
+
+def _template_layout_paths(domain: str) -> list[str]:
+    """Paths (files and directories) of the first fenced layout block in domain-template.md."""
+    text = DOC_PATH.read_text(encoding="utf-8")
+    block = text.split("## Files", 1)[1].split("```", 2)[1]
+    stack: list[str] = []
+    paths: list[str] = []
+    for raw in block.splitlines()[1:]:
+        if not raw.strip():
+            continue
+        depth = (len(raw) - len(raw.lstrip())) // 2
+        name = raw.strip().split("  ")[0].replace("<topic>", "example").replace("<name>", domain)
+        del stack[depth:]
+        stack.append(name.rstrip("/"))
+        if depth > 0:
+            paths.append("/".join(stack[1:]) + ("/" if name.endswith("/") else ""))
+    return paths
+
+
+def _scaffold(root: Path, domain: str) -> Path:
+    """Create the domain exactly as docs/domain-template.md's layout block lists it."""
+    app = _tree(root, {"core/c.py": ""})
+    for rel in _template_layout_paths(domain):
+        target = app / domain / rel.rstrip("/")
+        if rel.endswith("/"):
+            target.mkdir(parents=True, exist_ok=True)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text('"""Template stub."""\n', encoding="utf-8")
+    return app
+
+
+def test_template_layout_block_lists_every_required_file() -> None:
+    paths = _template_layout_paths("decks")
+    for required in (*REQUIRED_DOMAIN_FILES, *(f"{d}/" for d in REQUIRED_DOMAIN_DIRS)):
+        assert required in paths, f"{required} missing from the docs/domain-template.md layout"
+
+
+def test_domain_created_from_the_template_passes_layout_and_import_checks(
+    tmp_path: Path,
+) -> None:
+    app = _scaffold(tmp_path, "decks")
+    assert check_layout(app) == {}
+    assert check_imports(app) == []
+
+
+def test_removing_any_one_required_file_fails_the_layout_check_naming_it(
+    tmp_path: Path,
+) -> None:
+    required_all = (*REQUIRED_DOMAIN_FILES, *(f"{d}/" for d in REQUIRED_DOMAIN_DIRS))
+    for i, required in enumerate(required_all):
+        root = tmp_path / f"case{i}"
+        root.mkdir()
+        app = _scaffold(root, "decks")
+        target = app / "decks" / required.rstrip("/")
+        if required.endswith("/"):
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+        assert check_layout(app) == {"decks": [required]}, required

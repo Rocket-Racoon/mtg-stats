@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     database_url: str = Field(validation_alias="DATABASE_URL")
     log_level: LogLevel = Field(default="INFO", validation_alias="LOG_LEVEL")
     db_connect_timeout: int = Field(default=5, ge=1, validation_alias="DB_CONNECT_TIMEOUT")
+    redis_url: str = Field(default="redis://127.0.0.1:6379/0", validation_alias="REDIS_URL")
+    git_sha: str = Field(default="dev", validation_alias="GIT_SHA")
     cors_allowed_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=list, validation_alias="CORS_ALLOWED_ORIGINS"
     )

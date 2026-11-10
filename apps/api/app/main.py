@@ -11,16 +11,19 @@ from app.core.db import dispose_engine
 from app.core.errors import ERROR_RESPONSES, UnhandledErrorMiddleware, register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.openapi import generate_operation_id
+from app.core.redis import close_redis
 from app.core.request_id import RequestIDMiddleware
+from app.system.router import router as system_router
 
 API_PREFIX = "/api/v1"
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Dispose the DB engine on shutdown (it is created lazily, so startup does nothing)."""
+    """Dispose the DB engine and Redis client on shutdown (both are lazy; startup does nothing)."""
     yield
     await dispose_engine()
+    await close_redis()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -47,6 +50,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(RequestIDMiddleware)
     api_router = APIRouter(prefix=API_PREFIX)
     # Domain routers are included on this router as their stories land.
+    api_router.include_router(system_router)
     app.include_router(api_router)
     return app
 

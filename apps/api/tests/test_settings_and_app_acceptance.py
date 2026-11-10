@@ -133,6 +133,10 @@ def test_dotenv_app_env_prod_is_not_loaded() -> None:
         load_settings()
 
 
+# Credential-free local defaults that are allowed (S-1.4.4): the dev Redis has no password.
+LOCAL_URL_DEFAULTS = {"REDIS_URL"}
+
+
 def test_no_secret_field_has_a_default_in_code() -> None:
     secret_name = re.compile(r"(SECRET|KEY|TOKEN|PASSWORD|_URL)$", re.IGNORECASE)
     checked = []
@@ -140,6 +144,8 @@ def test_no_secret_field_has_a_default_in_code() -> None:
         alias = str(field.validation_alias or name)
         if secret_name.search(alias) or secret_name.search(name):
             checked.append(alias)
+            if alias in LOCAL_URL_DEFAULTS:
+                continue
             assert field.is_required(), f"{alias} must not have a default"
     assert "DATABASE_URL" in checked
 
@@ -150,7 +156,8 @@ def test_no_default_in_code_looks_like_a_credential_url() -> None:
             continue
         default = field.get_default(call_default_factory=True)
         if isinstance(default, str):
-            assert "://" not in default, name
+            if str(field.validation_alias or name) not in LOCAL_URL_DEFAULTS:
+                assert "://" not in default, name
             assert "@" not in default, name
 
 

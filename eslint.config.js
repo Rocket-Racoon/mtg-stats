@@ -34,6 +34,33 @@ export default tseslint.config(
     },
   },
   {
+    // The client is bundled by Vite and Metro: no Node-only APIs (S-1.5.2).
+    files: ['packages/api-client/src/**/*.ts'],
+    ignores: ['packages/api-client/src/**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              regex:
+                '^(node:|(assert|buffer|child_process|cluster|crypto|dgram|dns|events|fs|http|http2|https|module|net|os|path|perf_hooks|process|querystring|readline|stream|string_decoder|timers|tls|url|util|vm|worker_threads|zlib)(/|$))',
+              message: 'Node built-ins are not available in Vite or Metro bundles.',
+            },
+          ],
+        },
+      ],
+      'no-restricted-globals': [
+        'error',
+        { name: 'process', message: 'Node-only global.' },
+        { name: 'Buffer', message: 'Node-only global.' },
+        { name: '__dirname', message: 'Node-only global.' },
+        { name: '__filename', message: 'Node-only global.' },
+        { name: 'require', message: 'Node-only global.' },
+      ],
+    },
+  },
+  {
     files: ['**/*.{js,cjs,mjs}'],
     // Browser scripts served as-is get browser globals only (next block), never Node's.
     ignores: ['apps/web/public/**'],

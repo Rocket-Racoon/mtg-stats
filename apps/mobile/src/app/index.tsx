@@ -1,5 +1,6 @@
 import { Link } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
+import '../api';
 import { env } from '../env';
 import { linkedPackages } from '../linkedPackages';
 

@@ -160,11 +160,16 @@ Arrows mean "may call", and they point **down** to lower layers. Some examples:
 - an import between domains isn't in the closure;
 - a domain imports `workflows/` or `workers/` (jobs are enqueued by name, never imported);
 - `core/` imports any domain, `workflows/` or `workers/`;
+- `workflows/` imports `workers/`;
 - a domain imports another domain, or `workflows/` or `workers/` import a domain, through anything other than exactly `app.<domain>.services`;
-- a domain's `router.py` imports its own `repository` or anything from `sqlalchemy`, or `workflows/router.py` imports anything from `sqlalchemy` (S-1.4.6). Literal-string dynamic imports (`importlib.import_module("…")`, `__import__("…")`) count as imports;
-- anything under `app/` other than the registry itself imports `app/model_registry.py`. Only `migrations/env.py` and tests may import it.
+- a domain, `core/`, `workflows/` or `workers/` imports `app.main` or `app.scripts`;
+- a **router module** in a domain imports its own `repository`, or a router module in a domain or in `workflows/` imports anything from `sqlalchemy` (S-1.4.6). A router module is any module that imports `fastapi.APIRouter`, so this covers `router.py`, split router files and the per-workflow routers of §4.3;
+- anything under `app/` other than the registry itself, including `app/main.py`, imports `app/model_registry.py`. Only `migrations/env.py` and the tests under `apps/api/tests/` may import it;
+- a package directly under `app/` is neither one of the ten domains nor `core`, `workflows`, `workers` or `scripts`.
 
-`app/main.py` (the app factory, which mounts every router) and `app/scripts/` are outside these rules. `workers/` may import `workflows/`, because the job registry registers workflow jobs. It extends S-1.4.6's boundary test; `docs/domain-template.md` describes the layout of one domain.
+Literal-string dynamic imports (`importlib.import_module("…")`, including its keyword and literal-relative forms, and `__import__("…")`) count as imports. Attribute access through an allowed import (for example `app.decks.services.helpers` after `import app.decks.services`) and non-literal dynamic imports are left to review.
+
+Domain tests (`app/<domain>/tests/`) obey their domain's rules; cross-domain factories live in `apps/api/tests/factories.py`. `app/main.py` (the app factory, which mounts every router) and `app/scripts/` are outside these rules, except the registry rule. `workers/` may import `workflows/`, because the job registry registers workflow jobs. It extends S-1.4.6's boundary test; `docs/domain-template.md` describes the layout of one domain.
 
 ### 4.3 Breaking would-be cycles
 

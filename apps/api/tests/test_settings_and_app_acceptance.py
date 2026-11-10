@@ -18,6 +18,7 @@ from app.core.config import Settings, get_settings, load_settings
 from app.main import create_app
 
 DB_URL = "postgresql+psycopg://user:CHANGE_ME@db.example.com:5432/mtg"
+REDIS_URL = "redis://127.0.0.1:6379/0"
 WEB_DEV_ORIGIN = "http://localhost:5173"
 ALLOWED = "https://app.example.com"
 EVIL = "https://evil.example.org"
@@ -29,8 +30,9 @@ _env_path: list[Path] = []
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[None]:
     """Start from an empty environment and never read a real ``.env``."""
-    for name in ("APP_ENV", "DATABASE_URL", "CORS_ALLOWED_ORIGINS"):
+    for name in ("APP_ENV", "DATABASE_URL", "REDIS_URL", "CORS_ALLOWED_ORIGINS"):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("REDIS_URL", REDIS_URL)
     env_path = tmp_path / ".env"
     _env_path.append(env_path)
     monkeypatch.setattr(config, "find_env_file", lambda: env_path if env_path.is_file() else None)
@@ -133,10 +135,6 @@ def test_dotenv_app_env_prod_is_not_loaded() -> None:
         load_settings()
 
 
-# Credential-free local defaults that are allowed (S-1.4.4): the dev Redis has no password.
-LOCAL_URL_DEFAULTS = {"REDIS_URL"}
-
-
 def test_no_secret_field_has_a_default_in_code() -> None:
     secret_name = re.compile(r"(SECRET|KEY|TOKEN|PASSWORD|_URL)$", re.IGNORECASE)
     checked = []
@@ -144,8 +142,6 @@ def test_no_secret_field_has_a_default_in_code() -> None:
         alias = str(field.validation_alias or name)
         if secret_name.search(alias) or secret_name.search(name):
             checked.append(alias)
-            if alias in LOCAL_URL_DEFAULTS:
-                continue
             assert field.is_required(), f"{alias} must not have a default"
     assert "DATABASE_URL" in checked
 
@@ -156,8 +152,7 @@ def test_no_default_in_code_looks_like_a_credential_url() -> None:
             continue
         default = field.get_default(call_default_factory=True)
         if isinstance(default, str):
-            if str(field.validation_alias or name) not in LOCAL_URL_DEFAULTS:
-                assert "://" not in default, name
+            assert "://" not in default, name
             assert "@" not in default, name
 
 
@@ -591,3 +586,31 @@ def test_lifespan_events_pass_through_the_cors_middleware(
     app = create_app(_make(monkeypatch, "prod", ALLOWED))
     with TestClient(app) as client:
         assert client.get("/api/v1/openapi.json").status_code == 200
+
+
+# ---------------------------------------------------------------- REDIS_URL (S-1.4.4)
+
+
+def test_missing_redis_url_fails_naming_the_variable(monkeypatch: pytest.MonkeyPatch) -> None:
+    _env(monkeypatch, APP_ENV="test", DATABASE_URL=DB_URL)
+    monkeypatch.delenv("REDIS_URL")
+    with pytest.raises(ValidationError, match="REDIS_URL"):
+        load_settings()
+
+
+@pytest.mark.parametrize(
+    "bad", ["", "localhost:6379", "http://localhost:6379/0", "redis://", "redis://h:notaport/0"]
+)
+def test_malformed_redis_url_fails_naming_the_variable(
+    monkeypatch: pytest.MonkeyPatch, bad: str
+) -> None:
+    _env(monkeypatch, APP_ENV="test", DATABASE_URL=DB_URL, REDIS_URL=bad)
+    with pytest.raises(ValidationError, match="REDIS_URL"):
+        load_settings()
+
+
+def test_rediss_scheme_is_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
+    _env(
+        monkeypatch, APP_ENV="test", DATABASE_URL=DB_URL, REDIS_URL="rediss://:pw@r.example:6380/1"
+    )
+    assert load_settings().redis_url.startswith("rediss://")

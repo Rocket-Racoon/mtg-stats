@@ -84,6 +84,7 @@ const CONTEXT: Record<string, Context> = {
   },
   '.menu-toggle, .theme-toggle': { color: 'fg', background: 'bg', pair: ['fg', 'bg'] },
   ".theme-toggle[aria-pressed='true']": { background: 'mutedBg', pair: ['fg', 'mutedBg'] },
+  '.shell-footer': { color: 'mutedFg', background: 'mutedBg', pair: ['mutedFg', 'mutedBg'] },
   'a, a:visited': { color: 'link', pair: ['link', 'bg'] },
   '.skip-link, .skip-link:visited': { color: 'fg', background: 'bg', pair: ['fg', 'bg'] },
 };

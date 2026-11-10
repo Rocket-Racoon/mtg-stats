@@ -59,6 +59,7 @@ describe('links are coloured by a contrast-checked rule (S-1.6.5 AC2)', () => {
     '/stats',
     '/collection',
     '/leagues',
+    '/about',
     '/no-such-page',
     '/sign-in',
   ])('every a[href] on %s matches a colour rule, and plain links resolve to --link', (path) => {
@@ -71,6 +72,22 @@ describe('links are coloured by a contrast-checked rule (S-1.6.5 AC2)', () => {
       const special = a.matches('.shell-nav a, .skip-link');
       if (!special) expect(matched.at(-1)?.color, a.outerHTML).toBe('var(--link)');
     }
+  });
+
+  it('footer links sit on --muted-bg, and --link on --muted-bg meets 4.5:1 in both themes (S-1.6.6 AC4)', () => {
+    const pair = CONTRAST_PAIRS.find((p) => p.fg === 'link' && p.bg === 'mutedBg');
+    expect(pair?.min).toBe(4.5);
+    for (const theme of THEMES) {
+      expect(contrastRatio(TOKENS[theme].link, TOKENS[theme].mutedBg)).toBeGreaterThanOrEqual(4.5);
+    }
+    const { container } = render(
+      <RouterProvider router={createMemoryRouter(routes, { initialEntries: ['/about'] })} />,
+    );
+    const links = container.querySelectorAll('footer a[href]');
+    const names = [...links].map((a) => a.textContent);
+    expect(names).toEqual(expect.arrayContaining(['About', 'Fan Content Policy', 'Scryfall']));
+    expect(links.length).toBeGreaterThanOrEqual(3);
+    for (const a of links) expect(rulesFor(a).at(-1)?.color).toBe('var(--link)');
   });
 
   it('the 404 "Go home" link is styled by the global link rule', () => {

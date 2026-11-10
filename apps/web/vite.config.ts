@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { loadEnv } from 'vite';
@@ -5,6 +6,11 @@ import { defineConfig } from 'vitest/config';
 
 // One .env at the repo root is shared by every workspace.
 const envDir = fileURLToPath(new URL('../..', import.meta.url));
+
+// The app version shown on /about (S-1.6.6) comes from this package's own package.json.
+const pkg = JSON.parse(
+  readFileSync(fileURLToPath(new URL('./package.json', import.meta.url)), 'utf8'),
+) as { version: string };
 
 // Dev and test fall back to this value; `vite build` requires VITE_API_BASE_URL to be set.
 const DEV_API_BASE_URL = 'http://localhost:8000/api/v1';
@@ -32,7 +38,10 @@ export default defineConfig(({ command, mode }) => {
   return {
     envDir,
     plugins: [react()],
-    define: { 'import.meta.env.VITE_API_BASE_URL': JSON.stringify(apiBaseUrl) },
+    define: {
+      'import.meta.env.VITE_API_BASE_URL': JSON.stringify(apiBaseUrl),
+      __APP_VERSION__: JSON.stringify(pkg.version),
+    },
     appType: 'spa',
     server: { port: 5173, strictPort: true },
     test: {

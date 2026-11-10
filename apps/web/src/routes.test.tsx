@@ -34,12 +34,13 @@ describe('routes exist (S-1.6.2 AC1)', () => {
     expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument();
   });
 
-  it('renders /sign-in without the app navigation, header or footer', () => {
+  it('renders /sign-in without the app navigation or header, but with the footer (S-1.6.6)', () => {
     renderAt('/sign-in');
     expect(screen.getByRole('heading', { level: 2, name: 'Sign in' })).toBeInTheDocument();
     expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
     expect(screen.queryByRole('banner')).not.toBeInTheDocument();
-    expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
+    expect(screen.getByRole('main')).toBeInTheDocument();
+    expect(screen.getByRole('contentinfo')).toBeInTheDocument();
   });
 
   it('shows the 404 page with a Go home link for an unknown deep path', () => {
@@ -148,6 +149,22 @@ describe('focus after navigation (S-1.6.2)', () => {
     expect(toggle).toHaveFocus();
     await act(() => router.navigate('/decks'));
     expect(screen.getByRole('main')).toHaveFocus();
+  });
+
+  it('keeps focus on main across layouts: /sign-in -> footer About link -> /about', async () => {
+    const user = userEvent.setup();
+    const router = renderAt('/sign-in');
+    expect(screen.getByRole('main')).not.toHaveFocus();
+    await user.click(within(screen.getByRole('contentinfo')).getByRole('link', { name: 'About' }));
+    expect(router.state.location.pathname).toBe('/about');
+    expect(screen.getByRole('main')).toHaveFocus();
+  });
+
+  it('keeps focus on main across layouts: /about -> /sign-in', async () => {
+    const router = renderAt('/about');
+    await act(() => router.navigate('/sign-in'));
+    expect(screen.getByRole('main')).toHaveFocus();
+    expect(document.activeElement?.id).toBe('main');
   });
 });
 

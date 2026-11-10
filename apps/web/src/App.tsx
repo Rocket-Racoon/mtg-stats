@@ -1,9 +1,7 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useRef, useState, type KeyboardEvent } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import { NAV_ITEMS } from './nav';
-import { ThemeToggle } from './theme/ThemeToggle';
-import './theme/theme.css';
-import './App.css';
+import { Footer } from './Footer';
 
 /**
  * Root layout. Navigation is a sidebar at >= 1024px, a top bar of links
@@ -19,16 +17,6 @@ export function App() {
     setOpen(false);
   }
   const toggleRef = useRef<HTMLButtonElement>(null);
-  const mainRef = useRef<HTMLElement>(null);
-  const lastFocusedPath = useRef(location.pathname);
-
-  // After a pathname change (not first load, not search-param changes) move focus to the page so it never drops to <body>.
-  useEffect(() => {
-    if (lastFocusedPath.current !== location.pathname) {
-      lastFocusedPath.current = location.pathname;
-      mainRef.current?.focus({ preventScroll: true });
-    }
-  }, [location.pathname]);
 
   // Escape closes the menu only when it comes from the toggle or the nav.
   function onKeyDown(event: KeyboardEvent) {
@@ -81,13 +69,10 @@ export function App() {
           ))}
         </ul>
       </nav>
-      <main id="main" ref={mainRef} tabIndex={-1} className="shell-main">
+      <main id="main" tabIndex={-1} className="shell-main">
         <Outlet />
       </main>
-      <footer className="shell-footer">
-        <small>Footer placeholder</small>
-        <ThemeToggle />
-      </footer>
+      <Footer />
     </div>
   );
 }

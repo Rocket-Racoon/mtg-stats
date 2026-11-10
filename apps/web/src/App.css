@@ -78,6 +78,10 @@ body {
 
 .shell-footer {
   grid-area: footer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
   padding: 0.5rem 1rem;
   border-top: 1px solid var(--border);
 }
@@ -91,12 +95,6 @@ button:focus-visible {
 .shell-nav a[aria-current='page']:focus-visible {
   outline-color: var(--focus-strong);
   box-shadow: 0 0 0 2px var(--focus-halo);
-}
-
-.header-controls {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
 }
 
 .menu-toggle,

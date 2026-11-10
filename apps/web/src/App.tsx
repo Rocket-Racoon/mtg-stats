@@ -45,21 +45,18 @@ export function App() {
       </a>
       <header className="shell-header" onKeyDown={onKeyDown}>
         <h1>MTG Stats</h1>
-        <div className="header-controls">
-          <ThemeToggle />
-          <button
-            ref={toggleRef}
-            type="button"
-            className="menu-toggle"
-            aria-expanded={open}
-            aria-controls="primary-nav"
-            onClick={() => {
-              setOpen((v) => !v);
-            }}
-          >
-            Menu
-          </button>
-        </div>
+        <button
+          ref={toggleRef}
+          type="button"
+          className="menu-toggle"
+          aria-expanded={open}
+          aria-controls="primary-nav"
+          onClick={() => {
+            setOpen((v) => !v);
+          }}
+        >
+          Menu
+        </button>
       </header>
       <nav
         id="primary-nav"
@@ -89,6 +86,7 @@ export function App() {
       </main>
       <footer className="shell-footer">
         <small>Footer placeholder</small>
+        <ThemeToggle />
       </footer>
     </div>
   );

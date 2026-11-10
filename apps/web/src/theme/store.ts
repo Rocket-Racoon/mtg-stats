@@ -2,12 +2,12 @@ import { create } from 'zustand';
 import type { Theme } from './tokens';
 
 /** localStorage key. index.html's pre-render script reads the same key. */
-export const THEME_STORAGE_KEY = 'mtg-stats-theme';
+export const THEME_ITEM_NAME = 'mtg-stats-theme';
 const DARK_QUERY = '(prefers-color-scheme: dark)';
 
 export function readStoredTheme(): Theme | null {
   try {
-    const value = localStorage.getItem(THEME_STORAGE_KEY);
+    const value = localStorage.getItem(THEME_ITEM_NAME);
     return value === 'light' || value === 'dark' ? value : null;
   } catch {
     return null; // storage blocked or unavailable
@@ -16,7 +16,7 @@ export function readStoredTheme(): Theme | null {
 
 function writeStoredTheme(theme: Theme): void {
   try {
-    localStorage.setItem(THEME_STORAGE_KEY, theme);
+    localStorage.setItem(THEME_ITEM_NAME, theme);
   } catch {
     // Works without storage: the choice just is not remembered.
   }

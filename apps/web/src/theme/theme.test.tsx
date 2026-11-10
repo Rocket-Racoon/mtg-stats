@@ -1,7 +1,7 @@
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { THEME_STORAGE_KEY, resolveTheme, startThemeSync, useThemeStore } from './store';
+import { THEME_ITEM_NAME, resolveTheme, startThemeSync, useThemeStore } from './store';
 import { ThemeToggle } from './ThemeToggle';
 
 type Listener = (e: { matches: boolean }) => void;
@@ -78,7 +78,7 @@ describe('theme store (S-1.6.5 AC1)', () => {
 
   it('persists the choice in localStorage', () => {
     useThemeStore.getState().setPreference('dark');
-    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark');
+    expect(localStorage.getItem(THEME_ITEM_NAME)).toBe('dark');
   });
 
   it('still switches theme when localStorage throws', () => {
@@ -110,7 +110,7 @@ describe('ThemeToggle', () => {
     await user.keyboard('{Enter}');
     expect(button).toHaveAttribute('aria-pressed', 'false');
     expect(document.documentElement.dataset.theme).toBe('light');
-    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('light');
+    expect(localStorage.getItem(THEME_ITEM_NAME)).toBe('light');
 
     await user.keyboard(' ');
     expect(button).toHaveAttribute('aria-pressed', 'true');

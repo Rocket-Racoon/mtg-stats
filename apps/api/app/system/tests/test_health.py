@@ -6,6 +6,8 @@ the closed-port tests, which assert only about the dependency under test.
 """
 
 import asyncio
+import logging
+import os
 import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
@@ -18,10 +20,13 @@ from app.core.config import get_settings
 from app.core.db import dispose_engine, get_engine, get_sessionmaker
 from app.core.redis import close_redis, get_redis
 from app.system import services
+from app.system.services import health
+from tests.db_policy import must_fail_when_db_unreachable
 
-CLOSED_PORT = "127.0.0.1:1"  # nothing listens on port 1: connection refused at once
-DOWN_DATABASE = {"DATABASE_URL": f"postgresql+psycopg://u:p@{CLOSED_PORT}/x"}
-DOWN_REDIS = {"REDIS_URL": f"redis://{CLOSED_PORT}/0"}
+CLOSED_PORT = "127.0.0.1:1"  # nothing listens on port 1 (on Windows the refusal can take ~2 s)
+SECRET = "s3cr3t-pw"
+DOWN_DATABASE = {"DATABASE_URL": f"postgresql+psycopg://u:{SECRET}@{CLOSED_PORT}/x"}
+DOWN_REDIS = {"REDIS_URL": f"redis://:{SECRET}@{CLOSED_PORT}/0"}
 READY = "/api/v1/health/ready"
 LIVE = "/api/v1/health/live"
 
@@ -57,17 +62,28 @@ def health_client(monkeypatch: pytest.MonkeyPatch) -> HealthClient:
     return make
 
 
-async def _warm_up_pool() -> None:
-    """Open the first Postgres connection outside the 2 s check budget.
+def _unreachable(message: str) -> None:
+    """Fail on CI or with MTG_STATS_REQUIRE_DB=1, otherwise skip (same policy as ``db_engine``)."""
+    if must_fail_when_db_unreachable(os.environ):
+        pytest.fail(message, pytrace=False)
+    pytest.skip(message)
 
-    A cold first connection to the Docker container can take over 2 s on Windows, which would
-    make the happy-path assertions flaky. The pooled connection is reused by the health check.
+
+async def _require_real_dependencies() -> None:
+    """Warm up real Postgres and Redis outside the 2 s check budget, or skip/fail if down.
+
+    A cold first connection to the Docker containers can take over 2 s on Windows, which would
+    make the happy-path assertions flaky. The pooled connections are reused by the checks.
     """
     try:
         async with get_engine().connect():
             pass
-    except Exception:  # noqa: S110  (unreachable DB: the assertions below report it)
-        pass
+    except Exception as exc:
+        _unreachable(f"Postgres is not reachable for the health test ({type(exc).__name__})")
+    try:
+        await get_redis().ping()
+    except Exception as exc:
+        _unreachable(f"Redis is not reachable for the health test ({type(exc).__name__})")
 
 
 async def _hang() -> None:
@@ -84,7 +100,7 @@ def _stub(
     database: Callable[[], object] | None = None,
     redis: Callable[[], object] | None = None,
 ) -> None:
-    """Replace the built-in checks, so a test controls what each dependency does."""
+    """Replace the private checks (the one test seam), so a test controls each dependency."""
     if database is not None:
         monkeypatch.setattr("app.system.services.health._check_database", database)
     if redis is not None:
@@ -132,8 +148,7 @@ async def test_live_is_fast_when_dependencies_hang(
 
 async def test_ready_ok_with_real_postgres_and_redis(health_client: HealthClient) -> None:
     async with health_client() as http:
-        await _warm_up_pool()
-        await get_redis().ping()  # warm the Redis connection too: the check budget is 2 s
+        await _require_real_dependencies()
         response = await http.get(READY)
     assert response.json() == {
         "status": "ok",
@@ -249,46 +264,77 @@ async def test_ready_returns_503_within_3s_when_both_hang_at_default_timeout(
     assert 1.9 <= elapsed < 3.0  # concurrent: one 2 s timeout, not two
 
 
-async def test_default_per_check_timeout_is_2_seconds() -> None:
+async def test_default_per_check_timeout_is_2_seconds(monkeypatch: pytest.MonkeyPatch) -> None:
     async def finishes_at_1_5s() -> None:
         await asyncio.sleep(1.5)
 
     async def finishes_at_2_5s() -> None:
         await asyncio.sleep(2.5)
 
-    report = await services.readiness(
-        "v", database_check=finishes_at_1_5s, redis_check=finishes_at_2_5s
-    )
+    _stub(monkeypatch, database=finishes_at_1_5s, redis=finishes_at_2_5s)
+    report = await services.readiness("v")
     assert (report.checks.database, report.checks.redis) == ("ok", "error")
 
 
 # ------------------------------------------------------------------ service-level checks
 
 
-async def test_readiness_times_out_each_check_concurrently() -> None:
+async def test_readiness_times_out_each_check_concurrently(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(health, "CHECK_TIMEOUT_SECONDS", 0.3)
+    _stub(monkeypatch, database=_hang, redis=_hang)
     started = time.monotonic()
-    report = await services.readiness(
-        "v", timeout_seconds=0.3, database_check=_hang, redis_check=_hang
-    )
+    report = await services.readiness("v")
     elapsed = time.monotonic() - started
     assert report.checks.database == "error"
     assert report.checks.redis == "error"
     assert 0.25 <= elapsed < 0.55  # concurrent: one timeout, not two
 
 
-async def test_readiness_one_hanging_check_does_not_fail_the_other() -> None:
-    report = await services.readiness(
-        "v", timeout_seconds=0.2, database_check=_ok, redis_check=_hang
-    )
+async def test_readiness_one_hanging_check_does_not_fail_the_other(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(health, "CHECK_TIMEOUT_SECONDS", 0.2)
+    _stub(monkeypatch, database=_ok, redis=_hang)
+    report = await services.readiness("v")
     assert (report.status, report.checks.database, report.checks.redis) == ("error", "ok", "error")
 
 
-async def test_readiness_check_exception_is_reported_as_error() -> None:
+async def test_readiness_check_exception_is_reported_as_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     async def boom() -> None:
         raise RuntimeError("down")
 
-    report = await services.readiness("v", database_check=boom, redis_check=_ok)
+    _stub(monkeypatch, database=boom, redis=_ok)
+    report = await services.readiness("v")
     assert (report.checks.database, report.checks.redis) == ("error", "ok")
+
+
+async def test_failure_log_names_the_check_and_never_contains_credentials(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    async def leaky() -> None:
+        raise RuntimeError(f"cannot connect to redis://:{SECRET}@cache:6379/0")
+
+    monkeypatch.setattr(health, "CHECK_TIMEOUT_SECONDS", 0.1)
+    _stub(monkeypatch, database=_hang, redis=leaky)
+    with caplog.at_level(logging.WARNING, logger=health.logger.name):
+        await services.readiness("v")
+    assert "health check redis failed" in caplog.text
+    assert "cache:6379" in caplog.text
+    assert "health check database failed: timed out after" in caplog.text
+    assert SECRET not in caplog.text
+
+
+async def test_real_down_dependency_logs_without_the_password(
+    health_client: HealthClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    async with health_client(**DOWN_DATABASE, **DOWN_REDIS) as http:
+        with caplog.at_level(logging.WARNING, logger=health.logger.name):
+            await http.get(READY)
+    assert "health check database failed" in caplog.text
+    assert "health check redis failed" in caplog.text
+    assert SECRET not in caplog.text
 
 
 # ------------------------------------------------------------------ OpenAPI and shutdown

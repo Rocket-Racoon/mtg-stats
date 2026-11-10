@@ -1,13 +1,12 @@
 :root {
-  --fg: #1a1a1a;
-  --bg: #ffffff;
-  --muted-bg: #f1f2f4;
-  --accent: #4b3bd1;
-  --focus: #0b57d0;
-  --border: #d0d3d9;
   font-family: system-ui, sans-serif;
   color: var(--fg);
   background: var(--bg);
+}
+
+a,
+a:visited {
+  color: var(--link);
 }
 
 * {
@@ -69,12 +68,12 @@ body {
 }
 
 .shell-nav a:hover {
-  background: #e2e4e8;
+  background: var(--hover-bg);
 }
 
 .shell-nav a[aria-current='page'] {
   background: var(--accent);
-  color: #ffffff;
+  color: var(--on-accent);
 }
 
 .shell-main {
@@ -84,6 +83,10 @@ body {
 
 .shell-footer {
   grid-area: footer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
   padding: 0.5rem 1rem;
   border-top: 1px solid var(--border);
 }
@@ -95,11 +98,12 @@ button:focus-visible {
 }
 
 .shell-nav a[aria-current='page']:focus-visible {
-  outline-color: #000000;
-  box-shadow: 0 0 0 2px #ffffff;
+  outline-color: var(--focus-strong);
+  box-shadow: 0 0 0 2px var(--focus-halo);
 }
 
-.menu-toggle {
+.menu-toggle,
+.theme-toggle {
   padding: 0.5rem 0.75rem;
   font: inherit;
   border: 1px solid var(--border);
@@ -107,10 +111,28 @@ button:focus-visible {
   background: var(--bg);
   color: var(--fg);
   cursor: pointer;
+  transition: background-color 150ms ease-in-out;
+}
+
+.theme-toggle[aria-pressed='true'] {
+  background: var(--muted-bg);
 }
 
 /* Below 768px: compact menu, hidden until the toggle opens it. */
 @media (width < 768px) {
+  /* Tap targets: at least 44 x 44 px (S-1.6.5). */
+  button,
+  input:not([type='hidden']),
+  select,
+  textarea,
+  summary,
+  [role='button'],
+  .shell-nav a,
+  .skip-link {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
   .shell-nav[data-open='false'] {
     display: none;
   }
@@ -147,7 +169,8 @@ button:focus-visible {
   }
 }
 
-.skip-link {
+.skip-link,
+.skip-link:visited {
   position: absolute;
   left: 0.5rem;
   top: -4rem;
@@ -161,4 +184,15 @@ button:focus-visible {
 
 .skip-link:focus {
   top: 0.5rem;
+}
+
+/* Reduced motion: no animations or transitions (S-1.6.5). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
 }

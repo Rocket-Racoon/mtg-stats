@@ -35,7 +35,13 @@ export default tseslint.config(
   },
   {
     files: ['**/*.{js,cjs,mjs}'],
+    // Browser scripts served as-is get browser globals only (next block), never Node's.
+    ignores: ['apps/web/public/**'],
     languageOptions: { globals: { ...globals.node, ...globals.commonjs } },
+  },
+  {
+    files: ['apps/web/public/**/*.js'],
+    languageOptions: { sourceType: 'script', globals: { ...globals.browser } },
   },
   {
     files: ['**/*.config.{js,cjs}'],

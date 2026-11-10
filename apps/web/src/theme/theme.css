@@ -1,0 +1,33 @@
+/* Colour tokens. Mirrors src/theme/tokens.ts; tests/theme-css.test.ts fails on drift. */
+:root,
+:root[data-theme='light'] {
+  color-scheme: light;
+  --fg: #1a1a1a;
+  --bg: #ffffff;
+  --muted-bg: #f1f2f4;
+  --muted-fg: #505763;
+  --hover-bg: #e2e4e8;
+  --link: #4b3bd1;
+  --accent: #5646e0;
+  --on-accent: #ffffff;
+  --focus: #0b57d0;
+  --focus-strong: #000000;
+  --focus-halo: #ffffff;
+  --border: #d0d3d9;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --fg: #ececef;
+  --bg: #121316;
+  --muted-bg: #1c1e23;
+  --muted-fg: #a3a9b5;
+  --hover-bg: #2a2d34;
+  --link: #b1a9ff;
+  --accent: #5646e0;
+  --on-accent: #ffffff;
+  --focus: #7fb0ff;
+  --focus-strong: #ffffff;
+  --focus-halo: #000000;
+  --border: #3a3e47;
+}

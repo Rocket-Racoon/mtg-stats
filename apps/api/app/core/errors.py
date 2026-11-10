@@ -130,6 +130,14 @@ class AuthenticationError(DomainError):
     default_headers: ClassVar[dict[str, str] | None] = {"WWW-Authenticate": "Bearer"}
 
 
+class InvalidCursorError(DomainError):
+    """A paging cursor is malformed or was made for a different sort (S-1.4.7)."""
+
+    code = "invalid_cursor"
+    status_code = 422
+    default_message = "The cursor is invalid."
+
+
 class RateLimitedError(DomainError):
     """Too many requests."""
 

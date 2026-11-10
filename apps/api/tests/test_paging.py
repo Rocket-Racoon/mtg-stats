@@ -7,7 +7,6 @@ transaction) exercises the helper through the real app's error envelope.
 import base64
 import json
 import random
-import time
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from datetime import UTC, datetime, timedelta, timezone
@@ -751,12 +750,16 @@ async def test_cursor_with_unexpected_json_structure_is_422_invalid_cursor(
     assert response.json()["error"]["code"] == "invalid_cursor"
 
 
-async def test_oversized_cursor_is_rejected_quickly_with_422_invalid_cursor(
-    paged: AppSession, client: httpx.AsyncClient
+async def test_oversized_cursor_is_rejected_before_decoding_with_422_invalid_cursor(
+    paged: AppSession, client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    started = time.perf_counter()
+    # Deterministic "no pathological work" check (a wall-clock bound was flaky on loaded
+    # machines): the length guard must reject the cursor before any base64 decoding.
+    def must_not_decode(*_: object, **__: object) -> bytes:
+        raise AssertionError("an oversized cursor reached base64 decoding")
+
+    monkeypatch.setattr("app.core.paging.base64.urlsafe_b64decode", must_not_decode)
     response = await client.get("/api/v1/test-gadgets", params={"cursor": "A" * 60_000})
-    assert time.perf_counter() - started < 5.0  # generous: only guards against pathological work
     assert response.status_code == 422
     # AC3: a malformed cursor is invalid_cursor; clients switch on this code.
     assert response.json()["error"]["code"] == "invalid_cursor"

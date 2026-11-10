@@ -7,11 +7,11 @@ from fastapi import APIRouter, FastAPI
 
 from app.core.config import Settings, get_settings
 from app.core.cors import OriginGatedCORSMiddleware
-from app.core.db import dispose_engine
+from app.core.db import dispose_engine, get_engine
 from app.core.errors import ERROR_RESPONSES, UnhandledErrorMiddleware, register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.openapi import generate_operation_id
-from app.core.redis import close_redis
+from app.core.redis import close_redis, get_redis
 from app.core.request_id import RequestIDMiddleware
 from app.system.router import router as system_router
 
@@ -20,10 +20,20 @@ API_PREFIX = "/api/v1"
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Dispose the DB engine and Redis client on shutdown (both are lazy; startup does nothing)."""
-    yield
-    await dispose_engine()
-    await close_redis()
+    """Build the engine and Redis client (no I/O), and dispose both on shutdown.
+
+    Creating them here keeps the first ``/ready`` from paying the import and construction cost
+    inside its 2 s check budget. No connection is opened until a request needs one.
+    """
+    get_engine()
+    get_redis()
+    try:
+        yield
+    finally:
+        try:
+            await dispose_engine()
+        finally:
+            await close_redis()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:

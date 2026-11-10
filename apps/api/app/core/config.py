@@ -46,32 +46,17 @@ class Settings(BaseSettings):
     @field_validator("database_url")
     @classmethod
     def _check_database_url(cls, value: str) -> str:
-        msg = f"must start with {DATABASE_URL_PREFIX} and have a host and a valid port"
-        if not value.startswith(DATABASE_URL_PREFIX):
-            raise ValueError(msg)
-        try:
-            parts = urlsplit(value)
-            parts.port  # noqa: B018  (raises ValueError on an invalid port)
-        except ValueError:
-            raise ValueError(msg) from None
-        if not parts.hostname:
-            raise ValueError(msg)
-        return value
+        return _check_url(value, (DATABASE_URL_PREFIX,), f"must start with {DATABASE_URL_PREFIX}")
 
     @field_validator("redis_url")
     @classmethod
     def _check_redis_url(cls, value: str) -> str:
-        msg = "must start with redis:// or rediss:// and have a host and a valid port"
-        if not value.startswith(REDIS_URL_SCHEMES):
-            raise ValueError(msg)
-        try:
-            parts = urlsplit(value)
-            parts.port  # noqa: B018  (raises ValueError on an invalid port)
-        except ValueError:
-            raise ValueError(msg) from None
-        if not parts.hostname:
-            raise ValueError(msg)
-        return value
+        return _check_url(value, REDIS_URL_SCHEMES, "must start with redis:// or rediss://")
+
+    @field_validator("git_sha")
+    @classmethod
+    def _empty_git_sha_is_dev(cls, value: str) -> str:
+        return value.strip() or "dev"
 
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod
@@ -90,6 +75,21 @@ class Settings(BaseSettings):
         if self.app_env == "dev" and DEV_WEB_ORIGIN not in self.cors_allowed_origins:
             self.cors_allowed_origins = [DEV_WEB_ORIGIN, *self.cors_allowed_origins]
         return self
+
+
+def _check_url(value: str, prefixes: tuple[str, ...], start_msg: str) -> str:
+    """Check a connection URL's scheme prefix, host and port; return it unchanged."""
+    msg = f"{start_msg} and have a host and a valid port"
+    if not value.startswith(prefixes):
+        raise ValueError(msg)
+    try:
+        parts = urlsplit(value)
+        parts.port  # noqa: B018  (raises ValueError on an invalid port)
+    except ValueError:
+        raise ValueError(msg) from None
+    if not parts.hostname:
+        raise ValueError(msg)
+    return value
 
 
 def _normalise_origin(origin: str) -> str:

@@ -268,4 +268,53 @@ describe('createApiClient errors', () => {
 
     await expect(api.GET('/api/v1/health/live')).resolves.toBeUndefined();
   });
+
+  it('uses a per-call fetch and still wraps its rejection as network_error', async () => {
+    const baseFetch = vi.fn(async () => jsonResponse({ status: 'ok' }));
+    const api = clientWith(baseFetch as unknown as typeof fetch);
+    const original = new TypeError('per-call down');
+
+    const error = (await caught(
+      api.GET('/api/v1/health/live', {
+        fetch: (async () => {
+          throw original;
+        }) as unknown as typeof fetch,
+      }),
+    )) as ApiError;
+
+    expect(baseFetch).not.toHaveBeenCalled();
+    expect(error).toMatchObject({ status: 0, code: 'network_error' });
+    expect(error.cause).toBe(original);
+  });
+
+  it('passes an onResponse middleware error through unchanged', async () => {
+    const api = clientWith((async () => jsonResponse({ status: 'ok' })) as typeof fetch);
+    const boom = new Error('middleware broke');
+    api.use({
+      onResponse() {
+        throw boom;
+      },
+    });
+
+    expect(await caught(api.GET('/api/v1/health/live'))).toBe(boom);
+  });
+
+  it('maps a TypeError while reading a 2xx body to network_error', async () => {
+    const api = clientWith((async () => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.error(new TypeError('terminated'));
+        },
+      });
+      return new Response(body, {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }) as typeof fetch);
+
+    const error = (await caught(api.GET('/api/v1/health/live'))) as ApiError;
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 0, code: 'network_error', message: 'terminated' });
+  });
 });

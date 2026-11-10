@@ -81,13 +81,15 @@ type RawCall = (url: string, init?: object) => Promise<RawResult>;
 /**
  * Creates a typed API client. Successful calls resolve to the response data. Failures throw
  * {@link ApiError}: an error envelope, an unexpected non-2xx response, or a network failure.
- * An `AbortError` is rethrown unchanged so callers can cancel requests.
+ * An `AbortError` is rethrown unchanged so callers can cancel requests. After a response arrived,
+ * a `SyntaxError` (body is not JSON) becomes `unexpected_response` with the real status, and a
+ * `TypeError` (body read failed) becomes `network_error` with status 0; anything else, such as an
+ * `onResponse` middleware's own error, is rethrown unchanged.
  */
 export function createApiClient<P extends object = paths>(options: ApiClientOptions): ApiClient<P> {
-  const baseFetch = options.fetch;
-  const safeFetch = async (input: Request): Promise<Response> => {
+  const safeFetch = async (input: Request, perCall?: typeof globalThis.fetch) => {
     try {
-      return await (baseFetch ?? globalThis.fetch)(input);
+      return await (perCall ?? options.fetch ?? globalThis.fetch)(input);
     } catch (error) {
       if (isAbortError(error)) throw error;
       throw new ApiError({
@@ -102,7 +104,7 @@ export function createApiClient<P extends object = paths>(options: ApiClientOpti
   const inner = createClient<P>({
     baseUrl: options.baseUrl,
     headers: options.headers,
-    fetch: safeFetch,
+    fetch: (input: Request) => safeFetch(input),
   });
 
   // The public ApiClient interface carries the strict typings; the bodies stay loosely typed.
@@ -111,20 +113,32 @@ export function createApiClient<P extends object = paths>(options: ApiClientOpti
       const call = inner[name] as unknown as RawCall;
       // Remember the response so a body that fails to parse can still report the real status.
       let seen: Response | undefined;
+      // A per-call `fetch` in init is honoured: it replaces the base fetch for this call only.
+      const perCall = (init as { fetch?: typeof globalThis.fetch } | undefined)?.fetch;
       const trackingFetch = async (input: Request): Promise<Response> => {
-        seen = await safeFetch(input);
+        seen = await safeFetch(input, perCall);
         return seen;
       };
       let result: RawResult;
       try {
         result = await call(url, { ...init, fetch: trackingFetch });
       } catch (error) {
-        if (seen && !(error instanceof ApiError) && !isAbortError(error)) {
+        if (seen && error instanceof SyntaxError) {
           // A 2xx whose body is not the JSON the spec promises (for example an SPA index.html).
           throw new ApiError({
             status: seen.status,
             code: UNEXPECTED_RESPONSE,
             message: 'The response body could not be parsed.',
+            requestId: seen.headers.get('X-Request-ID') || null,
+            cause: error,
+          });
+        }
+        if (seen && error instanceof TypeError) {
+          // The connection dropped while reading the body: no usable response, so status 0.
+          throw new ApiError({
+            status: 0,
+            code: NETWORK_ERROR,
+            message: error.message || 'Network request failed',
             requestId: seen.headers.get('X-Request-ID') || null,
             cause: error,
           });

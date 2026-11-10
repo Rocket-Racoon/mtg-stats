@@ -4,11 +4,13 @@ import asyncio
 import os
 import sys
 import warnings
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 
 import httpx
 import pytest
 from fastapi import FastAPI
+from sqlalchemy import event
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -126,3 +128,45 @@ async def client(api_app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
     transport = httpx.ASGITransport(app=api_app, raise_app_exceptions=False)
     async with httpx.AsyncClient(transport=transport, base_url="http://t") as http_client:
         yield http_client
+
+
+class StatementCounter:
+    """Number of SQL statements executed while a :func:`count_statements` block was open."""
+
+    def __init__(self) -> None:
+        self.count = 0
+        self.statements: list[str] = []
+
+
+@pytest.fixture
+def count_statements(
+    db_engine: AsyncEngine,
+) -> Callable[[], AbstractContextManager[StatementCounter]]:
+    """Context manager factory counting SQL statements run through ``db_engine`` (S-1.4.7).
+
+    Use ``with count_statements() as counter: ...`` then read ``counter.count``. It counts every
+    cursor execution, including SAVEPOINT bookkeeping of the test session, which is constant per
+    request, so equal counts for different data sizes prove there is no N+1.
+
+    The ``before_cursor_execute`` listener is test instrumentation only; the "no ORM event
+    listeners for business logic" rule does not apply to it.
+    """
+
+    @contextmanager
+    def counting() -> Iterator[StatementCounter]:
+        counter = StatementCounter()
+
+        def on_execute(
+            conn: object, cursor: object, statement: str, *args: object, **kwargs: object
+        ) -> None:
+            counter.count += 1
+            counter.statements.append(statement)
+
+        target = db_engine.sync_engine
+        event.listen(target, "before_cursor_execute", on_execute)
+        try:
+            yield counter
+        finally:
+            event.remove(target, "before_cursor_execute", on_execute)
+
+    return counting

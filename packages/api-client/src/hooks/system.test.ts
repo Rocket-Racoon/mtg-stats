@@ -40,19 +40,20 @@ describe('system hooks', () => {
     expect(qc.getQueryCache().getAll()[0]?.queryKey).toEqual(['system', 'healthLive', {}]);
   });
 
-  it('useHealthReady surfaces a 503 as an ApiError', async () => {
+  it('useHealthReady surfaces a 503 ready body as an ApiError without retrying', async () => {
     const fetchImpl = vi.fn(() =>
       Promise.resolve(
-        json(
-          { error: { code: 'not_ready', message: 'down', details: null, request_id: 'r1' } },
-          503,
-        ),
+        json({ status: 'error', version: 'dev', checks: { database: 'ok', redis: 'error' } }, 503),
       ),
     );
     const { wrapper } = setup(fetchImpl as unknown as typeof fetch);
     const { result } = renderHook(() => useHealthReady(), { wrapper });
     await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(result.current.error).toMatchObject({ status: 503, code: 'not_ready' });
+    expect(result.current.error).toMatchObject({
+      status: 503,
+      code: 'unexpected_response',
+      details: { checks: { database: 'ok', redis: 'error' } },
+    });
   });
 
   it('useApiClient throws without a provider', () => {

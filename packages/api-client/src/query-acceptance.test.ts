@@ -273,9 +273,8 @@ describe('AC3: system health hook worked example', () => {
   });
 
   it('useHealthLive returns typed data', () => {
-    const { result } = renderHook(() => useHealthLive(), {
-      wrapper: makeWrapper(createQueryClient()),
-    });
-    expectTypeOf(result.current.data).toEqualTypeOf<{ status: 'ok' } | undefined>();
+    expectTypeOf<ReturnType<typeof useHealthLive>['data']>().toEqualTypeOf<
+      { status: 'ok' } | undefined
+    >();
   });
 });

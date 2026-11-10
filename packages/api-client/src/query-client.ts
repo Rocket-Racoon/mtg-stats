@@ -28,7 +28,16 @@ export function defaultQueryClientConfig(): QueryClientConfig {
   };
 }
 
-/** Creates the app's QueryClient. `overrides` are merged over the defaults, per section. */
+function defined<T extends object>(values: T | undefined): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(values ?? {}).filter(([, value]) => value !== undefined),
+  ) as Partial<T>;
+}
+
+/**
+ * Creates the app's QueryClient. `overrides` are merged over the defaults, per section;
+ * `undefined` values are ignored, so `retry: undefined` keeps the default rule.
+ */
 export function createQueryClient(overrides: QueryClientConfig = {}): QueryClient {
   const base = defaultQueryClientConfig();
   return new QueryClient({
@@ -37,8 +46,11 @@ export function createQueryClient(overrides: QueryClientConfig = {}): QueryClien
     defaultOptions: {
       ...base.defaultOptions,
       ...overrides.defaultOptions,
-      queries: { ...base.defaultOptions?.queries, ...overrides.defaultOptions?.queries },
-      mutations: { ...base.defaultOptions?.mutations, ...overrides.defaultOptions?.mutations },
+      queries: { ...base.defaultOptions?.queries, ...defined(overrides.defaultOptions?.queries) },
+      mutations: {
+        ...base.defaultOptions?.mutations,
+        ...defined(overrides.defaultOptions?.mutations),
+      },
     },
   });
 }

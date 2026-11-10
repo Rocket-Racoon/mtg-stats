@@ -14,6 +14,14 @@ const banned =
   /orval|@hey-api|openapi-react-query|kubb|swagger-typescript-api|rtk-query-codegen|openapi-codegen/;
 
 describe('hook conventions', () => {
+  it.each(['../../package.json', '../../apps/web/package.json', '../../apps/mobile/package.json'])(
+    'has no hook generator in %s',
+    (path) => {
+      const other = JSON.parse(readFileSync(join(root, path), 'utf8')) as Record<string, unknown>;
+      expect(JSON.stringify(other)).not.toMatch(banned);
+    },
+  );
+
   it.each(['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'])(
     'has no hook generator in %s',
     (field) => {

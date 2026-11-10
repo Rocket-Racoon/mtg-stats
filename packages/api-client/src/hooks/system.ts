@@ -20,11 +20,16 @@ export function useHealthLive() {
   });
 }
 
-/** `GET /api/v1/health/ready`. A 503 (a dependency is down) surfaces as an `ApiError`. */
+/**
+ * `GET /api/v1/health/ready`. When a dependency is down the API answers 503 with the normal
+ * ready body, which surfaces as an `ApiError` (`unexpected_response`); the failed checks are
+ * in `error.details`. Does not retry, so a readiness view shows "not ready" at once.
+ */
 export function useHealthReady() {
   const client = useApiClient();
   return useQuery({
     queryKey: systemKeys.healthReady(),
+    retry: false,
     queryFn: ({ signal }) => client.GET('/api/v1/health/ready', { signal }),
   });
 }

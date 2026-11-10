@@ -9,6 +9,10 @@ dependencies.
 Server data is fetched with **hand-written** hooks over the typed client (decision A4). There
 is no hook generator, and none is to be added.
 
+- **One TanStack copy**: apps import TanStack Query only through `@mtg-stats/api-client`
+  (`QueryClientProvider`, `useQueryClient`, `useQuery`, `useInfiniteQuery`, `useMutation`,
+  `createQueryClient`), never from `@tanstack/react-query` directly. A second copy would give
+  the app's provider and the package's hooks different React contexts.
 - **Where**: one module per domain, `src/hooks/<domain>.ts`, exported from `src/index.ts`.
   `src/hooks/system.ts` (`useHealthLive`, `useHealthReady`) is the template: copy it.
 - **Client**: hooks call `useApiClient()` (the app mounts `<ApiClientProvider client={...}>`)

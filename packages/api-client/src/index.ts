@@ -8,6 +8,15 @@ export type { ApiErrorDetails, ApiErrorInit } from './errors';
 export type { components, operations, paths } from './generated/schema';
 export type { Middleware } from 'openapi-fetch';
 
+export {
+  QueryClientProvider,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
+export type { QueryClient } from '@tanstack/react-query';
+
 export { DOMAINS, domainKey, queryKey } from './query-keys';
 export type { Domain, QueryKey, QueryParams } from './query-keys';
 export {

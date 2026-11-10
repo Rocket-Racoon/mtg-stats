@@ -1,7 +1,13 @@
+import * as tanstack from '@tanstack/react-query';
 import { QueryClient, InfiniteQueryObserver } from '@tanstack/react-query';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ApiError,
+  QueryClientProvider,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
   DOMAINS,
   MAX_RETRIES,
   NETWORK_ERROR,
@@ -93,6 +99,14 @@ describe('retry rules', () => {
     expect(qc.getDefaultOptions().queries?.retry).toBe(shouldRetry);
   });
 
+  it('ignores undefined overrides instead of dropping the default retry rule', () => {
+    const qc = createQueryClient({
+      defaultOptions: { queries: { retry: undefined }, mutations: { retry: undefined } },
+    });
+    expect(qc.getDefaultOptions().queries?.retry).toBe(shouldRetry);
+    expect(qc.getDefaultOptions().mutations?.retry).toBe(false);
+  });
+
   it('retries a failing 5xx query exactly twice and a 4xx never', async () => {
     const run = async (error: ApiError) => {
       const qc = createQueryClient({ defaultOptions: { queries: { retryDelay: 0 } } });
@@ -110,9 +124,12 @@ describe('cursorPageOptions', () => {
     first: { items: [1, 2], next_cursor: 'c2' },
     c2: { items: [3], next_cursor: null },
   };
-  const fetchPage = vi.fn((cursor: string | null) =>
-    Promise.resolve(pages[cursor ?? 'first'] as Page<number>),
-  );
+  let fetchPage: ReturnType<typeof makeFetchPage>;
+  const makeFetchPage = () =>
+    vi.fn((cursor: string | null) => Promise.resolve(pages[cursor ?? 'first'] as Page<number>));
+  beforeEach(() => {
+    fetchPage = makeFetchPage();
+  });
 
   it('starts with a null cursor and passes next_cursor as the next page param', () => {
     const options = cursorPageOptions({ queryKey: queryKey('decks', 'list'), fetchPage });
@@ -139,5 +156,15 @@ describe('cursorPageOptions', () => {
     expect(result.data?.pages.flatMap((p) => p.items)).toEqual([1, 2, 3]);
     expect(result.hasNextPage).toBe(false);
     expect(fetchPage.mock.calls.map((c) => c[0])).toEqual([null, 'c2']);
+  });
+});
+
+describe('TanStack re-exports', () => {
+  it('are the same objects as @tanstack/react-query', () => {
+    expect(QueryClientProvider).toBe(tanstack.QueryClientProvider);
+    expect(useQueryClient).toBe(tanstack.useQueryClient);
+    expect(useQuery).toBe(tanstack.useQuery);
+    expect(useInfiniteQuery).toBe(tanstack.useInfiniteQuery);
+    expect(useMutation).toBe(tanstack.useMutation);
   });
 });

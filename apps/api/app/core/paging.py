@@ -47,7 +47,13 @@ MAX_CURSOR_LENGTH = 4096
 
 
 class Page[T](BaseModel):
-    """One page of a list endpoint."""
+    """One page of a list endpoint.
+
+    Each list endpoint declares a named subclass as its response model, for example
+    ``class DeckPage(Page[DeckOut]): pass``. The subclass name becomes the OpenAPI component
+    (``DeckPage``); a bare ``Page[DeckOut]`` would be named ``Page_DeckOut_`` in the generated
+    TypeScript client.
+    """
 
     items: list[T]
     next_cursor: str | None = Field(

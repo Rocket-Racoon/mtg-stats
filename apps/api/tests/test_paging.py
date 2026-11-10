@@ -119,6 +119,11 @@ SORTS: dict[str, Callable[[], Sort]] = {
     "scored": lambda: Sort((SortKey(Gadget.score, True), SortKey(Gadget.id, True))),
 }
 
+
+class GadgetOutPage(Page[GadgetOut]):
+    """Named page model, the convention for list endpoints (clean OpenAPI component name)."""
+
+
 router = APIRouter(prefix="/api/v1/test-gadgets")
 
 
@@ -129,7 +134,7 @@ async def list_gadgets(
     sort: str = "new",
     eager: bool = True,
     joined: bool = False,
-) -> Page[GadgetOut]:
+) -> GadgetOutPage:
     """Test-only list endpoint; ``eager=false`` is the N+1 negative control."""
     stmt = select(Gadget)
     if joined:
@@ -153,7 +158,7 @@ async def list_gadgets(
         for gadget in page.items:  # deliberate N+1: one query per item
             rows = await session.scalars(select(Sprocket).where(Sprocket.gadget_id == gadget.id))
             parts_of[gadget.id] = list(rows)
-    return Page[GadgetOut](items=[to_schema(g) for g in page.items], next_cursor=page.next_cursor)
+    return GadgetOutPage(items=[to_schema(g) for g in page.items], next_cursor=page.next_cursor)
 
 
 BASE = datetime(2026, 1, 1, tzinfo=UTC)
@@ -496,10 +501,10 @@ async def test_openapi_documents_page_shape_and_paging_parameters(
     items = page["properties"]["items"]
     assert items["type"] == "array"
     assert _resolve(spec, items["items"])["title"] == "GadgetOut"
-    # Pinned so a pydantic upgrade cannot silently rename the generated client's types. Renaming
-    # to "GadgetOutPage" is not possible from the model: pydantic derives the definition key
-    # from the generic origin and arguments ("Page[GadgetOut]"), not from model_parametrized_name.
-    assert ok["$ref"] == "#/components/schemas/Page_GadgetOut_"
+    # Pinned so a pydantic upgrade cannot silently rename the generated client's types. The
+    # named subclass convention (class GadgetOutPage(Page[GadgetOut])) gives a clean component
+    # name; a bare Page[GadgetOut] would be "Page_GadgetOut_".
+    assert ok["$ref"] == "#/components/schemas/GadgetOutPage"
     assert page["properties"]["next_cursor"]["anyOf"] == [{"type": "string"}, {"type": "null"}]
 
     params = {p["name"]: p for p in operation["parameters"]}

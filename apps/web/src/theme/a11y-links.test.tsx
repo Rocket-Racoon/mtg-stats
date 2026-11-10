@@ -84,7 +84,9 @@ describe('links are coloured by a contrast-checked rule (S-1.6.5 AC2)', () => {
       <RouterProvider router={createMemoryRouter(routes, { initialEntries: ['/about'] })} />,
     );
     const links = container.querySelectorAll('footer a[href]');
-    expect(links.length).toBe(3);
+    const names = [...links].map((a) => a.textContent);
+    expect(names).toEqual(expect.arrayContaining(['About', 'Fan Content Policy', 'Scryfall']));
+    expect(links.length).toBeGreaterThanOrEqual(3);
     for (const a of links) expect(rulesFor(a).at(-1)?.color).toBe('var(--link)');
   });
 

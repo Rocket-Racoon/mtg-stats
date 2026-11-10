@@ -8,12 +8,12 @@ import { render } from '@testing-library/react';
 import { createMemoryRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 import { describe, expect, it } from 'vitest';
-import { routes } from '../src/routes';
-import { CONTRAST_PAIRS, TOKENS, THEMES } from '../src/theme/tokens';
-import { contrastRatio } from './contrast';
+import { routes } from '../routes';
+import { CONTRAST_PAIRS, TOKENS, THEMES } from './tokens';
+import { contrastRatio } from '../../tests/contrast';
 
 const css = readFileSync(
-  resolve(dirname(fileURLToPath(import.meta.url)), '../src/App.css'),
+  resolve(dirname(fileURLToPath(import.meta.url)), '../App.css'),
   'utf8',
 ).replace(/\/\*[\s\S]*?\*\//g, '');
 

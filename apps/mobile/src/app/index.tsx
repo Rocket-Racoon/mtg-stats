@@ -1,22 +1,8 @@
-import { Link } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
-// Kept until S-1.5.3 hooks import `api`; proves the client bundles (S-1.5.2 AC4).
-import '../api';
-import { env } from '../env';
-import { linkedPackages } from '../linkedPackages';
+import { Redirect } from 'expo-router';
+import { useSession } from '../session/SessionProvider';
 
+/** The root URL lands on the first tab when signed in, otherwise on the sign-in stack. */
 export default function Index() {
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>MTG Stats</Text>
-      <Text testID="linked-packages">{linkedPackages.join(', ')}</Text>
-      <Text testID="api-base-url">{env.apiBaseUrl}</Text>
-      {__DEV__ ? <Link href="/dev/gesture-test">Gesture test</Link> : null}
-    </View>
-  );
+  const { status } = useSession();
+  return <Redirect href={status === 'signed-in' ? '/play' : '/sign-in'} />;
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
-  title: { fontSize: 24, fontWeight: '600' },
-});

@@ -9,7 +9,7 @@ from redis.asyncio import Redis
 
 from app.core.config import get_settings
 
-SOCKET_TIMEOUT_SECONDS = 2.0
+CONNECT_TIMEOUT_SECONDS = 2.0
 
 
 @lru_cache
@@ -17,8 +17,9 @@ def get_redis() -> Redis:
     """Return the process-wide Redis client (built from ``REDIS_URL`` on first call)."""
     client: Redis = Redis.from_url(
         get_settings().redis_url,
-        socket_connect_timeout=SOCKET_TIMEOUT_SECONDS,
-        socket_timeout=SOCKET_TIMEOUT_SECONDS,
+        # No socket_timeout: the client is shared, and blocking reads (pub/sub, BLPOP) must be
+        # able to idle. The health check bounds its own call with asyncio.timeout.
+        socket_connect_timeout=CONNECT_TIMEOUT_SECONDS,
     )
     return client
 

@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 
 
 def _install_windows_signal_handlers(worker: Worker, loop: asyncio.AbstractEventLoop) -> None:
+    if sys.platform != "win32":  # also narrows signal.SIGBREAK for mypy on other platforms
+        return
+
     def handler(signum: int, frame: object) -> None:
         loop.call_soon_threadsafe(worker.handle_sig_wait_for_completion, signal.Signals(signum))
 

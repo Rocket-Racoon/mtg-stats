@@ -1,8 +1,11 @@
 """``after_commit`` callbacks are scoped to the savepoint they were registered in (T-1.9.1.2)."""
 
+import logging
+
+import pytest
 from sqlalchemy import text
 
-from app.core.db import AppSession, after_commit
+from app.core.db import AppSession, after_commit, get_sessionmaker
 
 
 async def test_callback_in_a_rolled_back_savepoint_is_dropped(db_session: AppSession) -> None:
@@ -113,3 +116,19 @@ async def test_callbacks_registered_before_the_session_began_run_at_the_first_co
     assert calls == ["early"]
     await db_session.commit()
     assert calls == ["early"]  # run once
+
+
+async def test_callbacks_parked_by_a_commit_that_bypassed_session_commit_are_dropped(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    calls: list[str] = []
+    async with get_sessionmaker()() as session:
+        async with session.begin():  # bypasses AppSession.commit
+            await session.execute(text("select 1"))
+            after_commit(session, lambda: calls.append("bypassed"))
+        with caplog.at_level(logging.WARNING, logger="app.core.db"):
+            await session.execute(text("select 1"))  # next root transaction starts
+            after_commit(session, lambda: calls.append("next"))
+            await session.commit()
+    assert calls == ["next"]
+    assert any("did not go through session.commit()" in r.getMessage() for r in caplog.records)

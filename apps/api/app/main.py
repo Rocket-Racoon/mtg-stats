@@ -9,6 +9,7 @@ from app.core.config import Settings, get_settings
 from app.core.cors import OriginGatedCORSMiddleware
 from app.core.db import dispose_engine, get_engine
 from app.core.errors import ERROR_RESPONSES, UnhandledErrorMiddleware, register_exception_handlers
+from app.core.jobs import close_jobs_pool
 from app.core.logging import configure_logging
 from app.core.openapi import generate_operation_id
 from app.core.redis import close_redis, get_redis
@@ -33,7 +34,10 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         try:
             await dispose_engine()
         finally:
-            await close_redis()
+            try:
+                await close_redis()
+            finally:
+                await close_jobs_pool()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:

@@ -10,6 +10,9 @@ Schema conventions for models built on :class:`Base`:
 
 - ``Boolean`` and ``Enum`` columns created with ``create_constraint=True`` need an explicit
   ``name=`` because the ``ck`` naming convention uses the constraint name.
+- Commit through ``session.commit()``. A commit that bypasses it (``async with session.begin():``,
+  ``AsyncSessionTransaction.commit()``) does not run :func:`after_commit` callbacks; they are
+  logged and dropped when the next transaction starts.
 - Only the :class:`TimestampMixin` columns validate at assignment. Any other ``Mapped[datetime]``
   column is typed :class:`UtcDateTime` and rejects naive values at flush time instead.
 """
@@ -93,6 +96,13 @@ def _state(session: Session | AsyncSession) -> _CallbackState:
 def _on_transaction_create(session: Session, transaction: SessionTransaction) -> None:
     if transaction.parent is None and not transaction.nested:
         state = _state(session)
+        if state.ready:  # left by a commit that bypassed AppSession.commit
+            logger.warning(
+                "dropping %d after_commit callback(s) from a commit that did not go through "
+                "session.commit()",
+                len(state.ready),
+            )
+            state.ready.clear()
         if state.unstarted:  # registered before the session autobegan
             state.frames.setdefault(transaction, []).extend(state.unstarted)
             state.unstarted = []
@@ -309,6 +319,10 @@ def after_commit(session: AsyncSession, callback: AfterCommitCallback) -> None:
     Callbacks are scoped to the transaction or savepoint they are registered in: if that savepoint
     is rolled back they are dropped; if it is released they pass to the enclosing transaction and
     run after the outermost commit.
+
+    Commit through ``session.commit()``: a commit that bypasses it (``session.begin()`` as a
+    context manager, ``AsyncSessionTransaction.commit()``) never runs the callbacks, which are
+    logged and dropped when the next transaction starts.
 
     Raises:
         TypeError: if ``session`` is not an :class:`AppSession`, since the callback would never run.

@@ -10,13 +10,17 @@ Design notes:
   domain, so it cannot know the registry. :func:`enqueue` rejects names that are not
   ``<owner>.<job>`` (a typo such as ``"ping"`` fails fast); an unknown but well-formed name is
   enqueued and the worker records the job as failed ("function not found"). A test in
-  ``app/workers`` keeps the registry and architecture §7 honest.
+  ``tests/test_jobs.py`` keeps the registry and architecture §7 honest.
 - **JSON on the wire.** Arguments and results are JSON, not pickle, so Redis content is never
-  executed. Pass IDs as strings; a UUID or datetime argument raises ``TypeError`` at enqueue time.
+  executed. Pass IDs as strings; a UUID or datetime argument raises ``TypeError`` at enqueue time
+  (for :func:`enqueue_after_commit`, when it is called, in the caller's transaction).
   Exceptions are stored as ``{"error_type", "error"}`` so a failed job can be told apart.
 - **Results are kept for** :data:`KEEP_RESULT_SECONDS` (one day). That is the window in which
   :func:`job_status` can report ``complete`` or ``failed``; afterwards the ID is ``not_found``.
   The durable record is the ``job_runs`` table (S-1.9.4).
+- **A fixed ``_job_id`` blocks re-enqueueing** while the job is queued, running, or has a stored
+  result, so for up to :data:`KEEP_RESULT_SECONDS` after it finished (arq refuses an ID whose job
+  key or result key still exists). Deduplication semantics proper belong to S-1.9.2.
 """
 
 import asyncio
@@ -74,6 +78,8 @@ def deserialize_job(raw: bytes) -> dict[str, Any]:
 
 _pool: ArqRedis | None = None
 _pool_loop: asyncio.AbstractEventLoop | None = None
+_pool_lock: asyncio.Lock | None = None
+_pool_lock_loop: asyncio.AbstractEventLoop | None = None
 
 
 async def get_jobs_pool() -> ArqRedis:
@@ -81,20 +87,25 @@ async def get_jobs_pool() -> ArqRedis:
 
     A pool made on a different (for example closed) loop is dropped and rebuilt.
     """
-    global _pool, _pool_loop  # noqa: PLW0603
+    global _pool, _pool_loop, _pool_lock, _pool_lock_loop  # noqa: PLW0603
     loop = asyncio.get_running_loop()
-    if _pool is None or _pool_loop is not loop:
-        settings = get_settings()
-        redis_settings = RedisSettings.from_dsn(settings.redis_url)
-        redis_settings.conn_retries = 1  # fail fast on the request path
-        _pool = await create_pool(
-            redis_settings,
-            job_serializer=serialize_job,
-            job_deserializer=deserialize_job,
-            default_queue_name=settings.worker_queue_name,
-        )
-        _pool_loop = loop
-    return _pool
+    if _pool is not None and _pool_loop is loop:
+        return _pool
+    if _pool_lock is None or _pool_lock_loop is not loop:  # no await: no race creating the lock
+        _pool_lock, _pool_lock_loop = asyncio.Lock(), loop
+    async with _pool_lock:  # two concurrent first callers must not each create a pool
+        if _pool is None or _pool_loop is not loop:
+            settings = get_settings()
+            redis_settings = RedisSettings.from_dsn(settings.redis_url)
+            redis_settings.conn_retries = 1  # fail fast on the request path
+            _pool = await create_pool(
+                redis_settings,
+                job_serializer=serialize_job,
+                job_deserializer=deserialize_job,
+                default_queue_name=settings.worker_queue_name,
+            )
+            _pool_loop = loop
+        return _pool
 
 
 async def close_jobs_pool() -> None:
@@ -122,8 +133,11 @@ async def enqueue(
 
     Args:
         job_name: canonical ``<owner>.<job>`` name (architecture §7).
-        _job_id: optional fixed ID; enqueueing an ID that already exists is a no-op that returns
-            the same ID, which makes "at most one pending run" easy.
+        _job_id: optional fixed ID. arq enqueues nothing while the ID is queued, running, or
+            finished within the last :data:`KEEP_RESULT_SECONDS` (a stored result also blocks it);
+            the call then returns the same ID without enqueueing. A completed or failed job
+            therefore cannot be re-enqueued under its ID for 24 h. Deduplication semantics are
+            S-1.9.2's concern.
         _defer_by: delay before the job may start.
         **kwargs: JSON-serializable arguments for the job.
 
@@ -143,7 +157,12 @@ async def enqueue(
         return job.job_id
     if _job_id is None:  # pragma: no cover  (arq only returns None for an existing ID)
         raise RuntimeError(f"arq refused to enqueue {job_name}")
-    logger.info("job %s already enqueued as %s", job_name, _job_id)
+    logger.info(
+        "job %s not enqueued: a job with id %s is queued, running, or finished within the "
+        "last 24 h",
+        job_name,
+        _job_id,
+    )
     return _job_id
 
 
@@ -153,15 +172,27 @@ def enqueue_after_commit(
     """Enqueue ``job_name`` once ``session`` has committed; drop it if the transaction rolls back.
 
     Built on :func:`app.core.db.after_commit`, so it needs an ``AppSession``. The name is
-    validated now, so a typo fails in the caller's transaction instead of after the commit. The
+    validated now, and so are the arguments (same JSON serializer as :func:`enqueue`), so a typo or
+    a UUID argument fails in the caller's transaction instead of after the commit. The
     callbacks are scoped to the savepoint they were registered in: a job registered inside a
     rolled-back ``begin_nested()`` is dropped. If Redis is down at that moment the
     failure is logged and the job is lost; the transaction is already committed.
     """
     _check_name(job_name)
+    try:
+        serialize_job({"kwargs": kwargs})
+    except TypeError as exc:
+        raise TypeError(f"arguments of {job_name} are not JSON serializable: {exc}") from exc
 
     async def _enqueue() -> None:
-        await enqueue(job_name, _job_id=_job_id, **kwargs)
+        try:
+            await enqueue(job_name, _job_id=_job_id, **kwargs)
+        except Exception as exc:
+            # app.core.db logs the raised error and carries on; no argument values in the message.
+            raise RuntimeError(
+                f"enqueue of {job_name} (job id {_job_id}) failed after commit: "
+                f"{type(exc).__name__}"
+            ) from exc
 
     after_commit(session, _enqueue)
 

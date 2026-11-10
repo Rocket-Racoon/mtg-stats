@@ -12,6 +12,7 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
+from arq.connections import RedisSettings
 from arq.worker import Worker, create_worker
 
 from app.core import jobs as core_jobs
@@ -51,12 +52,35 @@ async def test_run_job_in_process_runs_a_registered_job_without_redis() -> None:
     assert await run_job_in_process("system.ping") == "pong"
 
 
-async def test_run_job_in_process_passes_kwargs_and_ctx_to_a_function() -> None:
-    async def job(ctx: dict[str, Any], x: int) -> tuple[Any, int]:
-        return ctx["job_id"], x
+async def test_run_job_in_process_rejects_a_non_json_argument() -> None:
+    async def job(ctx: dict[str, Any], when: Any) -> None:
+        raise AssertionError("must not run")
 
-    assert await run_job_in_process(job, x=3) == ("test-job", 3)
-    assert await run_job_in_process(job, ctx={"job_id": "j"}, x=1) == ("j", 1)
+    with pytest.raises(TypeError, match="not JSON serializable"):
+        await run_job_in_process(job, when=uuid4())
+
+
+async def test_run_job_in_process_rejects_a_non_json_result() -> None:
+    async def job(ctx: dict[str, Any]) -> Any:
+        return uuid4()
+
+    with pytest.raises(TypeError, match="not JSON serializable"):
+        await run_job_in_process(job)
+
+
+async def test_run_job_in_process_returns_the_json_round_tripped_result() -> None:
+    async def job(ctx: dict[str, Any]) -> Any:
+        return (1, 2)
+
+    assert await run_job_in_process(job) == [1, 2]
+
+
+async def test_run_job_in_process_passes_kwargs_and_ctx_to_a_function() -> None:
+    async def job(ctx: dict[str, Any], x: int) -> list[Any]:
+        return [ctx["job_id"], x]
+
+    assert await run_job_in_process(job, x=3) == ["test-job", 3]
+    assert await run_job_in_process(job, ctx={"job_id": "j"}, x=1) == ["j", 1]
 
 
 def test_registry_names_are_canonical_owner_dot_job_names() -> None:
@@ -94,8 +118,12 @@ def test_every_registered_job_is_listed_in_architecture_section_7() -> None:
 def test_worker_settings_use_the_redis_url_and_queue_from_settings() -> None:
     settings = get_settings()
     redis = WorkerSettings.redis_settings
-    assert (redis.host, redis.port, redis.database) == ("127.0.0.1", 6379, 15)
-    assert settings.redis_url.endswith("/15")
+    expected = RedisSettings.from_dsn(settings.redis_url)
+    assert (redis.host, redis.port, redis.database) == (
+        expected.host,
+        expected.port,
+        expected.database,
+    )
     assert WorkerSettings.queue_name == settings.worker_queue_name
     assert WorkerSettings.job_completion_wait == 30
     assert {f.name for f in WorkerSettings.functions} == set(JOBS)
@@ -122,6 +150,47 @@ async def test_enqueue_rejects_malformed_job_names(name: str) -> None:
 async def test_enqueue_after_commit_rejects_malformed_job_names(db_session: AppSession) -> None:
     with pytest.raises(ValueError, match="invalid job name"):
         enqueue_after_commit(db_session, "ping")
+
+
+async def test_enqueue_after_commit_rejects_non_json_arguments_in_the_callers_transaction(
+    db_session: AppSession, job_queue: JobQueue
+) -> None:
+    with pytest.raises(TypeError, match="not JSON serializable"):
+        enqueue_after_commit(db_session, "system.ping", _job_id=job_queue.job_id("a"), id=uuid4())
+    await db_session.commit()
+    assert await job_status(job_queue.job_id("a")) is JobStatus.NOT_FOUND
+
+
+async def test_concurrent_first_callers_share_one_pool(job_queue: JobQueue) -> None:
+    await core_jobs.close_jobs_pool()
+    first, second = await asyncio.gather(core_jobs.get_jobs_pool(), core_jobs.get_jobs_pool())
+    assert first is second
+
+
+async def test_finished_job_id_cannot_be_re_enqueued_within_keep_result(
+    job_queue: JobQueue, caplog: pytest.LogCaptureFixture
+) -> None:
+    job_id = await enqueue("system.ping", _job_id=job_queue.job_id("a"))
+    worker = create_worker(
+        WorkerSettings,
+        functions=build_functions(TEST_JOBS),
+        queue_name=job_queue.name,
+        burst=True,
+        keep_result=30,
+        poll_delay=0.05,
+        handle_signals=False,
+    )
+    try:
+        await asyncio.wait_for(worker.async_run(), 20)
+    finally:
+        await worker.pool.aclose()
+    assert await job_status(job_id) is JobStatus.COMPLETE
+    with caplog.at_level("INFO", logger="app.core.jobs"):
+        again = await enqueue("system.ping", _job_id=job_id)
+    assert again == job_id
+    pool = await core_jobs.get_jobs_pool()
+    assert await pool.zcard(job_queue.name) == 0  # nothing was queued
+    assert any("finished within the last 24 h" in r.getMessage() for r in caplog.records)
 
 
 async def test_enqueue_rejects_arguments_that_are_not_json(job_queue: JobQueue) -> None:

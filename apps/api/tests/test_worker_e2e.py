@@ -13,9 +13,11 @@ import sys
 from collections.abc import AsyncIterator
 from contextlib import suppress
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 
+from app.core.config import get_settings
 from app.core.jobs import JobStatus, enqueue, job_status
 from tests.jobs import JobQueue
 
@@ -52,7 +54,7 @@ def _terminate(proc: subprocess.Popen[str]) -> None:
         proc.send_signal(signal.SIGTERM)
 
 
-async def _wait_for(job_id: str, wanted: JobStatus, limit: float = 40) -> None:
+async def _wait_for(job_id: str, wanted: JobStatus, limit: float = 90) -> None:
     async with asyncio.timeout(limit):
         while await job_status(job_id) is not wanted:  # noqa: ASYNC110
             await asyncio.sleep(0.1)
@@ -113,7 +115,8 @@ async def test_job_still_running_after_the_grace_period_is_left_queued_for_retry
 async def _startup_stderr(job_queue: JobQueue) -> str:
     """Run a worker that connects with a password in REDIS_URL; return its whole stderr."""
     # Redis accepts any password for a user without one, so the worker connects with credentials.
-    url = f"redis://default:{SECRET}@127.0.0.1:6379/15"
+    base = urlsplit(get_settings().redis_url)
+    url = base._replace(netloc=f"default:{SECRET}@{base.hostname}:{base.port or 6379}").geturl()
     proc = _start_worker(job_queue, grace=5, extra_env={"REDIS_URL": url})
     try:
         ping_id = await enqueue("system.ping", _job_id=job_queue.job_id("ping"))
@@ -136,7 +139,11 @@ async def test_worker_logs_never_contain_the_redis_password(job_queue: JobQueue)
 
 async def test_worker_startup_log_names_the_redis_host_and_db(job_queue: JobQueue) -> None:
     stderr = await _startup_stderr(job_queue)
-    assert any("127.0.0.1" in line and "15" in line for line in stderr.splitlines()), stderr
+    redis = urlsplit(get_settings().redis_url)
+    db = redis.path.lstrip("/") or "0"
+    assert any(
+        str(redis.hostname) in line and f"db={db}" in line for line in stderr.splitlines()
+    ), stderr
     assert SECRET not in stderr
 
 

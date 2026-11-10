@@ -6,7 +6,6 @@ without Redis, import boundaries and test isolation.
 
 import asyncio
 import logging
-from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +22,7 @@ from app.core.jobs import JobStatus, enqueue, enqueue_after_commit, job_status
 from app.workers.registry import JOBS, build_functions
 from app.workers.settings import WorkerSettings
 from tests.architecture.test_domain_imports import APP_ROOT, check_imports, imported_modules
-from tests.jobs import JobQueue, run_job_in_process
+from tests.jobs import JobQueue, delete_queue_keys, run_job_in_process
 from tests.slow_worker import TEST_JOBS
 
 CLOSED_REDIS_URL = "redis://127.0.0.1:1/15"
@@ -170,6 +169,12 @@ async def test_redis_failure_after_commit_is_logged_and_does_not_raise(
             await db_session.commit()  # must not raise
         assert any("after_commit callback failed" in r.getMessage() for r in caplog.records)
         assert any(r.exc_info for r in caplog.records)
+        logged = " ".join(
+            f"{r.getMessage()} {r.exc_text or ''} {r.exc_info[1] if r.exc_info else ''}"
+            for r in caplog.records
+        )
+        assert "system.ping" in logged
+        assert "never-queued" in logged
     finally:
         monkeypatch.undo()
         get_settings.cache_clear()
@@ -222,41 +227,25 @@ def test_registered_jobs_live_in_their_owners_services_package() -> None:
 
 # --- isolation: tests never flush Redis --------------------------------------------------------
 
-_SENTINEL: dict[str, str] = {}
 
-
-@pytest.fixture(scope="module")
-def _sentinel_cleanup() -> Iterator[None]:
-    yield
-    if _SENTINEL:
-        import redis  # noqa: PLC0415
-
-        client = redis.Redis.from_url(get_settings().redis_url)
-        try:
-            client.delete(_SENTINEL["key"])
-        finally:
-            client.close()
-
-
-@pytest.mark.usefixtures("_sentinel_cleanup")
-async def test_isolation_step_1_plant_a_key_outside_the_job_queue_namespace(
-    job_queue: JobQueue,
-) -> None:
-    key = f"arq:unrelated:{job_queue.token}"
-    _SENTINEL["key"] = key
+async def test_queue_cleanup_deletes_only_its_own_keys(job_queue: JobQueue) -> None:
+    """Cleanup of one token-scoped queue leaves another queue and unrelated keys alone."""
+    other = JobQueue(
+        name=f"arq:queue:test-other-{job_queue.token}", token=f"other{job_queue.token}"
+    )
+    unrelated = f"arq:unrelated:{job_queue.token}"
     pool = await core_jobs.get_jobs_pool()
-    await pool.set(key, "keep me")
-    await enqueue("system.ping", _job_id=job_queue.job_id("a"))
-
-
-@pytest.mark.usefixtures("_sentinel_cleanup")
-async def test_isolation_step_2_job_queue_cleanup_left_the_unrelated_key_alone(
-    job_queue: JobQueue,
-) -> None:
-    """Runs after step 1 (file order): that test's fixture cleanup must not touch other keys."""
-    assert "key" in _SENTINEL, "step 1 did not run first"
-    pool = await core_jobs.get_jobs_pool()
-    assert await pool.get(_SENTINEL["key"]) == b"keep me"
+    await pool.set(unrelated, "keep me")
+    mine = await enqueue("system.ping", _job_id=job_queue.job_id("a"))
+    theirs = f"arq:job:{other.job_id('a')}"
+    await pool.set(theirs, "other queue's job")
+    try:
+        await delete_queue_keys(pool, job_queue)  # what the job_queue fixture does on teardown
+        assert await pool.exists(f"arq:job:{mine}") == 0
+        assert await pool.get(unrelated) == b"keep me"
+        assert await pool.get(theirs) == b"other queue's job"
+    finally:
+        await pool.delete(unrelated, theirs)
 
 
 def test_no_test_or_fixture_flushes_redis() -> None:

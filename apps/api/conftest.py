@@ -18,7 +18,7 @@ from sqlalchemy.pool import NullPool
 
 from app.core.db import AppSession, get_session
 from tests.db_policy import must_fail_when_db_unreachable, resolve_test_database_url
-from tests.jobs import JobQueue
+from tests.jobs import JobQueue, delete_queue_keys
 from tests.sample_models import SampleBase
 from tests.statement_counter import StatementCounter
 
@@ -199,11 +199,6 @@ async def job_queue(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[JobQueue]:
         yield queue
     finally:
         pool = await core_jobs.get_jobs_pool()
-        queued = [m.decode() for m in await pool.zrange(queue.name, 0, -1)]
-        keys = [queue.name, f"{queue.name}:health-check"]
-        for job_id in queued:
-            keys += [f"arq:{kind}:{job_id}" for kind in ("job", "result", "in-progress", "retry")]
-        keys += [k async for k in pool.scan_iter(match=f"arq:*:{token}-*")]
-        await pool.delete(*keys)
+        await delete_queue_keys(pool, queue)
         await core_jobs.close_jobs_pool()
         get_settings.cache_clear()

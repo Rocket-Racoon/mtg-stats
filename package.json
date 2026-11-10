@@ -9,7 +9,7 @@
     "pnpm": ">=11.1.3 <12"
   },
   "scripts": {
-    "lint": "pnpm -r lint && eslint tests scripts/client-drift-check.js eslint.config.js",
+    "lint": "pnpm -r lint && eslint tests scripts/client-drift-check.js scripts/verify.js eslint.config.js",
     "format": "pnpm -r format && prettier --write --ignore-unknown --no-error-on-unmatched-pattern --ignore-path .prettierignore \"*.{json,js,yaml}\" \"infra/**/*.{yml,yaml}\" \".github/**/*.{yml,yaml}\" \"scripts/**/*.{js,ts,json}\" \"tests/**/*.ts\"",
     "format:check": "pnpm -r format:check && prettier --check --ignore-unknown --no-error-on-unmatched-pattern --ignore-path .prettierignore \"*.{json,js,yaml}\" \"infra/**/*.{yml,yaml}\" \".github/**/*.{yml,yaml}\" \"scripts/**/*.{js,ts,json}\" \"tests/**/*.ts\"",
     "typecheck": "pnpm -r typecheck && tsc --noEmit -p tsconfig.json",
@@ -19,6 +19,9 @@
     "client:check": "node scripts/client-drift-check.js",
     "hooks:install": "uv run --frozen --project apps/api pre-commit install",
     "secrets:check": "uv run --project apps/api python scripts/secrets_check.py",
+    "verify": "node scripts/verify.js",
+    "verify:api": "node scripts/verify.js --only api",
+    "verify:ts": "node scripts/verify.js --only ts",
     "test": "pnpm -r test && vitest run --dir tests"
   },
   "devDependencies": {

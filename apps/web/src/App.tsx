@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import { NAV_ITEMS } from './nav';
+import { ThemeToggle } from './theme/ThemeToggle';
+import './theme/theme.css';
 import './App.css';
 
 /**
@@ -43,18 +45,21 @@ export function App() {
       </a>
       <header className="shell-header" onKeyDown={onKeyDown}>
         <h1>MTG Stats</h1>
-        <button
-          ref={toggleRef}
-          type="button"
-          className="menu-toggle"
-          aria-expanded={open}
-          aria-controls="primary-nav"
-          onClick={() => {
-            setOpen((v) => !v);
-          }}
-        >
-          Menu
-        </button>
+        <div className="header-controls">
+          <ThemeToggle />
+          <button
+            ref={toggleRef}
+            type="button"
+            className="menu-toggle"
+            aria-expanded={open}
+            aria-controls="primary-nav"
+            onClick={() => {
+              setOpen((v) => !v);
+            }}
+          >
+            Menu
+          </button>
+        </div>
       </header>
       <nav
         id="primary-nav"

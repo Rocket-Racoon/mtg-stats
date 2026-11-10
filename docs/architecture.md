@@ -45,6 +45,8 @@ apps/
       workflows/       orchestration that spans several domains, with its own routers and jobs (§4.3)
       workers/         arq WorkerSettings, cron schedule, job registry
       main.py          app factory: routers, middleware, static web build
+      model_registry.py  imports every domain's models for Alembic (S-1.4.3); only migrations/env.py
+                       and tests import it
     migrations/        Alembic
     tests/             cross-cutting tests (architecture, API smoke, WebSocket soak)
   web/                 React + Vite + React Router + TanStack Query + Zustand; e2e/ (Playwright)
@@ -156,11 +158,13 @@ Arrows mean "may call", and they point **down** to lower layers. Some examples:
 
 **Enforcement**: `apps/api/tests/architecture/test_domain_imports.py` computes the transitive closure of this graph. It fails when:
 - an import between domains isn't in the closure;
-- a domain imports `workflows/`;
-- `core/` imports any domain;
-- `workflows/` or `workers/` import anything of a domain other than its `services`.
+- a domain imports `workflows/` or `workers/` (jobs are enqueued by name, never imported);
+- `core/` imports any domain, `workflows/` or `workers/`;
+- a domain imports another domain, or `workflows/` or `workers/` import a domain, through anything other than exactly `app.<domain>.services`;
+- a domain's `router.py` imports its own `repository` or anything from `sqlalchemy` (S-1.4.6);
+- anything under `app/` other than the registry itself imports `app/model_registry.py`. Only `migrations/env.py` and tests may import it.
 
-It extends S-1.4.6's boundary test.
+`app/main.py` (the app factory, which mounts every router) and `app/scripts/` are outside these rules. `workers/` may import `workflows/`, because the job registry registers workflow jobs. It extends S-1.4.6's boundary test; `docs/domain-template.md` describes the layout of one domain.
 
 ### 4.3 Breaking would-be cycles
 

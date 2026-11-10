@@ -161,7 +161,7 @@ Arrows mean "may call", and they point **down** to lower layers. Some examples:
 - a domain imports `workflows/` or `workers/` (jobs are enqueued by name, never imported);
 - `core/` imports any domain, `workflows/` or `workers/`;
 - a domain imports another domain, or `workflows/` or `workers/` import a domain, through anything other than exactly `app.<domain>.services`;
-- a domain's `router.py` imports its own `repository` or anything from `sqlalchemy` (S-1.4.6);
+- a domain's `router.py` imports its own `repository` or anything from `sqlalchemy`, or `workflows/router.py` imports anything from `sqlalchemy` (S-1.4.6). Literal-string dynamic imports (`importlib.import_module("…")`, `__import__("…")`) count as imports;
 - anything under `app/` other than the registry itself imports `app/model_registry.py`. Only `migrations/env.py` and tests may import it.
 
 `app/main.py` (the app factory, which mounts every router) and `app/scripts/` are outside these rules. `workers/` may import `workflows/`, because the job registry registers workflow jobs. It extends S-1.4.6's boundary test; `docs/domain-template.md` describes the layout of one domain.

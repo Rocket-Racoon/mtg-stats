@@ -320,6 +320,7 @@ All jobs are **idempotent** and **enqueued by name**: `core.jobs.enqueue("<owner
 | `games.abandon_idle_games`: lobbies idle for 2 h, games idle for 24 h | every 10 min | `games` | S-6.2.9 |
 | `workflows.delete_playgroup` | owner deletes a playgroup | `workflows` | S-2.6.3 |
 | `identity.cleanup_refresh_tokens` | daily | `identity` | F-2.1 |
+| `system.ping`: a no-op job that proves the worker runs end to end | on demand | `system` | S-1.9.1 |
 | `system.purge_job_runs`, `system.heartbeat` | daily / every minute | `system` | S-1.9.x |
 | `db_backup`: **external** job. It runs in the Compose `backup` service (pg_dump + GnuPG), not in the arq worker | daily | infra | S-11.3.2 |
 

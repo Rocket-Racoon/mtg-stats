@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     db_connect_timeout: int = Field(default=5, ge=1, validation_alias="DB_CONNECT_TIMEOUT")
     redis_url: str = Field(validation_alias="REDIS_URL")
     git_sha: str = Field(default="dev", validation_alias="GIT_SHA")
+    worker_queue_name: str = Field(
+        default="arq:queue", min_length=1, validation_alias="WORKER_QUEUE_NAME"
+    )
+    worker_shutdown_grace_seconds: int = Field(
+        default=30, ge=0, validation_alias="WORKER_SHUTDOWN_GRACE_SECONDS"
+    )
     cors_allowed_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=list, validation_alias="CORS_ALLOWED_ORIGINS"
     )

@@ -299,3 +299,15 @@ async def test_redis_client_and_engine_are_closed_on_app_shutdown(
         aclose.assert_awaited_once()
         assert not get_redis.cache_info().currsize
         assert not get_engine.cache_info().currsize
+
+
+async def test_jobs_pool_is_closed_on_app_shutdown(health_client: HealthClient) -> None:
+    from app.core import jobs as core_jobs  # noqa: PLC0415
+
+    async with health_client():
+        app = create_app()
+        async with app.router.lifespan_context(app):
+            aclose = AsyncMock()
+            core_jobs._pool = type("P", (), {"aclose": aclose})()  # type: ignore[assignment]
+        aclose.assert_awaited_once()
+        assert core_jobs._pool is None

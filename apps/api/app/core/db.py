@@ -10,6 +10,10 @@ Schema conventions for models built on :class:`Base`:
 
 - ``Boolean`` and ``Enum`` columns created with ``create_constraint=True`` need an explicit
   ``name=`` because the ``ck`` naming convention uses the constraint name.
+- Commit through ``session.commit()``. A commit that bypasses it (``async with session.begin():``,
+  ``AsyncSessionTransaction.commit()``) does not run :func:`after_commit` callbacks; they are
+  logged and dropped when the next transaction starts, or when the session is closed or rolled
+  back.
 - Only the :class:`TimestampMixin` columns validate at assignment. Any other ``Mapped[datetime]``
   column is typed :class:`UtcDateTime` and rejects naive values at flush time instead.
 """
@@ -18,13 +22,14 @@ import asyncio
 import inspect
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Annotated, Any, ClassVar
 from uuid import UUID
 
 from fastapi import Depends
-from sqlalchemy import DateTime, MetaData
+from sqlalchemy import DateTime, MetaData, event
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.engine import Dialect
 from sqlalchemy.ext.asyncio import (
@@ -33,7 +38,14 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, validates
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    Session,
+    SessionTransaction,
+    mapped_column,
+    validates,
+)
 from sqlalchemy.types import TypeDecorator
 
 from app.core.config import get_settings
@@ -51,6 +63,72 @@ NAMING_CONVENTION = {
 
 AfterCommitCallback = Callable[[], Awaitable[None] | None]
 _AFTER_COMMIT_INFO_SLOT = "after_commit_callbacks"
+
+_Entry = tuple[int, AfterCommitCallback]
+
+
+@dataclass
+class _CallbackState:
+    """After-commit callbacks of one session, scoped to the (nested) transaction that owns them.
+
+    Each callback is stored as ``(sequence, callback)``; the sequence number restores global
+    registration order when a savepoint's callbacks are merged into its parent.
+    """
+
+    frames: dict[SessionTransaction, list[_Entry]] = field(default_factory=dict)
+    unstarted: list[_Entry] = field(default_factory=list)
+    committed: set[SessionTransaction] = field(default_factory=set)
+    ready: list[_Entry] = field(default_factory=list)
+    next_seq: int = 0
+
+
+def _state(session: Session | AsyncSession) -> _CallbackState:
+    state: _CallbackState | None = session.info.get(_AFTER_COMMIT_INFO_SLOT)
+    if state is None:
+        state = session.info[_AFTER_COMMIT_INFO_SLOT] = _CallbackState()
+    return state
+
+
+# The three hooks below scope after-commit callbacks to the transaction or savepoint they were
+# registered in. SQLAlchemy offers no other single point that sees both
+# ``async with session.begin_nested()`` and an explicit ``nested.rollback()``. They are session
+# plumbing, not business logic, so the "no ORM event listeners" rule does not apply; they are
+# attached per AppSession instance and live only here.
+def _on_transaction_create(session: Session, transaction: SessionTransaction) -> None:
+    if transaction.parent is None and not transaction.nested:
+        state = _state(session)
+        if state.ready:  # left by a commit that bypassed AppSession.commit
+            logger.warning(
+                "dropping %d after_commit callback(s) from a commit that did not go through "
+                "session.commit()",
+                len(state.ready),
+            )
+            state.ready.clear()
+        if state.unstarted:  # registered before the session autobegan
+            state.frames.setdefault(transaction, []).extend(state.unstarted)
+            state.unstarted = []
+
+
+def _on_commit(session: Session) -> None:
+    # Fires for a savepoint release and for the root commit, while the committing transaction is
+    # still the innermost one.
+    committing = session.get_nested_transaction() or session.get_transaction()
+    if committing is not None:
+        _state(session).committed.add(committing)
+
+
+def _on_transaction_end(session: Session, transaction: SessionTransaction) -> None:
+    state = _state(session)
+    callbacks = state.frames.pop(transaction, [])
+    committed = transaction in state.committed
+    state.committed.discard(transaction)
+    if not committed:
+        return  # rolled back (or closed): drop its callbacks, children's included
+    parent = transaction.parent
+    if transaction.nested and parent is not None:
+        state.frames.setdefault(parent, []).extend(callbacks)  # savepoint released
+    else:
+        state.ready.extend(callbacks)  # outermost commit: AppSession.commit runs them
 
 
 class UtcDateTime(TypeDecorator[datetime]):
@@ -113,8 +191,12 @@ class AppSession(AsyncSession):
     Guarantees:
 
     - ``commit`` commits and then runs the registered callbacks in order, as one inner task.
-    - If the commit fails, or ``rollback``/``close`` is called, the
-      callbacks are dropped.
+    - If the commit fails, or ``rollback``/``close`` is called, the callbacks are dropped.
+    - Callbacks are scoped to the transaction they were registered in. Rolling back a savepoint
+      (``begin_nested()``) drops the callbacks registered inside it, nested savepoints included;
+      releasing it hands them to the enclosing transaction. Only the outermost commit runs them.
+      (In tests, "outermost" is the session's own transaction, even when its connection is
+      joined to an outer transaction with ``create_savepoint``.)
     - Cancelling the caller of ``commit`` (``task.cancel()`` or an anyio cancel scope) does not
       interrupt that inner task. ``commit`` keeps waiting until the commit and all callbacks have
       finished, and only then re-raises ``CancelledError``. A commit failure after cancellation is
@@ -122,11 +204,15 @@ class AppSession(AsyncSession):
     - An ``AppSession`` must not be used concurrently by two tasks (SQLAlchemy does not support
       it); ``commit`` never returns while its inner task runs, so ``rollback`` and ``close``
       cannot overlap a commit in normal use.
-
-    Callbacks belong to the session, not to a savepoint.
     """
 
     _pending_commit: asyncio.Task[None] | None = None
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        event.listen(self.sync_session, "after_transaction_create", _on_transaction_create)
+        event.listen(self.sync_session, "after_commit", _on_commit)
+        event.listen(self.sync_session, "after_transaction_end", _on_transaction_end)
 
     async def commit(self) -> None:
         """Commit, then run the after-commit callbacks; both complete even if cancelled."""
@@ -148,10 +234,11 @@ class AppSession(AsyncSession):
         try:
             await super().commit()
         except BaseException:
-            self.info.pop(_AFTER_COMMIT_INFO_SLOT, None)
+            _drop_callbacks(self)
             raise
-        callbacks: list[AfterCommitCallback] = self.info.pop(_AFTER_COMMIT_INFO_SLOT, [])
-        for callback in callbacks:
+        state = _state(self)
+        ready, state.ready = state.ready, []
+        for _, callback in sorted(ready, key=lambda item: item[0]):
             try:
                 result: Any = callback()
                 if inspect.isawaitable(result):
@@ -161,13 +248,25 @@ class AppSession(AsyncSession):
 
     async def rollback(self) -> None:
         """Roll back and drop the after-commit callbacks."""
-        self.info.pop(_AFTER_COMMIT_INFO_SLOT, None)
+        _drop_callbacks(self)
         await super().rollback()
 
     async def close(self) -> None:
         """Close and drop any after-commit callbacks that never ran."""
-        self.info.pop(_AFTER_COMMIT_INFO_SLOT, None)
+        _drop_callbacks(self)
         await super().close()
+
+
+def _drop_callbacks(session: AsyncSession) -> None:
+    state = _state(session)
+    if state.ready:  # only a commit that bypassed AppSession.commit leaves callbacks here
+        logger.warning(
+            "after-commit callbacks dropped: commit bypassed AppSession.commit (%d callback(s))",
+            len(state.ready),
+        )
+    state.frames.clear()
+    state.unstarted.clear()
+    state.ready.clear()
 
 
 async def _wait_until_done(task: asyncio.Task[None]) -> bool:
@@ -223,9 +322,14 @@ def after_commit(session: AsyncSession, callback: AfterCommitCallback) -> None:
     caller's session use this instead of enqueueing or publishing directly. A failing callback is
     logged and does not stop the others, because the transaction is already committed.
 
-    Callbacks belong to the session, not to a savepoint: one registered inside a ``begin_nested()``
-    that is rolled back still fires at the outer commit. A ``nested()`` helper that scopes them to
-    the savepoint is future work.
+    Callbacks are scoped to the transaction or savepoint they are registered in: if that savepoint
+    is rolled back they are dropped; if it is released they pass to the enclosing transaction and
+    run after the outermost commit.
+
+    Commit through ``session.commit()``: a commit that bypasses it (``session.begin()`` as a
+    context manager, ``AsyncSessionTransaction.commit()``) never runs the callbacks, which are
+    logged and dropped when the next transaction starts, or when the session is closed or
+    rolled back.
 
     Raises:
         TypeError: if ``session`` is not an :class:`AppSession`, since the callback would never run.
@@ -234,7 +338,14 @@ def after_commit(session: AsyncSession, callback: AfterCommitCallback) -> None:
         raise TypeError(
             "after_commit requires an AppSession; build sessions with get_sessionmaker()"
         )
-    session.info.setdefault(_AFTER_COMMIT_INFO_SLOT, []).append(callback)
+    state = _state(session)
+    entry = (state.next_seq, callback)
+    state.next_seq += 1
+    owner = session.sync_session.get_nested_transaction() or session.sync_session.get_transaction()
+    if owner is None:
+        state.unstarted.append(entry)
+    else:
+        state.frames.setdefault(owner, []).append(entry)
 
 
 async def get_session() -> AsyncIterator[AppSession]:

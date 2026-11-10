@@ -80,6 +80,10 @@ def job_id(name: str, *parts: str) -> str:
     Pass it as ``_job_id`` to :func:`enqueue`: while a job with this ID is queued, running or
     still has its stored result (24 h), a second enqueue does not start another run.
 
+    Use deterministic IDs for "once per period" jobs (the daily sync), not to coalesce pending
+    work: ``stats.refresh_game_stats:<game_id>`` would silently drop a second refresh of the same
+    game within 24 h.
+
     Raises:
         ValueError: ``name`` is not ``<owner>.<job>``, or a part is empty or contains ``":"``.
         TypeError: a part is not a string.

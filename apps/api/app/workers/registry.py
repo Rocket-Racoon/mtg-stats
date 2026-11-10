@@ -13,8 +13,9 @@ attempt. Jobs are idempotent: a job interrupted by shutdown is run again.
 Retries and shutdown: arq counts every start of a job (``job_try``), including a re-run after
 shutdown or a crash. The wrapper retries a :class:`RetryableJobError` while ``job_try <=
 max_retries``, so a shutdown re-run uses up one of the job's retries. arq's own ``max_tries`` is
-``max_retries + 2``: one spare try, so that a job interrupted by shutdown during its last
-attempt is still run again instead of being failed as "max retries exceeded".
+``max_retries + 1 + SHUTDOWN_SPARE_TRIES``: shutdown re-runs consume the retries first and
+then the spare tries, so that a job interrupted by shutdown during its last attempt is still
+run again instead of being failed as "max retries exceeded".
 """
 
 import asyncio
@@ -41,6 +42,8 @@ logger = logging.getLogger(__name__)
 
 ARQ_TIMEOUT_MARGIN_SECONDS = 5
 """arq's own timeout is the wrapper's plus this, a backstop that should never fire."""
+SHUTDOWN_SPARE_TRIES = 3
+"""Extra arq tries beyond ``1 + max_retries`` for re-runs after shutdown or a crash."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -69,7 +72,7 @@ def _log_end(outcome: str, job_try: int, started: float, *, warning: bool = Fals
         outcome,
         extra={
             "try": job_try,
-            "duration_ms": round((time.monotonic() - started) * 1000),
+            "duration_ms": round((time.perf_counter() - started) * 1000),
             "outcome": outcome,
         },
     )
@@ -87,38 +90,64 @@ def wrap_job(name: str, spec: JobSpec) -> JobFunction:
       only for the timeout. A timeout raises ``TimeoutError`` (failed, never retried). A
       shutdown ``CancelledError`` is logged as ``cancelled`` and re-raised, so arq leaves the
       job queued for the next worker.
-    - :class:`RetryableJobError` becomes ``arq.Retry`` with a growing delay while retries remain.
+    - :class:`RetryableJobError` becomes ``arq.Retry`` with a growing delay while retries remain
+      (``job_try <= max_retries``). Jobs raise :class:`RetryableJobError`, never ``arq.Retry``; if
+      one does anyway it obeys the same budget.
+    - A job that has timed out is always failed and logged ``timeout``, even if it swallowed the
+      cancellation, returned, or raised a retryable error from its cancel handler.
     """
 
     @functools.wraps(spec.fn)
     async def run(ctx: dict[str, Any], *args: Any, **kwargs: Any) -> Any:
         job_try = int(ctx.get("job_try", 1))
-        started = time.monotonic()
+        started = time.perf_counter()
         with log_context(job_id=ctx.get("job_id"), job=name):
             cm = asyncio.timeout(spec.timeout)
             try:
                 async with cm:
                     result = await spec.fn(ctx, *args, **kwargs)
-            except asyncio.CancelledError:
+            except asyncio.CancelledError as exc:
+                if cm.expired():  # our timeout fired and a later cancel (arq's backstop) arrived
+                    _log_end("timeout", job_try, started, warning=True)
+                    raise TimeoutError(f"job {name} timed out") from exc
                 _log_end("cancelled", job_try, started, warning=True)
                 raise
-            except Retry:  # the job asked arq for a retry itself
-                _log_end("retry", job_try, started, warning=True)
-                raise
-            except RetryableJobError as exc:
+            except (Retry, RetryableJobError) as exc:
+                if cm.expired():  # a job that turns its cancellation into a retry still timed out
+                    _log_end("timeout", job_try, started, warning=True)
+                    raise TimeoutError(f"job {name} timed out") from exc
                 if job_try <= spec.max_retries:
                     _log_end("retry", job_try, started, warning=True)
+                    if isinstance(exc, Retry):
+                        raise
                     raise Retry(defer=retry_delay(job_try)) from exc
                 _log_end("failed", job_try, started, warning=True)
+                if isinstance(exc, Retry):  # never hand arq a Retry we have no budget for
+                    raise RetryableJobError(f"job {name} out of retries") from exc
                 raise
             except Exception as exc:
                 timed_out = isinstance(exc, TimeoutError) and cm.expired()
                 _log_end("timeout" if timed_out else "failed", job_try, started, warning=True)
                 raise
+            if cm.expired():  # the job swallowed the cancellation and returned
+                _log_end("timeout", job_try, started, warning=True)
+                raise TimeoutError(f"job {name} timed out")
             _log_end("success", job_try, started)
             return result
 
     return run
+
+
+def arq_options(spec: JobSpec) -> dict[str, Any]:
+    """Keyword arguments for ``arq.worker.func`` / ``arq.cron.cron`` that match ``spec``.
+
+    arq's cron defaults are ``max_tries=1`` and ``timeout=None``, so cron jobs must pass these.
+    arq keeps a cron job's in-progress key for 60 s, so a cron retry delay is effectively >= 60 s.
+    """
+    return {
+        "timeout": spec.timeout + ARQ_TIMEOUT_MARGIN_SECONDS,
+        "max_tries": spec.max_retries + 1 + SHUTDOWN_SPARE_TRIES,
+    }
 
 
 def _normalize(job: JobSpec | JobFunction) -> JobSpec:
@@ -132,8 +161,7 @@ def build_functions(extra: Mapping[str, JobSpec | JobFunction] | None = None) ->
         func(
             cast(Any, wrap_job(name, spec)),
             name=name,
-            timeout=spec.timeout + ARQ_TIMEOUT_MARGIN_SECONDS,
-            max_tries=spec.max_retries + 2,
+            **arq_options(spec),
         )
         for name, spec in merged.items()
     ]

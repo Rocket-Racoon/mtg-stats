@@ -255,8 +255,8 @@ async def test_retry_delays_stored_in_redis_grow_10_60_300_seconds(
             assert score is not None
             delays.append(score / 1000 - time.time())
             assert await job_status(jid) is JobStatus.QUEUED
-            # Make it due now instead of waiting: arq also keeps an in-progress key for the delay.
-            await pool.delete(f"arq:in-progress:{jid}")
+            # Make it due now instead of waiting. Dedupe during the delay holds because
+            # arq:job:<id> survives a Retry (the in-progress key is already gone).
             await pool.zadd(job_queue.name, {jid: 1})  # not 0: arq treats a 0 score as finished
         async with asyncio.timeout(10):
             while await job_status(jid) is not JobStatus.FAILED:  # noqa: ASYNC110

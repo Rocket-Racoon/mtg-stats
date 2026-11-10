@@ -1,6 +1,7 @@
 """Tests for the job rules of S-1.9.2: timeout, retries, de-duplication and the end-of-run log."""
 
 import asyncio
+import contextlib
 import logging
 from typing import Any
 
@@ -22,7 +23,7 @@ from app.core.jobs import (
 from app.workers import registry
 from app.workers.registry import JobSpec, build_functions, retry_delay, wrap_job
 from app.workers.settings import WorkerSettings
-from tests.jobs import JobQueue
+from tests.jobs import JobQueue, run_job_in_process
 
 attempts: dict[str, int] = {}
 
@@ -141,7 +142,7 @@ def test_build_functions_gives_arq_a_longer_timeout_than_the_wrapper() -> None:
     by_name = {f.name: f for f in build_functions(EXTRA)}
     assert by_name["system.ping"].timeout_s == 600 + registry.ARQ_TIMEOUT_MARGIN_SECONDS
     assert by_name["tests.sleepy"].timeout_s == 0.3 + registry.ARQ_TIMEOUT_MARGIN_SECONDS
-    assert by_name["system.ping"].max_tries == MAX_RETRIES + 2
+    assert by_name["system.ping"].max_tries == MAX_RETRIES + 1 + registry.SHUTDOWN_SPARE_TRIES
 
 
 # --- the wrapper in process --------------------------------------------------------------------
@@ -180,12 +181,12 @@ async def test_wrapper_logs_one_line_with_outcome_try_and_duration(
 ) -> None:
     wrapped = wrap_job("tests.sleepy", JobSpec(sleepy))
     with caplog.at_level("INFO", logger="app.workers.registry"):
-        assert await wrapped({"job_id": "j1", "job_try": 1}, seconds=0.01) == "done"
+        assert await wrapped({"job_id": "j1", "job_try": 1}, seconds=0.05) == "done"
     (record,) = _end_lines(caplog)
     assert record.levelno == logging.INFO
     assert record.__dict__["outcome"] == "success"
     assert record.__dict__["try"] == 1
-    assert record.__dict__["duration_ms"] >= 10
+    assert record.__dict__["duration_ms"] >= 30
 
 
 async def test_wrapper_logs_cancelled_when_the_task_is_cancelled_from_outside(
@@ -255,7 +256,7 @@ async def test_second_enqueue_with_the_same_deterministic_id_while_queued_is_a_n
     job_queue: JobQueue,
 ) -> None:
     name = "tests.sleepy"
-    deterministic = job_queue.job_id(job_id(name, "2026-11-07").replace(":", "-"))
+    deterministic = job_queue.job_id(job_id(name, "2026-11-07"))
     first = await enqueue(name, _job_id=deterministic, seconds=0.01)
     second = await enqueue(name, _job_id=deterministic, seconds=0.01)
     assert first == second == deterministic
@@ -303,3 +304,85 @@ async def test_second_enqueue_while_the_first_is_running_does_not_start_another_
         await asyncio.gather(task, return_exceptions=True)
         await asyncio.gather(*worker.tasks.values(), return_exceptions=True)
         await worker.pool.aclose()
+
+
+# --- review fixes: timeout always wins, arq.Retry budget, helpers ------------------------------
+
+
+async def _swallow(ctx: dict[str, Any]) -> str:
+    with contextlib.suppress(asyncio.CancelledError):
+        await asyncio.sleep(5)
+    return "swallowed"
+
+
+async def _retry_on_cancel(ctx: dict[str, Any]) -> None:
+    try:
+        await asyncio.sleep(5)
+    except asyncio.CancelledError:
+        raise RetryableJobError("cleanup") from None
+
+
+async def _arq_retry(ctx: dict[str, Any]) -> None:
+    raise Retry(defer=1)
+
+
+@pytest.mark.parametrize("fn", [_swallow, _retry_on_cancel])
+async def test_timed_out_job_is_failed_and_logged_timeout_whatever_it_does_on_cancel(
+    fn: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    wrapped = wrap_job("tests.x", JobSpec(fn, timeout=0.05))
+    with caplog.at_level("INFO", logger="app.workers.registry"), pytest.raises(TimeoutError):
+        await wrapped({"job_id": "j", "job_try": 1})
+    assert [r.__dict__["outcome"] for r in _end_lines(caplog)] == ["timeout"]
+
+
+async def test_cleanup_outliving_the_timeout_is_still_logged_timeout(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def stubborn(ctx: dict[str, Any]) -> None:
+        try:
+            await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            await asyncio.sleep(5)
+
+    wrapped = wrap_job("tests.x", JobSpec(stubborn, timeout=0.05))
+    # arq's backstop cancels it from outside while its cleanup is still running.
+    with caplog.at_level("INFO", logger="app.workers.registry"), pytest.raises(TimeoutError):
+        await asyncio.wait_for(wrapped({"job_id": "j", "job_try": 1}), 0.2)
+    assert [r.__dict__["outcome"] for r in _end_lines(caplog)] == ["timeout"]
+
+
+async def test_a_job_raising_its_own_timeout_error_is_failed_not_timeout(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def own(ctx: dict[str, Any]) -> None:
+        raise TimeoutError("http")
+
+    wrapped = wrap_job("tests.x", JobSpec(own))
+    with caplog.at_level("INFO", logger="app.workers.registry"), pytest.raises(TimeoutError):
+        await wrapped({"job_id": "j", "job_try": 1})
+    assert [r.__dict__["outcome"] for r in _end_lines(caplog)] == ["failed"]
+
+
+async def test_arq_retry_raised_by_a_job_obeys_the_retry_budget() -> None:
+    wrapped = wrap_job("tests.x", JobSpec(_arq_retry))
+    with pytest.raises(Retry):
+        await wrapped({"job_id": "j", "job_try": MAX_RETRIES})
+    with pytest.raises(RetryableJobError, match="out of retries"):
+        await wrapped({"job_id": "j", "job_try": MAX_RETRIES + 1})
+
+
+def test_arq_options_match_the_spec() -> None:
+    opts = registry.arq_options(JobSpec(flaky, timeout=30, max_retries=1))
+    assert opts == {"timeout": 30 + registry.ARQ_TIMEOUT_MARGIN_SECONDS, "max_tries": 1 + 1 + 3}
+    assert registry.SHUTDOWN_SPARE_TRIES == 3
+    assert WorkerSettings.max_tries == MAX_RETRIES + 1 + registry.SHUTDOWN_SPARE_TRIES
+
+
+async def test_run_job_in_process_can_run_through_the_wrapper(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level("INFO", logger="app.workers.registry"):
+        assert await run_job_in_process("system.ping", wrapped=True) == "pong"
+        assert await run_job_in_process("system.ping") == "pong"
+    assert [r.__dict__["outcome"] for r in _end_lines(caplog)] == ["success"]

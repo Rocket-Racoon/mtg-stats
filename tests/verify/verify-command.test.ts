@@ -3,9 +3,9 @@
  * run: every step is replaced through --step-cmds / VERIFY_STEP_CMDS by a tiny node command that
  * appends the step name to a marker file. `--list` is used to check the real commands.
  *
- * Multi-command steps: an override replaces ALL commands of a step with one argv, so "a failing
- * first sub-command skips the second" cannot be exercised through overrides; it is covered only by
- * the `--list` structure checks (steps list their sub-commands in order).
+ * Multi-command steps: an override may be an array of argv arrays, which run in order and stop at
+ * the first failure; the "several commands per step" tests use that to prove a failing first
+ * command skips the second.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -45,11 +45,25 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+/**
+ * The parent env with every key that case-insensitively matches an override removed, then the
+ * overrides applied. Needed on Windows, where a Vitest worker may list `npm_execpath` as
+ * `NPM_EXECPATH`: spreading both would leave two spellings and the child could see the wrong one.
+ */
+function childEnv(overrides: Record<string, string>): Record<string, string> {
+  const drop = new Set(Object.keys(overrides).map((k) => k.toLowerCase()));
+  const base: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v !== undefined && !drop.has(k.toLowerCase())) base[k] = v;
+  }
+  return { ...base, ...overrides };
+}
+
 function run(args: string[], env: Record<string, string> = {}, cwd = root) {
   const r = spawnSync(process.execPath, [script, ...args], {
     encoding: 'utf8',
     cwd,
-    env: { ...process.env, ...env },
+    env: childEnv(env),
   });
   return { code: r.status, out: r.stdout, err: r.stderr };
 }
@@ -248,7 +262,7 @@ describe('AC4: cross-platform behavior', () => {
   });
 
   it('treats "node" as the current Node binary even with an empty PATH', () => {
-    const r = run(['--step-cmds', overrides(ALL_STEPS)], { PATH: '', Path: '' });
+    const r = run(['--step-cmds', overrides(ALL_STEPS)], { PATH: '' });
     expect(r.code).toBe(0);
     expect(ran()).toEqual(ALL_STEPS);
   });
@@ -342,9 +356,15 @@ describe('every filter command fails when it matches no workspace', () => {
 
   it('names every workspace with a test script exactly once, in the right test step', () => {
     const yaml = readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8');
-    const globs = [...yaml.matchAll(/^\s+-\s+(\S+)\s*$/gm)].map((m) => m[1] as string);
+    const globs = [...yaml.matchAll(/^\s+-\s+(\S+)\s*$/gm)].map((m) =>
+      (m[1] as string).replace(/^["']|["']$/g, ''),
+    );
+    expect(globs.length).toBeGreaterThan(0);
     const dirs: string[] = [];
     for (const g of globs) {
+      if (!/^[\w.-]+(\/[\w.-]+)*(\/\*)?$/.test(g)) {
+        throw new Error(`unsupported workspace glob "${g}": extend this test to expand it`);
+      }
       if (g.endsWith('/*')) {
         const base = g.slice(0, -2);
         for (const e of readdirSync(join(root, base), { withFileTypes: true })) {
@@ -410,8 +430,7 @@ describe('pnpm resolution through npm_execpath', () => {
     writeFileSync(npmCli, `require("node:fs").writeFileSync(${JSON.stringify(npmRan)}, "ran");`);
     const r = run(['--step-cmds', only('client drift check')], {
       npm_execpath: npmCli,
-      PATH: '',
-      Path: '',
+      PATH: dir,
     });
     expect(r.code).not.toBe(0);
     expect(r.err).toContain('FAILED at step "client drift check"');

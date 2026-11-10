@@ -1,8 +1,9 @@
 """Cursor (keyset) paging shared by every list endpoint (S-1.4.7, decision B2).
 
 A list endpoint takes :data:`PageParamsDep` (``?cursor=&limit=``), builds a ``Select`` and a
-:class:`Sort`, and calls :func:`paginate`, which returns the items and the next cursor
-(:func:`paginate_page` wraps them in a :class:`Page`).
+:class:`Sort`, and calls :func:`paginate_page` with its named page class (for example
+``DeckPage``) and a mapper to the response schema. :func:`paginate` is the lower-level form
+that returns the entities and the next cursor.
 
 Cursor format: an opaque base64url string (no padding) of the JSON list
 ``[sort_id, key_1, ..., key_n]`` where ``sort_id`` names the columns and directions
@@ -36,8 +37,18 @@ from fastapi import Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import ColumnElement, Select, and_, literal, or_, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import InstrumentedAttribute, Mapped
-from sqlalchemy.types import BigInteger, Integer, SmallInteger, TypeDecorator, TypeEngine
+from sqlalchemy.orm import InstrumentedAttribute
+from sqlalchemy.types import (
+    BigInteger,
+    DateTime,
+    Enum,
+    Integer,
+    SmallInteger,
+    String,
+    TypeDecorator,
+    TypeEngine,
+    Uuid,
+)
 
 from app.core.errors import InvalidCursorError
 
@@ -102,26 +113,32 @@ class SortKey:
 
 @dataclass(frozen=True, slots=True)
 class Sort:
-    """A total order for keyset paging. The last key must be the unique ``id``."""
+    """A total order for keyset paging. The last key must be the unique ``id``.
+
+    Every key must be a non-nullable ``timestamptz`` (``UtcDateTime``), UUID (``as_uuid=True``),
+    integer or bounded ``String(n)`` column. Rejected at construction: nullable columns, naive
+    ``DateTime``, ``Enum``, ``Uuid(as_uuid=False)`` (Postgres validates those values, so a forged
+    cursor would 500) and ``Text``/``String()`` without a length. String keys must be bounded so
+    the cursor stays under :data:`MAX_CURSOR_LENGTH`: the worst-case encoded cursor of all keys
+    together (a string character costs up to 6 JSON bytes, base64 adds 4/3) must fit.
+    """
 
     keys: tuple[SortKey, ...]
 
     def __post_init__(self) -> None:
         if len(self.keys) < 2 or self.keys[-1].attr != "id":
             raise ValueError("a Sort needs at least two keys and must end with the id column")
+        budget = len(self.ident) + 8  # the sort id string, brackets and commas
         for key in self.keys:
             if getattr(key.column.expression, "nullable", None) is not False:
                 # NULLs have no total order under keyset comparison (NULL < x is never true).
                 raise ValueError(f"sort key {key.attr!r} must be a non-nullable column")
-            try:
-                python_type = _python_type(key.column.type)
-            except NotImplementedError:
-                python_type = object
-            if python_type not in _SORT_KEY_TYPES:
-                raise ValueError(
-                    f"sort key {key.attr!r} has an unsupported type; "
-                    "use datetime, UUID, int or str columns"
-                )
+            budget += _check_key_type(key)
+        if (budget * 4 + 2) // 3 > MAX_CURSOR_LENGTH:
+            raise ValueError(
+                f"sort keys could produce a cursor over MAX_CURSOR_LENGTH ({MAX_CURSOR_LENGTH}); "
+                "shorten the String(n) keys"
+            )
 
     @property
     def ident(self) -> str:
@@ -136,8 +153,15 @@ class Sort:
 class _Timestamped(Protocol):
     """A model with the ``IdMixin`` and ``TimestampMixin`` columns."""
 
-    created_at: Mapped[datetime]
-    id: Mapped[UUID]
+    @property
+    def created_at(self) -> datetime:
+        """Creation time."""
+        ...
+
+    @property
+    def id(self) -> UUID:
+        """Primary key."""
+        ...
 
 
 def _attr(value: object) -> InstrumentedAttribute[Any]:
@@ -172,10 +196,45 @@ def _encode_value(value: Any) -> Any:
 
 def _python_type(sql_type: TypeEngine[Any]) -> type:
     """Python type of a column type, looking through ``TypeDecorator`` wrappers."""
+    python_type: type = _unwrap(sql_type).python_type
+    return python_type
+
+
+def _unwrap(sql_type: TypeEngine[Any]) -> TypeEngine[Any]:
     while isinstance(sql_type, TypeDecorator):
         sql_type = sql_type.impl_instance
-    python_type: type = sql_type.python_type
-    return python_type
+    return sql_type
+
+
+def _check_key_type(key: SortKey) -> int:
+    """Validate one sort key's type; return its worst-case size in cursor JSON bytes."""
+    name = key.attr
+    sql_type = _unwrap(key.column.type)
+    if isinstance(sql_type, Enum):
+        # python_type is str without enum_class, but Postgres validates enum input.
+        raise ValueError(f"sort key {name!r} is an Enum column; Enum keys are not supported")
+    if isinstance(sql_type, Uuid) and not sql_type.as_uuid:
+        raise ValueError(f"sort key {name!r} is a UUID column with as_uuid=False; use as_uuid=True")
+    if isinstance(sql_type, DateTime) and not sql_type.timezone:
+        raise ValueError(f"sort key {name!r} is a naive DateTime; use a timezone-aware column")
+    try:
+        python_type = _python_type(key.column.type)
+    except NotImplementedError:
+        python_type = object
+    if python_type not in _SORT_KEY_TYPES:
+        raise ValueError(
+            f"sort key {name!r} has an unsupported type; use datetime, UUID, int or str columns"
+        )
+    if python_type is str:
+        length = sql_type.length if isinstance(sql_type, String) else None
+        if length is None:
+            raise ValueError(f"sort key {name!r} is an unbounded string; use String(n)")
+        return 6 * length + 3  # a control character is escaped to 6 bytes; quotes and comma
+    if python_type is datetime:
+        return 36
+    if python_type is UUID:
+        return 39
+    return 22  # a 64-bit integer, sign and comma
 
 
 _SORT_KEY_TYPES: tuple[type, ...] = (datetime, UUID, int, str)
@@ -183,8 +242,7 @@ _SORT_KEY_TYPES: tuple[type, ...] = (datetime, UUID, int, str)
 
 def _int_bounds(sql_type: TypeEngine[Any]) -> tuple[int, int]:
     """Inclusive range the database column accepts (a wider bound is a Postgres 500)."""
-    while isinstance(sql_type, TypeDecorator):
-        sql_type = sql_type.impl_instance
+    sql_type = _unwrap(sql_type)
     if isinstance(sql_type, SmallInteger):
         bits = 16
     elif isinstance(sql_type, Integer) and not isinstance(sql_type, BigInteger):
@@ -257,9 +315,9 @@ def decode_cursor(sort: Sort, cursor: str) -> list[Any]:
         # What a forged cursor can trigger: ValueError (bad base64, JSON, UUID, datetime,
         # integer range, NUL and surrogates; binascii.Error, UnicodeError and JSONDecodeError
         # are subclasses), OverflowError (datetime beyond year 1..9999 after the UTC shift) and
-        # RecursionError (deeply nested JSON; defensive, json handles the 4096-char maximum on
-        # CPython today). TypeError/NotImplementedError would be
-        # programming errors, which Sort now rejects at construction, so they stay 500s.
+        # RecursionError (json.loads on CPython 3.12 raises it for ~3000 unclosed "[", well
+        # inside the 4096-char limit). TypeError/NotImplementedError would be programming
+        # errors, which Sort rejects at construction, so they stay 500s.
         raise InvalidCursorError from exc
 
 
@@ -283,7 +341,7 @@ def _after(sort: Sort, values: Sequence[Any]) -> ColumnElement[bool]:
 
 async def paginate[E](
     session: AsyncSession,
-    stmt: Select[tuple[E]],
+    stmt: Select[E],
     sort: Sort,
     params: PageParams,
 ) -> tuple[list[E], str | None]:
@@ -298,7 +356,7 @@ async def paginate[E](
     # order_by(None) drops any ordering already on stmt so it cannot precede the sort's keys;
     # unique() lets a joinedload of a collection be used (it raises otherwise).
     ordered = stmt.order_by(None).order_by(*sort.order_by()).limit(params.limit + 1)
-    rows = cast(list[E], list((await session.scalars(ordered)).unique()))
+    rows = list((await session.scalars(ordered)).unique())
     if len(rows) <= params.limit:
         return rows, None
     items = rows[: params.limit]
@@ -306,13 +364,17 @@ async def paginate[E](
     return items, encode_cursor(sort, [getattr(last, k.attr) for k in sort.keys])
 
 
-async def paginate_page[E, T](
+async def paginate_page[E, P: Page[Any]](  # noqa: PLR0917  # the documented call shape
     session: AsyncSession,
-    stmt: Select[tuple[E]],
+    stmt: Select[E],
     sort: Sort,
     params: PageParams,
-    to_schema: Callable[[E], T],
-) -> Page[T]:
-    """:func:`paginate`, then map each entity with ``to_schema`` into a :class:`Page`."""
+    page_cls: type[P],
+    to_schema: Callable[[E], Any],
+) -> P:
+    """:func:`paginate`, then map each entity with ``to_schema`` into ``page_cls``.
+
+    ``page_cls`` is the endpoint's named page model (``class DeckPage(Page[DeckOut])``).
+    """
     items, next_cursor = await paginate(session, stmt, sort, params)
-    return Page[T](items=[to_schema(i) for i in items], next_cursor=next_cursor)
+    return page_cls(items=[to_schema(i) for i in items], next_cursor=next_cursor)

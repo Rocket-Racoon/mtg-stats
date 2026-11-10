@@ -61,6 +61,7 @@ def retry_delay(job_try: int) -> int:
 
 
 JOBS: Mapping[str, JobSpec] = {
+    "system.heartbeat": JobSpec(system_services.heartbeat),
     "system.ping": JobSpec(system_services.ping),
 }
 

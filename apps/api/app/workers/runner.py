@@ -22,6 +22,7 @@ from app.core.config import get_settings
 from app.core.jobs import JobFunction
 from app.core.logging import configure_logging
 from app.workers.registry import JobSpec, build_functions
+from app.workers.schedule import log_schedule
 from app.workers.settings import WorkerSettings
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,7 @@ async def serve(extra_jobs: Mapping[str, JobSpec | JobFunction] | None = None) -
     logger.info(
         "registered jobs (%d): %s", len(worker.functions), ", ".join(sorted(worker.functions))
     )
+    log_schedule(get_settings())
     if sys.platform == "win32":
         _install_windows_signal_handlers(worker, asyncio.get_running_loop())
     try:

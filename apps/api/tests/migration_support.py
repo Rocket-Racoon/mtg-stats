@@ -18,6 +18,7 @@ from tests.db_policy import must_fail_when_db_unreachable, resolve_test_database
 
 API_ROOT = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = API_ROOT / "alembic.ini"
+# A hard-killed run can leak a mtg_stats_mig_* DB: drop it by hand (no sweeper; shared server).
 TEMP_DB_PREFIX = "mtg_stats_mig_"
 MIGRATION_FILE_RE = re.compile(r"^\d{8}_\d{4}_[0-9a-f]+_[a-z0-9_]+\.py$")
 

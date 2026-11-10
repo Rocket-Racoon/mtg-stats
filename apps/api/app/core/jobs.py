@@ -154,8 +154,8 @@ def enqueue_after_commit(
 
     Built on :func:`app.core.db.after_commit`, so it needs an ``AppSession``. The name is
     validated now, so a typo fails in the caller's transaction instead of after the commit. The
-    callbacks belong to the session, not a savepoint: a job registered inside a rolled-back
-    ``begin_nested()`` is still enqueued at the outer commit. If Redis is down at that moment the
+    callbacks are scoped to the savepoint they were registered in: a job registered inside a
+    rolled-back ``begin_nested()`` is dropped. If Redis is down at that moment the
     failure is logged and the job is lost; the transaction is already committed.
     """
     _check_name(job_name)

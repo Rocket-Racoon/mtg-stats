@@ -146,16 +146,15 @@ async def test_enqueue_after_commit_waits_for_the_outer_commit_not_a_savepoint_r
     assert await job_status(job_id) is JobStatus.QUEUED
 
 
-async def test_job_registered_in_a_rolled_back_savepoint_is_still_enqueued_at_the_outer_commit(
+async def test_job_registered_in_a_rolled_back_savepoint_is_dropped(
     db_session: AppSession, job_queue: JobQueue
 ) -> None:
-    """Pins current behaviour: callbacks belong to the session, not the savepoint (see db.py)."""
     job_id = job_queue.job_id("a")
     savepoint = await db_session.begin_nested()
     enqueue_after_commit(db_session, "system.ping", _job_id=job_id)
     await savepoint.rollback()
     await db_session.commit()
-    assert await job_status(job_id) is JobStatus.QUEUED
+    assert await job_status(job_id) is JobStatus.NOT_FOUND
 
 
 async def test_redis_failure_after_commit_is_logged_and_does_not_raise(

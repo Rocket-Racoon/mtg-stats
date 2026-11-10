@@ -22,7 +22,7 @@ uv run alembic revision --autogenerate -m "<msg>"
 uv run alembic upgrade head
 
 # API client: regenerate after any API change (CI fails on drift)
-pnpm --filter @mtg-stats/api-client generate
+pnpm client:generate                      # exports the spec, then regenerates the TS types
 
 # Verify gate (S-1.8.1). `pnpm verify` runs these in order and stops at the first failure.
 # `pnpm verify:api` and `pnpm verify:ts` run one half.
@@ -31,7 +31,7 @@ pnpm --filter @mtg-stats/api-client generate
 #  3. uv run mypy --strict app/
 #  4. uv run pytest --cov=app --cov-fail-under=85
 #  5. uv run alembic check                 # migration drift
-#  6. client drift check                   # the generated api-client matches the OpenAPI spec
+#  6. pnpm client:check                    # client drift: the committed spec and TS types match the API
 #  7. pnpm -r lint                         # eslint
 #  8. pnpm -r format:check                 # prettier --check
 #  9. pnpm -r typecheck                    # tsc --noEmit

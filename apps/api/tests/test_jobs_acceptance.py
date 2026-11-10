@@ -151,10 +151,9 @@ async def test_job_registered_in_a_rolled_back_savepoint_is_still_enqueued_at_th
 ) -> None:
     """Pins current behaviour: callbacks belong to the session, not the savepoint (see db.py)."""
     job_id = job_queue.job_id("a")
-    with pytest.raises(RuntimeError, match="inner failure"):
-        async with db_session.begin_nested():
-            enqueue_after_commit(db_session, "system.ping", _job_id=job_id)
-            raise RuntimeError("inner failure")
+    savepoint = await db_session.begin_nested()
+    enqueue_after_commit(db_session, "system.ping", _job_id=job_id)
+    await savepoint.rollback()
     await db_session.commit()
     assert await job_status(job_id) is JobStatus.QUEUED
 

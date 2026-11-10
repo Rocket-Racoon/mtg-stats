@@ -1,8 +1,8 @@
 /**
  * Single source of truth for the colour tokens (S-1.6.5).
  * `theme.css` mirrors these values as CSS custom properties (`fooBar` -> `--foo-bar`);
- * tests/theme-css.test.ts fails if the two drift, and tests/contrast.test.ts checks every
- * pair in CONTRAST_PAIRS in both themes.
+ * tests/theme-css.test.ts fails if the two drift and checks the ratio of every pair in
+ * CONTRAST_PAIRS in both themes (helper: tests/contrast.ts).
  */
 export const THEMES = ['light', 'dark'] as const;
 export type Theme = (typeof THEMES)[number];

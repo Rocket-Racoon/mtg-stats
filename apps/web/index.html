@@ -4,22 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MTG Stats</title>
-    <script>
-      // Set the theme before first paint to avoid a flash. Keep in sync with src/theme/store.ts.
-      (function () {
-        var theme = null;
-        try {
-          theme = localStorage.getItem('mtg-stats-theme');
-        } catch (e) {}
-        if (theme !== 'light' && theme !== 'dark') {
-          theme =
-            window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
-              ? 'dark'
-              : 'light';
-        }
-        document.documentElement.setAttribute('data-theme', theme);
-      })();
-    </script>
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>

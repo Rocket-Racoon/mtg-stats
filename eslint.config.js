@@ -38,6 +38,10 @@ export default tseslint.config(
     languageOptions: { globals: { ...globals.node, ...globals.commonjs } },
   },
   {
+    files: ['apps/web/public/**/*.js'],
+    languageOptions: { sourceType: 'script', globals: { ...globals.browser } },
+  },
+  {
     files: ['**/*.config.{js,cjs}'],
     rules: { '@typescript-eslint/no-require-imports': 'off' },
   },

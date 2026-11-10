@@ -4,6 +4,11 @@
   background: var(--bg);
 }
 
+a,
+a:visited {
+  color: var(--link);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -164,7 +169,8 @@ button:focus-visible {
   }
 }
 
-.skip-link {
+.skip-link,
+.skip-link:visited {
   position: absolute;
   left: 0.5rem;
   top: -4rem;

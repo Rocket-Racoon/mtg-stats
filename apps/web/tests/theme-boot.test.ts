@@ -1,13 +1,14 @@
-// S-1.6.5 AC1: the inline pre-render script in index.html is a second copy of the theme
-// resolution in src/theme/store.ts. These tests run the real script text and the real store on
-// the same inputs so the two cannot drift.
+// S-1.6.5 AC1: public/theme-init.js (loaded by a blocking <script src> in index.html) is a
+// second copy of the theme resolution in src/theme/store.ts. These tests run the real file and
+// the real store on the same inputs so the two cannot drift.
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
-const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? '');
-const bootScript = scripts[0] ?? '';
+const here = dirname(fileURLToPath(import.meta.url));
+const html = readFileSync(resolve(here, '../index.html'), 'utf8');
+const bootScript = readFileSync(resolve(here, '../public/theme-init.js'), 'utf8');
 
 type Stored = 'light' | 'dark' | 'garbage' | 'throws' | null;
 type System = 'dark' | 'light' | 'no-matchmedia';
@@ -61,10 +62,27 @@ afterEach(() => {
   document.documentElement.removeAttribute('data-theme');
 });
 
-describe('index.html pre-render theme script (S-1.6.5 AC1)', () => {
-  it('exists as an inline script before the app module', () => {
-    expect(bootScript).toContain('data-theme');
-    expect(html.indexOf(bootScript)).toBeLessThan(html.indexOf('/src/main.tsx'));
+describe('index.html loads the pre-render theme script (S-1.6.5 AC1)', () => {
+  const tags = [...html.matchAll(/<script\b([^>]*)>/g)].map((m) => m[1] ?? '');
+
+  it('has no inline script without src (CSP guard, S-11.6.1)', () => {
+    expect(tags.length).toBeGreaterThan(0);
+    for (const attrs of tags) expect(attrs).toMatch(/\bsrc\s*=/);
+    expect(html).not.toMatch(/<script(?![^>]*\bsrc\s*=)[^>]*>\s*\S/);
+  });
+
+  it('loads /theme-init.js in <head> before the module entry, blocking', () => {
+    const head = html.slice(html.indexOf('<head>'), html.indexOf('</head>'));
+    const tag = /<script\b([^>]*\bsrc\s*=\s*"\/theme-init\.js"[^>]*)>/.exec(head);
+    expect(tag).not.toBeNull();
+    const attrs = tag?.[1] ?? '';
+    expect(attrs).not.toMatch(/\basync\b|\bdefer\b|type\s*=\s*"module"/);
+    expect(html.indexOf('/theme-init.js')).toBeLessThan(html.indexOf('/src/main.tsx'));
+  });
+
+  it('warns on its first line that it must not be served immutable', () => {
+    const first = bootScript.split(/\r?\n/)[0] ?? '';
+    expect(first).toMatch(/never.*immutable/i);
   });
 
   it('reads the same storage key the store writes', async () => {
@@ -109,7 +127,7 @@ describe('index.html pre-render theme script (S-1.6.5 AC1)', () => {
   });
 });
 
-describe('index.html script and theme store agree (S-1.6.5 AC1)', () => {
+describe('theme-init.js and theme store agree (S-1.6.5 AC1)', () => {
   const storedCases: Stored[] = [null, 'light', 'dark', 'garbage', 'throws'];
   const systemCases: System[] = ['dark', 'light', 'no-matchmedia'];
   for (const stored of storedCases) {

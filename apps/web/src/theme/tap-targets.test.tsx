@@ -2,17 +2,18 @@
 // selects every interactive element the app really renders. Measured sizes in a real browser
 // belong to S-1.8.5.
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { render } from '@testing-library/react';
 import { createMemoryRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 import { describe, expect, it } from 'vitest';
 import { routes } from '../routes';
 
-const css = readFileSync(resolve(process.cwd(), 'src/App.css'), 'utf8').replace(
-  /\/\*[\s\S]*?\*\//g,
-  '',
-);
+const css = readFileSync(
+  resolve(dirname(fileURLToPath(import.meta.url)), '../App.css'),
+  'utf8',
+).replace(/\/\*[\s\S]*?\*\//g, '');
 
 /** Top-level @media blocks as [query, body]. */
 function mediaBlocks(): [string, string][] {

@@ -84,7 +84,8 @@ const CONTEXT: Record<string, Context> = {
   },
   '.menu-toggle, .theme-toggle': { color: 'fg', background: 'bg', pair: ['fg', 'bg'] },
   ".theme-toggle[aria-pressed='true']": { background: 'mutedBg', pair: ['fg', 'mutedBg'] },
-  '.skip-link': { color: 'fg', background: 'bg', pair: ['fg', 'bg'] },
+  'a, a:visited': { color: 'link', pair: ['link', 'bg'] },
+  '.skip-link, .skip-link:visited': { color: 'fg', background: 'bg', pair: ['fg', 'bg'] },
 };
 
 describe('every text/background combination in App.css is contrast-checked (S-1.6.5 AC2)', () => {

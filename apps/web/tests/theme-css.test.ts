@@ -61,13 +61,6 @@ describe('theme.css mirrors tokens.ts (S-1.6.5 AC1/AC2)', () => {
     expect(appCss).not.toMatch(/#[0-9a-f]{3,8}\b/i);
     expect(appCss).not.toMatch(/\b(rgb|hsl)a?\(/i);
   });
-
-  it('index.html sets data-theme before React with the same storage key', () => {
-    const html = readFileSync(fileURLToPath(new URL('../index.html', import.meta.url)), 'utf8');
-    expect(html).toContain("'mtg-stats-theme'");
-    expect(html).toContain("setAttribute('data-theme'");
-    expect(html.indexOf('data-theme')).toBeLessThan(html.indexOf('/src/main.tsx'));
-  });
 });
 
 describe('text and ring contrast (S-1.6.5 AC2)', () => {
@@ -83,51 +76,5 @@ describe('text and ring contrast (S-1.6.5 AC2)', () => {
   it('computes known ratios correctly', () => {
     expect(contrastRatio('#000000', '#ffffff')).toBeCloseTo(21, 5);
     expect(contrastRatio('#777777', '#ffffff')).toBeCloseTo(4.48, 2);
-  });
-});
-
-/** Returns the bodies of every @media block whose query matches. */
-function mediaBodies(query: RegExp): string[] {
-  const out: string[] = [];
-  const re = /@media\s*([^{]+)\{/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(appCss))) {
-    let depth = 1;
-    let i = re.lastIndex;
-    while (i < appCss.length && depth > 0) {
-      if (appCss[i] === '{') depth++;
-      else if (appCss[i] === '}') depth--;
-      i++;
-    }
-    if (query.test(m[1] ?? '')) out.push(appCss.slice(re.lastIndex, i - 1));
-  }
-  return out;
-}
-
-describe('tap targets below 768px (S-1.6.5 AC3, static)', () => {
-  const body = mediaBodies(/width\s*<\s*768px|max-width:\s*767(\.98)?px/).join('\n');
-  const rule = [...body.matchAll(/([^{}]+)\{([^}]*)\}/g)].find((m) =>
-    /min-height:\s*44px/.test(m[2] ?? ''),
-  );
-
-  it('sets min-width and min-height of 44px', () => {
-    expect(rule?.[2]).toMatch(/min-width:\s*44px/);
-    expect(rule?.[2]).toMatch(/min-height:\s*44px/);
-  });
-
-  it.each(['button', 'input', 'select', 'textarea', "[role='button']", '.shell-nav a'])(
-    'covers %s',
-    (sel) => {
-      expect(rule?.[1]).toContain(sel);
-    },
-  );
-});
-
-describe('reduced motion (S-1.6.5 AC4, static)', () => {
-  it('disables animations and transitions under prefers-reduced-motion: reduce', () => {
-    const body = mediaBodies(/prefers-reduced-motion:\s*reduce/).join('\n');
-    expect(body).toMatch(/animation:\s*none\s*!important/);
-    expect(body).toMatch(/transition:\s*none\s*!important/);
-    expect(body).toMatch(/scroll-behavior:\s*auto/);
   });
 });

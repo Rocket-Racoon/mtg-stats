@@ -154,11 +154,12 @@ def _meta_schema(tmp_path_factory: pytest.TempPathFactory) -> Iterator[MetaDb]:
 
 
 @pytest.fixture
-def meta_db(_meta_schema: MetaDb, monkeypatch: pytest.MonkeyPatch) -> MetaDb:
+def meta_db(_meta_schema: MetaDb, monkeypatch: pytest.MonkeyPatch) -> Iterator[MetaDb]:
     monkeypatch.setenv("APP_ENV", "test")
     monkeypatch.setenv("DATABASE_URL", _meta_schema.url)
     get_settings.cache_clear()
-    return _meta_schema
+    yield _meta_schema
+    get_settings.cache_clear()
 
 
 # ------------------------------------------------------------------ AC1: round trip

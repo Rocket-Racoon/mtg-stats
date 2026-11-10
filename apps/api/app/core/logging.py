@@ -17,8 +17,14 @@ from typing import Any
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 job_id_var: ContextVar[str | None] = ContextVar("job_id", default=None)
 game_id_var: ContextVar[str | None] = ContextVar("game_id", default=None)
+job_var: ContextVar[str | None] = ContextVar("job", default=None)
 
-_CONTEXT_VARS = {"request_id": request_id_var, "job_id": job_id_var, "game_id": game_id_var}
+_CONTEXT_VARS = {
+    "request_id": request_id_var,
+    "job_id": job_id_var,
+    "job": job_var,
+    "game_id": game_id_var,
+}
 _HANDLER_MARK = "_mtg_stats_json_handler"
 # Keys a caller may pass via ``extra={...}``; anything else is dropped.
 _EXTRA_KEYS = ("method", "path", "status", "duration_ms", "game_id")
@@ -37,13 +43,18 @@ def set_game_id(game_id: object | None) -> Token[str | None]:
 
 @contextmanager
 def log_context(
-    *, request_id: str | None = None, job_id: str | None = None, game_id: object | None = None
+    *,
+    request_id: str | None = None,
+    job_id: str | None = None,
+    job: str | None = None,
+    game_id: object | None = None,
 ) -> Iterator[None]:
     """Bind context values for the duration of a block, then restore the previous ones."""
     tokens: list[tuple[ContextVar[str | None], Token[str | None]]] = []
     for var, value in (
         (request_id_var, request_id),
         (job_id_var, job_id),
+        (job_var, job),
         (game_id_var, None if game_id is None else str(game_id)),
     ):
         if value is not None:

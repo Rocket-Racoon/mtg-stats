@@ -9,12 +9,14 @@
     "pnpm": ">=11.1.3 <12"
   },
   "scripts": {
-    "lint": "pnpm -r lint && eslint tests eslint.config.js",
+    "lint": "pnpm -r lint && eslint tests scripts/client-drift-check.js eslint.config.js",
     "format": "pnpm -r format && prettier --write --ignore-unknown --no-error-on-unmatched-pattern --ignore-path .prettierignore \"*.{json,js,yaml}\" \"infra/**/*.{yml,yaml}\" \".github/**/*.{yml,yaml}\" \"scripts/**/*.{js,ts,json}\" \"tests/**/*.ts\"",
     "format:check": "pnpm -r format:check && prettier --check --ignore-unknown --no-error-on-unmatched-pattern --ignore-path .prettierignore \"*.{json,js,yaml}\" \"infra/**/*.{yml,yaml}\" \".github/**/*.{yml,yaml}\" \"scripts/**/*.{js,ts,json}\" \"tests/**/*.ts\"",
     "typecheck": "pnpm -r typecheck && tsc --noEmit -p tsconfig.json",
     "dev:worker": "uv run --directory apps/api python -m app.workers",
     "openapi:export": "uv run --directory apps/api python -m app.scripts.export_openapi",
+    "client:generate": "pnpm openapi:export && pnpm --filter @mtg-stats/api-client generate",
+    "client:check": "node scripts/client-drift-check.js",
     "hooks:install": "uv run --frozen --project apps/api pre-commit install",
     "secrets:check": "uv run --project apps/api python scripts/secrets_check.py",
     "test": "pnpm -r test && vitest run --dir tests"

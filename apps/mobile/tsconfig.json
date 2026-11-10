@@ -3,6 +3,6 @@
   "compilerOptions": {
     "jsx": "react-native"
   },
-  "include": ["src", "expo-env.d.ts", ".expo/types/**/*.ts"],
+  "include": ["src"],
   "exclude": ["src/__tests__", "src/**/*.test.ts", "src/**/*.test.tsx"]
 }

@@ -21,11 +21,15 @@ from tests.jobs import JobQueue
 
 API_ROOT = Path(__file__).resolve().parents[1]
 WIN = sys.platform == "win32"
+SECRET = "s3cr3t-pw-Zq9"
 
 
-def _start_worker(queue: JobQueue, grace: int) -> subprocess.Popen[str]:
+def _start_worker(
+    queue: JobQueue, grace: int, extra_env: dict[str, str] | None = None
+) -> subprocess.Popen[str]:
     env = {
         **os.environ,
+        **(extra_env or {}),
         "WORKER_QUEUE_NAME": queue.name,
         "WORKER_SHUTDOWN_GRACE_SECONDS": str(grace),
         "PYTHONUNBUFFERED": "1",
@@ -104,3 +108,59 @@ async def test_job_still_running_after_the_grace_period_is_left_queued_for_retry
             proc.kill()
             with suppress(Exception):
                 proc.communicate()
+
+
+async def _startup_stderr(job_queue: JobQueue) -> str:
+    """Run a worker that connects with a password in REDIS_URL; return its whole stderr."""
+    # Redis accepts any password for a user without one, so the worker connects with credentials.
+    url = f"redis://default:{SECRET}@127.0.0.1:6379/15"
+    proc = _start_worker(job_queue, grace=5, extra_env={"REDIS_URL": url})
+    try:
+        ping_id = await enqueue("system.ping", _job_id=job_queue.job_id("ping"))
+        await _wait_for(ping_id, JobStatus.COMPLETE)
+        _terminate(proc)
+        _, stderr = await asyncio.to_thread(proc.communicate, None, 40)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            with suppress(Exception):
+                proc.communicate()
+    return stderr
+
+
+async def test_worker_logs_never_contain_the_redis_password(job_queue: JobQueue) -> None:
+    stderr = await _startup_stderr(job_queue)
+    assert "system.ping" in stderr  # the worker did start and log
+    assert SECRET not in stderr
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="PRODUCTION GAP (S-1.9.1 AC1): the startup log lacks the Redis host and DB it "
+    "connected to. Remove this marker once the worker logs them (without credentials).",
+)
+async def test_worker_startup_log_names_the_redis_host_and_db(job_queue: JobQueue) -> None:
+    stderr = await _startup_stderr(job_queue)
+    assert any("127.0.0.1" in line and "15" in line for line in stderr.splitlines()), stderr
+    assert SECRET not in stderr
+
+
+async def test_job_left_queued_by_a_short_grace_runs_again_on_the_next_worker(
+    job_queue: JobQueue,
+) -> None:
+    first = _start_worker(job_queue, grace=1)
+    second: subprocess.Popen[str] | None = None
+    try:
+        slow_id = await enqueue("tests.slow", _job_id=job_queue.job_id("slow"), seconds=4)
+        await _wait_for(slow_id, JobStatus.IN_PROGRESS)
+        _terminate(first)
+        await asyncio.to_thread(first.communicate, None, 40)
+        assert await job_status(slow_id) is JobStatus.QUEUED
+        second = _start_worker(job_queue, grace=30)
+        await _wait_for(slow_id, JobStatus.COMPLETE, limit=60)
+    finally:
+        for proc in (first, second):
+            if proc is not None and proc.poll() is None:
+                proc.kill()
+                with suppress(Exception):
+                    proc.communicate()

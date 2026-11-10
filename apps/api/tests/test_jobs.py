@@ -65,12 +65,30 @@ def test_registry_names_are_canonical_owner_dot_job_names() -> None:
         assert core_jobs.JOB_NAME_PATTERN.fullmatch(name)
 
 
-def test_every_registered_job_is_listed_in_architecture_section_7() -> None:
+def _documented_job_names() -> set[str]:
+    """Names in the first column of the architecture section 7 table; fails if it is unparseable."""
     text = ARCHITECTURE.read_text(encoding="utf-8")
+    assert "## 7. Background jobs" in text, "architecture.md lost its section 7 heading"
     section = text.split("## 7. Background jobs", 1)[1].split("\n## 8.", 1)[0]
-    documented = set(re.findall(r"`((?:[a-z_]+)\.(?:[a-z_]+))`", section))
-    # system.ping is the S-1.9.1 smoke job; architecture §7 needs a row for it (reported).
-    assert set(JOBS) - {"system.ping"} <= documented
+    lines = section.splitlines()
+    header = [i for i, line in enumerate(lines) if re.match(r"\|\s*Job\s*\|", line)]
+    assert len(header) == 1, "section 7 must contain exactly one table with a 'Job' header"
+    assert re.match(r"\|\s*-+\s*\|", lines[header[0] + 1]), "table header lacks its separator"
+    names: set[str] = set()
+    for line in lines[header[0] + 2 :]:
+        if not line.startswith("|"):
+            break
+        first_cell = line.split("|")[1].split(":")[0]
+        row_names = re.findall(r"`([a-z_]+(?:\.[a-z_]+)?)`", first_cell)
+        assert row_names, f"unparseable section 7 row: {line[:80]!r}"
+        names.update(row_names)
+    assert len(names) >= 20, f"parsed only {len(names)} rows from the section 7 table"
+    assert {"system.ping", "stats.refresh_game_stats", "db_backup"} <= names
+    return names
+
+
+def test_every_registered_job_is_listed_in_architecture_section_7() -> None:
+    assert set(JOBS) <= _documented_job_names()
 
 
 def test_worker_settings_use_the_redis_url_and_queue_from_settings() -> None:

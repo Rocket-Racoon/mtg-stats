@@ -16,21 +16,29 @@ Rules (architecture §4.2 "Enforcement"), with ``A`` the domain a module belongs
   may import its own package, ``app.core`` and allowed domain ``services``; ``core`` only itself;
   ``workflows`` ``core`` and domain ``services``; ``workers`` also ``workflows``. So ``app.main``,
   ``app.scripts`` and unknown ``app.x`` fail from all four.
-* A package directly under ``app/`` must be one of the ten domains or ``core``, ``workflows``,
-  ``workers``, ``scripts``.
+* A package or module directly under ``app/`` must be one of the ten domains, ``core``,
+  ``workflows``, ``workers``, ``scripts``, ``main.py``, ``model_registry.py`` or ``__init__.py``
+  (``__pycache__`` and hidden entries starting with ``.`` are ignored).
 * Nothing under ``app/`` imports ``app.model_registry``, ``app/main.py`` included (only
   ``migrations/env.py`` and ``apps/api/tests/`` may). ``main.py`` and ``scripts/`` are exempt
   from every other rule. Domain tests (``app/<domain>/tests/``) obey their domain's rules.
-* A *router module* is any module that imports ``fastapi.APIRouter``: ``from fastapi import
+* A *router module* is a module that imports ``fastapi.APIRouter``: ``from fastapi import
   APIRouter`` (also ``as``), ``from fastapi.routing import APIRouter``, or ``fastapi.APIRouter`` /
   ``fastapi.routing.APIRouter`` used through ``import fastapi[.routing] [as x]`` or ``from fastapi
-  import routing``. Re-exports of ``APIRouter`` from another module are not followed (review).
+  import routing``; or a module that imports a router module of its own package (own domain for
+  a domain module, ``app.workflows`` for a workflow module), iterated to a fixed point, so a split
+  file that does ``from app.decks.router import router`` is one too. An ``APIRouter`` import under
+  ``if TYPE_CHECKING:`` still makes a module a router module (consistent with "imports").
   In a domain or in ``workflows/`` a router module never imports anything from ``sqlalchemy``
   (strict, typing-only imports included); in a domain it never imports its own ``repository``.
 * Literal-string dynamic imports (``importlib.import_module("…")``, positional or ``name=``;
-  relative literals with a literal ``package``; ``__import__("…")``) are checked like static ones.
-  Left to review: non-literal dynamic imports and attribute access through an allowed import
-  (``app.decks.services.helpers`` after ``import app.decks.services``).
+  relative literals with a literal ``package``; ``__import__("…")`` with a single name) are
+  checked like static ones.
+  Left to review (architecture §4.2): attribute access through an allowed import
+  (``app.decks.services.helpers`` after ``import app.decks.services``); non-literal dynamic
+  imports, and ``__import__`` with ``fromlist`` or ``level``; ``APIRouter`` reached through a
+  re-export or ``getattr``, and ``add_api_route`` from a module that imports no router; a router
+  using ``SessionDep`` with its own ``models``.
 * The declared graph itself has no cycle, and equals the one documented in architecture §4.2.
 """
 
@@ -64,6 +72,7 @@ DEPENDENCIES: Mapping[str, frozenset[str]] = {
 }
 DOMAINS = frozenset(DEPENDENCIES)
 NON_DOMAIN_PACKAGES = frozenset({"core", "workflows", "workers", "scripts"})
+TOP_LEVEL_FILES = frozenset({"main.py", "model_registry.py", "__init__.py"})
 SCRIPT_LIKE = frozenset({"main", "scripts"})
 REGISTRY = "app.model_registry"
 REQUIRED_DOMAIN_FILES = (
@@ -275,17 +284,54 @@ def _top(module: str) -> str | None:
 
 
 def _unknown_packages(app_root: Path, domains: frozenset[str]) -> list[Violation]:
+    """Packages and modules directly under ``app/`` that are not on the §4.2 list."""
     known = domains | NON_DOMAIN_PACKAGES
-    return [
-        Violation(
-            child.relative_to(app_root.parent),
-            0,
-            f"app.{child.name}",
-            "a package under app/ must be a domain, core, workflows, workers or scripts",
+    found: list[Violation] = []
+    for child in sorted(app_root.iterdir()):
+        if child.name.startswith(".") or child.name == "__pycache__":
+            continue
+        if child.is_dir() and child.name not in known:
+            kind, name = "package", child.name
+        elif child.is_file() and child.suffix == ".py" and child.name not in TOP_LEVEL_FILES:
+            kind, name = "module", child.stem
+        else:
+            continue
+        found.append(
+            Violation(
+                child.relative_to(app_root.parent),
+                0,
+                f"app.{name}",
+                f"a {kind} under app/ must be a domain, core, workflows, workers, scripts, "
+                "main.py or model_registry.py",
+            )
         )
-        for child in sorted(app_root.iterdir())
-        if child.is_dir() and child.name != "__pycache__" and child.name not in known
-    ]
+    return found
+
+
+def router_modules(app_root: Path, domains: frozenset[str]) -> set[str]:
+    """Dotted names of the router modules in domains and ``workflows/`` (fixed point).
+
+    Seeds are modules importing ``fastapi.APIRouter``; a module joins when it imports a router
+    module of its own package (own domain, or ``app.workflows``), until nothing changes.
+    """
+    modules: dict[str, tuple[ast.Module, list[str]]] = {}
+    for path in sorted(app_root.rglob("*.py")):
+        name = _module_name(app_root, path)
+        owner = _top(name)
+        if owner is not None and (owner in domains or owner == "workflows"):
+            modules[name] = (_parse(path), [t for _, t in imported_modules(app_root, path)])
+    routers = {name for name, (tree, _) in modules.items() if is_router_module(tree)}
+    changed = True
+    while changed:
+        changed = False
+        for name, (_, targets) in modules.items():
+            if name in routers:
+                continue
+            own = f"app.{_top(name)}"
+            if any(t in routers and (t == own or t.startswith(own + ".")) for t in targets):
+                routers.add(name)
+                changed = True
+    return routers
 
 
 def _reasons(
@@ -330,15 +376,12 @@ def check_imports(
     closure = transitive_closure(graph)
     domains = frozenset(graph)
     violations: list[Violation] = _unknown_packages(app_root, domains)
+    routers = router_modules(app_root, domains)
     for path in sorted(app_root.rglob("*.py")):
         module = _module_name(app_root, path)
         owner = _top(module)
         shown = path.relative_to(app_root.parent)
-        router = (
-            owner is not None
-            and (owner in domains or owner == "workflows")
-            and is_router_module(_parse(path))
-        )
+        router = module in routers
         for line, target in imported_modules(app_root, path):
             reasons: list[str] = []
             if target == REGISTRY and module != REGISTRY:
@@ -870,6 +913,91 @@ def test_router_detection_covers_aliases_and_attribute_forms(tmp_path: Path) -> 
         assert [imp for _, imp in found] == ["sqlalchemy"], body
 
 
+def test_apirouter_import_under_type_checking_still_makes_a_router_module(
+    tmp_path: Path,
+) -> None:
+    body = (
+        "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from fastapi import APIRouter\n"
+        "import sqlalchemy\n"
+    )
+    assert _only(tmp_path, "decks/api.py", body) == [(4, "sqlalchemy")]
+
+
+def test_split_router_importing_the_router_py_router_is_a_router_module(
+    tmp_path: Path,
+) -> None:
+    body = (
+        "from app.decks.router import router\n"
+        "from sqlalchemy import select\n"
+        "from app.decks.repository import q\n"
+        '@router.get("/x")\n'
+        "def f(): ...\n"
+    )
+    files = {"decks/router.py": ROUTER, "decks/router_drafts.py": body}
+    assert [(v.line, v.imported) for v in _violations(tmp_path, files)] == [
+        (2, "sqlalchemy"),
+        (3, "app.decks.repository"),
+    ]
+
+
+def test_chain_of_two_split_router_files_are_both_router_modules(tmp_path: Path) -> None:
+    tail = "from sqlalchemy import select\n"
+    files = {
+        "decks/router.py": ROUTER,
+        "decks/router_a.py": "from app.decks.router import router\n" + tail,
+        "decks/router_b.py": "from app.decks import router_a\n" + tail,
+    }
+    found = _violations(tmp_path, files)
+    assert sorted((v.path.name, v.line, v.imported) for v in found) == [
+        ("router_a.py", 2, "sqlalchemy"),
+        ("router_b.py", 2, "sqlalchemy"),
+    ]
+
+
+def test_chain_is_followed_regardless_of_file_order(tmp_path: Path) -> None:
+    tail = "import sqlalchemy\n"
+    files = {
+        "decks/a.py": "from .b import r\n" + tail,
+        "decks/b.py": "from .c import r\n" + tail,
+        "decks/c.py": ROUTER + tail,
+    }
+    assert sorted(v.path.name for v in _violations(tmp_path, files)) == ["a.py", "b.py", "c.py"]
+
+
+def test_workflow_module_importing_the_workflows_router_is_a_router_module(
+    tmp_path: Path,
+) -> None:
+    files = {
+        "workflows/router.py": ROUTER,
+        "workflows/registration_routes.py": (
+            "from app.workflows.router import router\nfrom sqlalchemy import select\n"
+        ),
+    }
+    found = _violations(tmp_path, files)
+    assert [(v.path.name, v.imported) for v in found] == [("registration_routes.py", "sqlalchemy")]
+
+
+def test_service_module_importing_nothing_router_like_stays_a_non_router(
+    tmp_path: Path,
+) -> None:
+    files = {
+        "decks/router.py": ROUTER,
+        "decks/services/q.py": "from sqlalchemy import select\nfrom app.decks import models\n",
+    }
+    assert _violations(tmp_path, files) == []
+
+
+def test_importing_another_packages_router_does_not_make_a_router_module(
+    tmp_path: Path,
+) -> None:
+    files = {
+        "identity/router.py": ROUTER,
+        "decks/x.py": "import app.identity.router\nimport sqlalchemy\n",
+    }
+    found = _violations(tmp_path, files)
+    assert [v.imported for v in found] == ["app.identity.router"]
+
+
 def test_router_detection_ignores_unrelated_apirouter_names(tmp_path: Path) -> None:
     for body in (
         "from other import APIRouter\n",
@@ -897,6 +1025,33 @@ def test_unknown_package_under_app_is_flagged(tmp_path: Path) -> None:
     found = _violations(tmp_path, {"players/x.py": ""})
     assert [(v.path.as_posix(), v.imported) for v in found] == [("app/players", "app.players")]
     assert "domain" in found[0].reason
+
+
+def test_stray_top_level_module_is_flagged(tmp_path: Path) -> None:
+    found = _violations(tmp_path, {"helpers.py": ""})
+    assert [(v.path.as_posix(), v.imported) for v in found] == [("app/helpers.py", "app.helpers")]
+    assert "module" in found[0].reason
+
+
+def test_hidden_top_level_entries_are_ignored(tmp_path: Path) -> None:
+    app = _tree(tmp_path, dict(_SUBS))
+    (app / ".hidden").mkdir()
+    (app / ".hidden.py").write_text("", encoding="utf-8")
+    assert check_imports(app) == []
+
+
+def test_domain_importing_a_stray_module_or_package_fails(tmp_path: Path) -> None:
+    files = {
+        "helpers.py": "",
+        "x/__init__.py": "",
+        "decks/services/a.py": "import app.helpers\nfrom app import x\nimport app.x\n",
+    }
+    found = [v for v in _violations(tmp_path, files) if v.path.name == "a.py"]
+    assert [(v.line, v.imported) for v in found] == [
+        (1, "app.helpers"),
+        (2, "app.x"),
+        (3, "app.x"),
+    ]
 
 
 def test_known_packages_and_top_level_files_are_not_unknown(tmp_path: Path) -> None:

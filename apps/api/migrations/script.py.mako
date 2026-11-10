@@ -10,7 +10,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-import app.core.db  # noqa: F401  (autogenerate renders custom column types such as UtcDateTime)
+# Autogenerate renders custom column types such as UtcDateTime as app.core.db.UtcDateTime().
+import app.core.db
 ${imports if imports else ""}
 
 revision: str = ${repr(up_revision)}

@@ -9,7 +9,6 @@ Tests may pass ``config.attributes["target_metadata"]`` to compare against test-
 
 import asyncio
 import sys
-import warnings
 from logging.config import fileConfig
 from typing import Any
 
@@ -61,10 +60,9 @@ async def run_migrations_online() -> None:
 
 if context.is_offline_mode():
     run_migrations_offline()
+elif sys.platform == "win32":
+    # psycopg's async mode cannot run on the default Proactor loop; pick the loop per run
+    # instead of changing the process-global event loop policy.
+    asyncio.run(run_migrations_online(), loop_factory=asyncio.SelectorEventLoop)
 else:
-    if sys.platform == "win32":
-        # psycopg's async mode cannot run on the default Proactor loop.
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     asyncio.run(run_migrations_online())

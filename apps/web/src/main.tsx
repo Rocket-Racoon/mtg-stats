@@ -7,6 +7,7 @@ import { routes } from './routes';
 import './api';
 import './theme/theme.css';
 import './App.css';
+import { AppProviders } from './providers/AppProviders';
 import { startThemeSync } from './theme/store';
 
 const container = document.getElementById('root');
@@ -20,6 +21,8 @@ const router = createBrowserRouter(routes);
 
 createRoot(container).render(
   <StrictMode>
-    <RouterProvider router={router} />
+    <AppProviders>
+      <RouterProvider router={router} />
+    </AppProviders>
   </StrictMode>,
 );

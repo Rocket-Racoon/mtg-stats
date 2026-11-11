@@ -1,6 +1,7 @@
 import type { RouteObject } from 'react-router';
 import { App } from './App';
 import { AboutPage } from './pages/About';
+import { RouteErrorFallback } from './errors/RouteErrorFallback';
 import { RootLayout } from './RootLayout';
 import { PublicLayout } from './PublicLayout';
 import { HomePage } from './pages/Home';
@@ -9,9 +10,10 @@ import { PlaceholderPage } from './pages/Placeholder';
 
 /** The route table, shared by the browser router and tests (createMemoryRouter). */
 export const routes: RouteObject[] = [
-  // Pathless root above both shells: owns focus-on-navigation across layout switches. S-1.6.3's
-  // providers and root errorElement go here too.
+  // Pathless root above both shells: owns focus-on-navigation across layout switches and the root
+  // errorElement (render errors in routes). The providers wrap RouterProvider in main.tsx.
   {
+    errorElement: <RouteErrorFallback />,
     element: <RootLayout />,
     children: [
       // Public shell: no navigation, but the same footer (S-1.6.6). The real sign-in page comes

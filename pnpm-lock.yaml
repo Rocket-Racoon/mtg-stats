@@ -120,6 +120,9 @@ importers:
       '@mtg-stats/game-core':
         specifier: workspace:*
         version: link:../../packages/game-core
+      '@tanstack/react-query':
+        specifier: ^5.107.1
+        version: 5.107.1(@types/react@19.3.0)(react@19.3.1)
       react:
         specifier: ^19.3.1
         version: 19.3.1

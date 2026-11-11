@@ -219,6 +219,9 @@ jobs:
               echo "### ts job: FAILED at step \"$failed\""
             elif [ -n "$failed" ]; then
               echo "### ts job: FAILED (${how}) at step \"$failed\""
+            elif [ "$JOB_STATUS" = "cancelled" ]; then
+              # For example a newer push cancelled this run while it was still setting up.
+              echo "### ts job: cancelled before \"Install Python dependencies\""
             elif [ "$JOB_STATUS" != "success" ]; then
               # Nothing tracked failed, yet the job did: a setup action (checkout, pnpm, Node, uv) did.
               echo "### ts job: FAILED before \"Install Python dependencies\" (a setup step)"

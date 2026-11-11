@@ -682,6 +682,21 @@ describe('S-1.8.3 AC2: failed step named in the summary', () => {
       expect(r.md).toContain('FAILED before "Install Python dependencies" (a setup step)');
       for (const s of tracked) expect(r.row(s.name), s.name).toContain('not run');
     });
+
+    it.skipIf(!bash)('says the run was cancelled, not failed, when cancelled during setup', () => {
+      const r = exec(
+        {
+          'Install Python dependencies': 'skipped',
+          'Install TypeScript dependencies': 'skipped',
+          'Verify (TypeScript half)': 'skipped',
+          'Web production build': 'skipped',
+        },
+        'cancelled',
+      );
+      expect(r.code).toBe(0);
+      expect(r.md).toContain('### ts job: cancelled before "Install Python dependencies"');
+      expect(r.md).not.toContain('FAILED');
+    });
   });
 });
 

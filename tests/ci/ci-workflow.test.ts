@@ -199,7 +199,7 @@ describe('AC2: coverage threshold and summary', () => {
 
   it('has a coverage summary step that writes to the job summary', () => {
     expect(summaryIdx).toBeGreaterThanOrEqual(0);
-    expect(steps[summaryIdx]?.run).toMatch(/>>\s*"?\$GITHUB_STEP_SUMMARY"?/);
+    expect(steps[summaryIdx]?.run).toMatch(/(>>|tee -a)\s*"?\$GITHUB_STEP_SUMMARY"?/);
   });
 
   it('runs the summary even when an earlier step failed, after verify', () => {

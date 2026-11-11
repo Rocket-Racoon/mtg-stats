@@ -492,3 +492,103 @@ describe('argument handling', () => {
     expect(r.err).toContain('--only');
   });
 });
+
+describe('S-1.8.2: GITHUB_STEP_SUMMARY job summary', () => {
+  let summary: string;
+  beforeEach(() => {
+    summary = join(dir, 'summary.md');
+  });
+
+  const rows = (md: string) => md.split(/\r?\n/).filter((l) => /^\| \d+ \|/.test(l));
+  const cells = (row: string) =>
+    row
+      .split('|')
+      .slice(1, -1)
+      .map((c) => c.trim());
+
+  it('writes a passed row per step for --only api', () => {
+    const r = run(['--only', 'api', '--step-cmds', overrides(ALL_STEPS)], {
+      GITHUB_STEP_SUMMARY: summary,
+    });
+    expect(r.code).toBe(0);
+    const md = readFileSync(summary, 'utf8');
+    expect(md).toContain('### verify (api): all steps passed');
+    expect(md).toContain('| # | Step | Result | Time |');
+    const table = rows(md).map(cells);
+    expect(table.map((c) => c[1])).toEqual(API_STEPS);
+    expect(table.map((c) => c[0])).toEqual(['1', '2', '3', '4', '5', '6']);
+    for (const c of table) {
+      expect(c[2]).toBe('passed');
+      expect(c[3]).not.toBe('');
+    }
+  });
+
+  it('titles the block just "verify" and lists all twelve steps without --only', () => {
+    const r = run(['--step-cmds', overrides(ALL_STEPS)], { GITHUB_STEP_SUMMARY: summary });
+    expect(r.code).toBe(0);
+    const md = readFileSync(summary, 'utf8');
+    expect(md).toContain('### verify: all steps passed');
+    expect(md).not.toContain('verify (');
+    const table = rows(md).map(cells);
+    expect(table.map((c) => c[1])).toEqual(ALL_STEPS);
+    expect(table.every((c) => c[2] === 'passed')).toBe(true);
+  });
+
+  it('marks the failing step failed, earlier steps passed and later steps not run', () => {
+    const r = run(['--only', 'api', '--step-cmds', overrides(ALL_STEPS, { 'mypy --strict': 1 })], {
+      GITHUB_STEP_SUMMARY: summary,
+    });
+    expect(r.code).toBe(1);
+    const md = readFileSync(summary, 'utf8');
+    expect(md).toContain('### verify (api): FAILED at step "mypy --strict"');
+    expect(md).not.toContain('all steps passed');
+    const table = rows(md).map(cells);
+    expect(table.map((c) => c[2])).toEqual([
+      'passed',
+      'passed',
+      'passed',
+      '**failed**',
+      'not run',
+      'not run',
+    ]);
+    expect(table[3]?.[3]).not.toBe('');
+    expect(table[4]?.[3]).toBe('');
+    expect(table[5]?.[3]).toBe('');
+  });
+
+  it('appends one block per run and keeps the existing content', () => {
+    writeFileSync(summary, 'earlier step output\n');
+    const args = ['--only', 'api', '--step-cmds', overrides(ALL_STEPS)];
+    run(args, { GITHUB_STEP_SUMMARY: summary });
+    run(args, { GITHUB_STEP_SUMMARY: summary });
+    const md = readFileSync(summary, 'utf8');
+    expect(md.startsWith('earlier step output\n')).toBe(true);
+    expect(md.match(/### verify \(api\): all steps passed/g)).toHaveLength(2);
+  });
+
+  it('writes nothing when GITHUB_STEP_SUMMARY is unset', () => {
+    writeFileSync(summary, 'untouched');
+    const r = run(['--only', 'api', '--step-cmds', overrides(ALL_STEPS)], {
+      GITHUB_STEP_SUMMARY: '',
+    });
+    expect(r.code).toBe(0);
+    expect(readFileSync(summary, 'utf8')).toBe('untouched');
+    expect(readdirSync(dir).sort()).toEqual(['marker.txt', 'summary.md']);
+    expect(r.err).not.toContain('job summary');
+  });
+
+  it('warns on stderr for an unwritable path and still exits with the step code', () => {
+    const ok = run(['--only', 'api', '--step-cmds', overrides(ALL_STEPS)], {
+      GITHUB_STEP_SUMMARY: dir,
+    });
+    expect(ok.code).toBe(0);
+    expect(ok.err).toContain('could not write the job summary');
+
+    const bad = run(['--only', 'api', '--step-cmds', overrides(ALL_STEPS, { pytest: 3 })], {
+      GITHUB_STEP_SUMMARY: dir,
+    });
+    expect(bad.code).toBe(3);
+    expect(bad.err).toContain('could not write the job summary');
+    expect(bad.err).toContain('FAILED at step "pytest"');
+  });
+});

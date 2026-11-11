@@ -1,8 +1,8 @@
 /**
  * S-1.8.2 / S-1.8.3 repo-side guards for .github/workflows/ci.yml. No YAML library is available at
  * the root, so the workflow is read with a small indentation-aware splitter: top-level keys, a
- * named job's keys and its steps (an absent job reads as empty, so tests fail closed). Assertions are about behavior (what runs, in which order, with
- * which images), not exact formatting.
+ * named job's keys and its steps (an absent job reads as empty, so tests fail closed). Assertions
+ * are about behavior (what runs, in which order, with which images), not exact formatting.
  */
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -567,9 +567,20 @@ describe('S-1.8.3 AC2: failed step named in the summary', () => {
       rmSync(dir, { recursive: true, force: true });
     });
 
-    /** outcomes: step name -> outcome; unlisted tracked steps are "success". */
-    function exec(outcomes: Record<string, string>) {
-      const env: Record<string, string> = {};
+    /**
+     * outcomes: step name -> outcome; unlisted tracked steps are "success". jobStatus defaults to
+     * what the runner would report: the worst tracked outcome (failure, cancelled) or success.
+     */
+    function exec(outcomes: Record<string, string>, jobStatus?: string) {
+      const values = Object.values(outcomes);
+      const status =
+        jobStatus ??
+        (values.includes('failure')
+          ? 'failure'
+          : values.includes('cancelled')
+            ? 'cancelled'
+            : 'success');
+      const env: Record<string, string> = { JOB_STATUS: status };
       for (const [name, id] of envMap) {
         const step = tracked.find((s) => s.id === id);
         env[name] = outcomes[step?.name ?? ''] ?? 'success';
@@ -591,7 +602,7 @@ describe('S-1.8.3 AC2: failed step named in the summary', () => {
     });
 
     it.skipIf(!bash)('shows no FAILED heading and every row "passed" when all succeed', () => {
-      const r = exec({});
+      const r = exec({}, 'success');
       expect(r.code).toBe(0);
       expect(r.md).not.toMatch(/FAILED/);
       for (const s of tracked) expect(r.row(s.name), s.name).toContain('passed');
@@ -645,6 +656,63 @@ describe('S-1.8.3 AC2: failed step named in the summary', () => {
       expect(r.md).toContain('FAILED at step "Verify (TypeScript half)"');
       expect(r.md).not.toContain('FAILED at step "Web production build"');
     });
+
+    it.skipIf(!bash)('names a timed-out (cancelled) verify step and shows its row', () => {
+      const r = exec(
+        { 'Verify (TypeScript half)': 'cancelled', 'Web production build': 'skipped' },
+        'cancelled',
+      );
+      expect(r.code).toBe(0);
+      expect(r.md).toContain('FAILED (cancelled) at step "Verify (TypeScript half)"');
+      expect(r.row('Verify (TypeScript half)')).toContain('**cancelled** (timed out or cancelled)');
+      expect(r.row('Web production build')).toContain('not run');
+    });
+
+    it.skipIf(!bash)('says a setup step failed when every tracked step was skipped', () => {
+      const r = exec(
+        {
+          'Install Python dependencies': 'skipped',
+          'Install TypeScript dependencies': 'skipped',
+          'Verify (TypeScript half)': 'skipped',
+          'Web production build': 'skipped',
+        },
+        'failure',
+      );
+      expect(r.code).toBe(0);
+      expect(r.md).toContain('FAILED before "Install Python dependencies" (a setup step)');
+      for (const s of tracked) expect(r.row(s.name), s.name).toContain('not run');
+    });
+  });
+});
+
+describe('S-1.8.3 AC2: guards so no check can escape the summary', () => {
+  const beforeSummary = tsSteps.slice(
+    0,
+    tsSteps.findIndex((s) => s.name === 'Job summary'),
+  );
+  const summaryStep = tsSteps.find((s) => s.name === 'Job summary');
+
+  it('gives every run step before the summary an id that the summary receives via env', () => {
+    const runSteps = beforeSummary.filter((s) => s.run !== '');
+    expect(runSteps.length).toBeGreaterThanOrEqual(4);
+    for (const s of runSteps) {
+      expect(s.id, `step "${s.name}" needs an id`).not.toBe('');
+      expect(summaryStep?.env, s.name).toMatch(
+        new RegExp(String.raw`^\s*\w+:\s*\$\{\{\s*steps\.${s.id}\.outcome\s*\}\}\s*$`, 'm'),
+      );
+    }
+  });
+
+  it('passes the job status to the summary through env', () => {
+    expect(summaryStep?.env).toMatch(/^\s*JOB_STATUS:\s*\$\{\{\s*job\.status\s*\}\}\s*$/m);
+  });
+
+  it.each([
+    ['api', apiJob],
+    ['ts', tsJob],
+  ])('does not use continue-on-error in the %s job', (_job, job) => {
+    expect(job).not.toBe('');
+    expect(job).not.toMatch(/continue-on-error:\s*(true|\$\{\{)/);
   });
 });
 

@@ -12,4 +12,5 @@ allowBuilds:
 # but 120 elsewhere; at 120, reanimated's folder name includes "react-native-worklets" (its peer),
 # and the worklets Jest resolver (basedir.includes("react-native-worklets")) then strips the
 # `.native` extensions from all of reanimated, so jest-expo loads web-only files on Linux CI.
+# Linux CI Jest is the regression guard. Revisit if the worklets resolver stops matching on basedir.
 virtualStoreDirMaxLength: 60

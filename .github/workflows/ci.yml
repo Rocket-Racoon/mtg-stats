@@ -1,7 +1,7 @@
 # CI (F-1.8). Runs on every pull request and every push to main.
 # The checks themselves come from scripts/verify.js (S-1.8.1), so CI and `pnpm verify` run the
-# same commands; this file adds only what is CI-specific (services, caches, the Alembic round-trip,
-# the coverage summary and artifact).
+# same commands; this file adds only what is CI-specific: services, caches, the Alembic round-trip,
+# the coverage summary and artifact (api), and the web production build and job summary (ts).
 # GitHub Free can't enforce branch protection on a private repo (decision I1): green CI before
 # merge is a convention.
 name: CI
@@ -188,7 +188,8 @@ jobs:
       - name: Job summary
         if: ${{ always() }}
         env:
-          UV: ${{ steps.uv.outcome }}
+          JOB_STATUS: ${{ job.status }}
+          PY_INSTALL: ${{ steps.uv.outcome }}
           INSTALL: ${{ steps.install.outcome }}
           VERIFY: ${{ steps.verify.outcome }}
           BUILD: ${{ steps.build.outcome }}
@@ -197,22 +198,37 @@ jobs:
             case "$2" in
               success) result="passed" ;;
               failure) result="**failed**" ;;
+              cancelled) result="**cancelled** (timed out or cancelled)" ;;
               skipped|"") result="not run" ;;
               *) result="$2" ;;
             esac
             echo "| $1 | $result |"
           }
+          # The first tracked step that neither passed nor was skipped is the one that stopped the job.
           failed=""
-          for pair in "Install Python dependencies:$UV" "Install TypeScript dependencies:$INSTALL" \
+          how=""
+          for pair in "Install Python dependencies:$PY_INSTALL" "Install TypeScript dependencies:$INSTALL" \
                       "Verify (TypeScript half):$VERIFY" "Web production build:$BUILD"; do
-            if [ "${pair##*:}" = "failure" ] && [ -z "$failed" ]; then failed="${pair%:*}"; fi
+            outcome="${pair##*:}"
+            case "$outcome" in success|skipped|"") ;; *)
+              if [ -z "$failed" ]; then failed="${pair%:*}"; how="$outcome"; fi ;;
+            esac
           done
           {
-            if [ -n "$failed" ]; then echo "### ts job: FAILED at step \"$failed\""; else echo "### ts job"; fi
+            if [ -n "$failed" ] && [ "$how" = "failure" ]; then
+              echo "### ts job: FAILED at step \"$failed\""
+            elif [ -n "$failed" ]; then
+              echo "### ts job: FAILED (${how}) at step \"$failed\""
+            elif [ "$JOB_STATUS" != "success" ]; then
+              # Nothing tracked failed, yet the job did: a setup action (checkout, pnpm, Node, uv) did.
+              echo "### ts job: FAILED before \"Install Python dependencies\" (a setup step)"
+            else
+              echo "### ts job"
+            fi
             echo ""
             echo "| Step | Result |"
             echo "|---|---|"
-            row "Install Python dependencies" "$UV"
+            row "Install Python dependencies" "$PY_INSTALL"
             row "Install TypeScript dependencies" "$INSTALL"
             row "Verify (TypeScript half)" "$VERIFY"
             row "Web production build" "$BUILD"

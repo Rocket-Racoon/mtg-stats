@@ -42,7 +42,7 @@ Each worktree needs `pnpm install` before you commit TS, JSON, YAML or Markdown 
 
 ## Verify
 
-`pnpm verify` is the local gate; CI runs the same commands. It runs twelve steps in order and stops at the first failure, printing `verify: FAILED at step "<name>"` and exiting non-zero:
+`pnpm verify` is the local gate; CI runs the same commands, plus the web production build (locally: `VITE_API_BASE_URL=http://localhost:8000/api/v1 pnpm --filter @mtg-stats/web build`). It runs twelve steps in order and stops at the first failure, printing `verify: FAILED at step "<name>"` and exiting non-zero:
 
 1. secrets check, 2. `ruff check`, 3. `ruff format --check`, 4. `mypy --strict`, 5. `pytest --cov=app --cov-fail-under=85`, 6. `alembic check`, 7. client drift check, 8. `eslint`, 9. `prettier --check`, 10. `tsc --noEmit`, 11. Vitest, 12. Jest.
 

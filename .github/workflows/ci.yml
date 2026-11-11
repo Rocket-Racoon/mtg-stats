@@ -15,14 +15,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   api:
     name: api
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 10
     services:
       # Same images as infra/docker-compose.yml.
       postgres:
@@ -34,7 +34,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U mtg_stats -d mtg_stats"
+          --health-cmd "pg_isready -h 127.0.0.1 -U mtg_stats -d mtg_stats"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -68,6 +68,9 @@ jobs:
 
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
+          # Pinned so CI can't change behaviour without a commit; keep it in step with the uv
+          # version used to write apps/api/uv.lock.
+          version: 0.10.12
           enable-cache: true
           cache-dependency-glob: apps/api/uv.lock
 
@@ -99,23 +102,31 @@ jobs:
           uv run alembic check
 
       - name: Coverage summary
-        if: ${{ !cancelled() }}
+        # always(): also after a failure or a job timeout, so the figure is on the run page.
+        if: ${{ always() }}
         run: |
           if [ ! -f .coverage ]; then
-            echo "### Coverage: not measured (pytest did not run)" >> "$GITHUB_STEP_SUMMARY"
+            echo "### Coverage: not measured (pytest did not complete)" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          total=$(uv run coverage report --format=total --precision=2)
+          # Shown to 2 decimals; the verdict uses coverage's default precision (0), which is
+          # what `--cov-fail-under` compares, so the summary never disagrees with the gate.
+          shown=$(uv run --frozen coverage report --format=total --precision=2) || shown=""
+          gate=$(uv run --frozen coverage report --format=total) || gate=""
+          if [ -z "$shown" ] || [ -z "$gate" ]; then
+            echo "### Coverage: could not be read from the coverage data" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           # Keep the minimum in step with `--cov-fail-under` in scripts/verify.js.
-          if awk -v t="$total" 'BEGIN { exit !(t >= 85) }'; then verdict="passed"; else verdict="**below the minimum**"; fi
+          if awk -v t="$gate" 'BEGIN { exit !(t >= 85) }'; then verdict="passed"; else verdict="**below the minimum**"; fi
           {
-            echo "### Coverage: ${total}% (minimum 85%, ${verdict})"
+            echo "### Coverage: ${shown}% (minimum 85%, ${verdict})"
             echo ""
             echo "The full report is the \`coverage-report\` artifact of this run (kept 7 days)."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the coverage report
-        if: ${{ !cancelled() }}
+        if: ${{ always() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-report

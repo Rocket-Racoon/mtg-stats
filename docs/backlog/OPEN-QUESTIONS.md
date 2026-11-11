@@ -140,6 +140,7 @@ Status: `open` · `answered` (with the decision recorded). Answers are also copi
 | Type-only and test-runner packages | **Approved** (2026-11-08): `@types/react` and `@types/react-dom` (web, S-1.6.1), `@types/jest` (mobile), and `jest` itself as the required peer of the approved jest-expo (S-1.7.1). None ships in the app at runtime. |
 | S-1.7.1 platforms | **Android is required** for the device check, and iOS (Expo Go) is optional; it is checked when an iPhone is at hand and otherwise recorded as unverified. This follows the iPhone decision above (comment on #40). |
 | Tap targets (S-1.6.5 AC3) | **User decision (2026-11-10, S-1.6.6):** links inside a sentence of text are exempt from the 44 × 44 px rule below 768 px, per WCAG 2.5.8's "Inline" exception. Standalone links (such as the footer's About link) and every button keep 44 × 44. The web tests list the exempt selectors (`.attribution p a`) explicitly. |
+| CI actions (S-1.8.2, S-1.8.3) | **Approved by the user (2026-11-11):** GitHub's own `actions/*` plus **`astral-sh/setup-uv`** and **`pnpm/action-setup`**, used only in `.github/workflows/`. Each is pinned to a full commit SHA with a `# vX.Y.Z` comment, and none ships in the app. The uv version in `setup-uv` stays in step with the local uv that writes `apps/api/uv.lock`; pnpm comes from `packageManager`. A new third-party action still needs approval. |
 
 ## A. Dependencies needing approval (CLAUDE.md: ask before adding)
 

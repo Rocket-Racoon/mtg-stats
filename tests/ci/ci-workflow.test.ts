@@ -261,7 +261,7 @@ describe('AC2: the coverage summary script, executed', () => {
   function exec(opts: { data: boolean; shown?: string; gate?: string; fail?: boolean }) {
     if (opts.data) writeFileSync(join(dir, '.coverage'), '');
     const sep = process.platform === 'win32' ? ';' : ':';
-    const r = spawnSync(bash as string, ['-c', script], {
+    const r = spawnSync(bash as string, ['-e', '-c', script], {
       cwd: dir,
       encoding: 'utf8',
       env: {
@@ -290,6 +290,7 @@ describe('AC2: the coverage summary script, executed', () => {
 
   it.skipIf(!bash)('judges 84.60 by the gate rounding (85) and reports passed', () => {
     const r = exec({ data: true, shown: '84.60', gate: '85' });
+    expect(r.code).toBe(0);
     expect(r.md).toContain('84.60% (minimum 85%, passed)');
   });
 

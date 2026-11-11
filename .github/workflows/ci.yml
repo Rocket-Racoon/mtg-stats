@@ -106,7 +106,7 @@ jobs:
         if: ${{ always() }}
         run: |
           if [ ! -f .coverage ]; then
-            echo "### Coverage: not measured (pytest did not complete)" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "### Coverage: not measured (pytest did not run or complete)" | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           # Shown to 2 decimals; the verdict uses coverage's default precision (0), which is

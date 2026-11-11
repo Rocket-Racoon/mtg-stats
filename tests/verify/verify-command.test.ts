@@ -51,6 +51,9 @@ afterEach(() => {
  * `NPM_EXECPATH`: spreading both would leave two spellings and the child could see the wrong one.
  */
 function childEnv(overrides: Record<string, string>): Record<string, string> {
+  // GITHUB_STEP_SUMMARY is never inherited: inside a CI step these tests would otherwise append
+  // fake "FAILED" blocks to the real job summary. A test that wants it passes it explicitly.
+  overrides = { GITHUB_STEP_SUMMARY: '', ...overrides };
   const drop = new Set(Object.keys(overrides).map((k) => k.toLowerCase()));
   const base: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
@@ -505,6 +508,21 @@ describe('S-1.8.2: GITHUB_STEP_SUMMARY job summary', () => {
       .split('|')
       .slice(1, -1)
       .map((c) => c.trim());
+
+  it('does not write to a GITHUB_STEP_SUMMARY inherited from the parent environment', () => {
+    const real = join(dir, 'real-job-summary.md');
+    writeFileSync(real, 'real content');
+    const before = process.env['GITHUB_STEP_SUMMARY'];
+    process.env['GITHUB_STEP_SUMMARY'] = real;
+    try {
+      const r = run(['--only', 'api', '--step-cmds', overrides(ALL_STEPS, { pytest: 1 })]);
+      expect(r.code).toBe(1);
+    } finally {
+      if (before === undefined) delete process.env['GITHUB_STEP_SUMMARY'];
+      else process.env['GITHUB_STEP_SUMMARY'] = before;
+    }
+    expect(readFileSync(real, 'utf8')).toBe('real content');
+  });
 
   it('writes a passed row per step for --only api', () => {
     const r = run(['--only', 'api', '--step-cmds', overrides(ALL_STEPS)], {

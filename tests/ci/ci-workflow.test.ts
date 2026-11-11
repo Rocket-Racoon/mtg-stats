@@ -5,9 +5,10 @@
  * which images), not exact formatting.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const root = join(import.meta.dirname, '..', '..');
 const read = (p: string) => readFileSync(join(root, p), 'utf8').replace(/\r\n/g, '\n');
@@ -121,6 +122,13 @@ describe('the api job', () => {
     expect(image(services, 'redis', 6)).toBe(image(compose, 'redis', 2));
   });
 
+  it('sets APP_ENV, DATABASE_URL (database mtg_stats) and REDIS_URL for the job', () => {
+    const env = jobBlock('env');
+    expect(env).toMatch(/^ {6}APP_ENV:\s*\S+/m);
+    expect(env).toMatch(/^ {6}DATABASE_URL:\s*postgresql\+psycopg:\/\/\S+\/mtg_stats\s*$/m);
+    expect(env).toMatch(/^ {6}REDIS_URL:\s*redis:\/\/\S+/m);
+  });
+
   it('gives both services a health check so steps wait for them', () => {
     const services = jobBlock('services');
     expect(block(services, 'postgres', 6).join('\n')).toContain('--health-cmd');
@@ -212,6 +220,93 @@ describe('AC2: coverage threshold and summary', () => {
     const code = workflow.replace(/^\s*#.*$/gm, '').replace(/\s#\s.*$/gm, '');
     expect(code).not.toMatch(/--cov-fail-under/);
     expect(code).not.toMatch(/--no-cov\b/);
+    expect(code).not.toMatch(/-p\s*=?\s*no:(pytest_)?cov\b/);
+  });
+});
+
+describe('AC2: the coverage summary script, executed', () => {
+  const gitBash = ['C:/Program Files/Git/bin/bash.exe', 'C:/Program Files/Git/usr/bin/bash.exe'];
+  const bash =
+    process.platform === 'win32'
+      ? gitBash.find((p) => existsSync(p))
+      : spawnSync('bash', ['-c', 'exit 0']).status === 0
+        ? 'bash'
+        : undefined;
+  const script = steps.find((s) => s.name === 'Coverage summary')?.run ?? '';
+
+  let dir: string;
+  let summary: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'cov-summary-'));
+    summary = join(dir, 'summary.md');
+    writeFileSync(summary, '');
+    // Stub `uv run [--frozen] coverage report --format=total [--precision=2]`.
+    const stub = [
+      '#!/bin/sh',
+      '[ "$STUB_UV_FAIL" = 1 ] && exit 1',
+      'case "$*" in',
+      '  *--precision=2*) echo "$STUB_SHOWN" ;;',
+      '  *--format=total*) echo "$STUB_GATE" ;;',
+      '  *) exit 2 ;;',
+      'esac',
+      '',
+    ].join('\n');
+    writeFileSync(join(dir, 'uv'), stub, { mode: 0o755 });
+    chmodSync(join(dir, 'uv'), 0o755);
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function exec(opts: { data: boolean; shown?: string; gate?: string; fail?: boolean }) {
+    if (opts.data) writeFileSync(join(dir, '.coverage'), '');
+    const sep = process.platform === 'win32' ? ';' : ':';
+    const r = spawnSync(bash as string, ['-c', script], {
+      cwd: dir,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${dir}${sep}${process.env['PATH'] ?? ''}`,
+        GITHUB_STEP_SUMMARY: summary,
+        STUB_SHOWN: opts.shown ?? '',
+        STUB_GATE: opts.gate ?? '',
+        STUB_UV_FAIL: opts.fail ? '1' : '0',
+      },
+    });
+    return { code: r.status, md: readFileSync(summary, 'utf8'), err: r.stderr };
+  }
+
+  it.skipIf(!bash)('says coverage was not measured when there is no .coverage file', () => {
+    const r = exec({ data: false });
+    expect(r.code).toBe(0);
+    expect(r.md).toContain('not measured');
+  });
+
+  it.skipIf(!bash)('shows 94.50% as passed against the 85% minimum', () => {
+    const r = exec({ data: true, shown: '94.50', gate: '95' });
+    expect(r.code).toBe(0);
+    expect(r.md).toContain('94.50% (minimum 85%, passed)');
+  });
+
+  it.skipIf(!bash)('judges 84.60 by the gate rounding (85) and reports passed', () => {
+    const r = exec({ data: true, shown: '84.60', gate: '85' });
+    expect(r.md).toContain('84.60% (minimum 85%, passed)');
+  });
+
+  it.skipIf(!bash)('flags 80.12% as below the minimum', () => {
+    const r = exec({ data: true, shown: '80.12', gate: '80' });
+    expect(r.code).toBe(0);
+    expect(r.md).toContain('80.12% (minimum 85%, **below the minimum**)');
+  });
+
+  it.skipIf(!bash)('reports "could not be read" and exits 0 when coverage fails', () => {
+    const r = exec({ data: true, fail: true });
+    expect(r.code).toBe(0);
+    expect(r.md).toContain('could not be read');
+  });
+
+  it('found the Coverage summary step script to execute', () => {
+    expect(script).toContain('GITHUB_STEP_SUMMARY');
   });
 });
 

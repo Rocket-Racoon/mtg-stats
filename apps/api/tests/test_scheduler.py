@@ -8,7 +8,10 @@ import asyncio
 import json
 import logging
 import random
+import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -30,7 +33,7 @@ from app.workers.schedule import (
     scheduler_disabled_reason,
 )
 from app.workers.settings import WorkerSettings
-from tests.jobs import JobQueue, run_job_in_process
+from tests.jobs import JobQueue, make_drain_worker, run_job_in_process
 
 HEARTBEAT = "system.heartbeat"
 
@@ -191,16 +194,11 @@ async def _scheduler_tick(worker: Worker, now: datetime) -> None:
 
 
 async def _drain(queue: JobQueue) -> int:
-    """Run a burst worker (with the cron jobs registered, so their options apply) until empty."""
-    worker = create_worker(
-        WorkerSettings,
-        functions=build_functions(),
-        cron_jobs=build_cron_jobs(_settings()),
-        queue_name=queue.name,
-        burst=True,
-        poll_delay=0.05,
-        handle_signals=False,
-    )
+    """Run a burst worker (cron jobs registered, so their options apply) until the queue is empty.
+
+    The worker never schedules occurrences from the wall clock (see ``DrainWorker``).
+    """
+    worker = make_drain_worker(queue.name, _settings())
     try:
         await asyncio.wait_for(worker.async_run(), 20)
     finally:
@@ -233,6 +231,56 @@ async def test_two_workers_scheduling_the_same_occurrence_run_it_once(
     assert await pool.zcard(job_queue.name) == 1
     assert await _drain(job_queue) == 1
     assert await pool.exists(f"arq:result:{job_id}") == 1
+
+
+async def test_drain_on_a_heartbeat_boundary_runs_only_the_queued_occurrence(
+    job_queue: JobQueue, occurrence: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: a drain straddling :00/:05 used to run an extra, genuine heartbeat.
+
+    arq's ``heart_beat`` schedules from ``datetime.now`` in ``arq.worker``; pin that clock one
+    second before a (past) boundary so the old drain would enqueue and run a second occurrence.
+    """
+    now, job_id, pool = occurrence
+    await _scheduler_tick(_worker(job_queue, pool), now)
+
+    boundary = datetime(2019, 6, 1, 12, 5, tzinfo=UTC)
+    extra_id = f"{HEARTBEAT}:{to_unix_ms(boundary + timedelta(microseconds=123456))}"
+
+    class _FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz: Any = None) -> "_FrozenDatetime":
+            return cls.fromtimestamp((boundary - timedelta(seconds=1)).timestamp(), tz)
+
+    monkeypatch.setattr("arq.worker.datetime", _FrozenDatetime)
+    try:
+        assert await _drain(job_queue) == 1
+        assert await pool.exists(f"arq:result:{job_id}") == 1
+        assert await pool.exists(f"arq:result:{extra_id}") == 0
+    finally:
+        await pool.delete(*[f"arq:{k}:{extra_id}" for k in ("job", "result", "in-progress")])
+
+
+async def test_drain_worker_never_schedules_cron_occurrences() -> None:
+    worker = make_drain_worker("arq:queue:unused", _settings())
+    assert worker.cron_jobs  # registered, so their options apply to queued occurrences
+    await worker.run_cron(datetime(2019, 6, 1, 12, 4, 59, tzinfo=UTC), 0.5)
+    assert all(job.next_run is None for job in worker.cron_jobs)
+
+
+def test_importing_the_test_job_helpers_does_not_load_settings() -> None:
+    # The root conftest imports tests.jobs before it points DATABASE_URL at the test database;
+    # ``app.workers.settings`` reads settings on import, so it must not load at that point.
+    probe = "import sys, tests.jobs; print('app.workers.settings' in sys.modules)"
+    result = subprocess.run(  # noqa: S603  (fixed argv, no untrusted input)
+        [sys.executable, "-c", probe],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "False"
 
 
 async def test_a_lagging_worker_cannot_rerun_an_occurrence_that_already_finished(

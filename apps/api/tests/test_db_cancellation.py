@@ -81,7 +81,7 @@ async def test_task_cancel_during_commit_completes_commit_and_callbacks(
 ) -> None:
     committing, calls = asyncio.Event(), []
     task = asyncio.create_task(_handler(slow_table, committing, calls))
-    await committing.wait()
+    await asyncio.wait_for(committing.wait(), 10)  # fail fast if the handler errors
     await asyncio.sleep(0.2)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -101,7 +101,7 @@ async def test_anyio_cancel_scope_during_commit_completes_commit_and_callbacks(
             await _handler(slow_table, committing, calls)
 
     task = asyncio.create_task(scoped())
-    await committing.wait()
+    await asyncio.wait_for(committing.wait(), 10)  # fail fast if the handler errors
     await asyncio.sleep(0.2)
     scopes[0].cancel()
     await task  # the scope absorbs the cancellation; no IllegalStateChangeError escapes
@@ -115,7 +115,7 @@ async def test_commit_failure_after_cancel_is_logged_and_nothing_runs(
     committing, calls = asyncio.Event(), []
     with caplog.at_level(logging.ERROR, logger="app.core.db"):
         task = asyncio.create_task(_handler(failing_table, committing, calls))
-        await committing.wait()
+        await asyncio.wait_for(committing.wait(), 10)  # fail fast if the handler errors
         await asyncio.sleep(0.2)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):

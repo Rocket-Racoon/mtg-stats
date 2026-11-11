@@ -7,3 +7,9 @@ packages:
 # binaries as optional packages; its install-time build is only a fallback, so it stays off.
 allowBuilds:
   '@parcel/watcher': false
+
+# Same node_modules/.pnpm folder names on every OS. pnpm's default is 60 characters on Windows
+# but 120 elsewhere; at 120, reanimated's folder name includes "react-native-worklets" (its peer),
+# and the worklets Jest resolver (basedir.includes("react-native-worklets")) then strips the
+# `.native` extensions from all of reanimated, so jest-expo loads web-only files on Linux CI.
+virtualStoreDirMaxLength: 60

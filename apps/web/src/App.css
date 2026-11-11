@@ -251,6 +251,12 @@ button:focus-visible {
   z-index: 100;
 }
 
+.toast-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 .toast {
   display: flex;
   align-items: center;

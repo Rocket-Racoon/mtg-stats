@@ -9,14 +9,14 @@ import {
   useQueryClient,
 } from '@mtg-stats/api-client';
 import { createMemoryRouter, type RouteObject } from 'react-router';
-import { RouterProvider } from 'react-router/dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ErrorBoundary } from '../errors/ErrorBoundary';
-import { GENERIC_ERROR_MESSAGE } from '../errors/message';
+import { GENERIC_ERROR_MESSAGE, NETWORK_ERROR_MESSAGE } from '../errors/message';
 import { routes } from '../routes';
 import { useSessionStore } from '../session/store';
 import { useToastStore } from '../ui/toasts';
 import { AppProviders } from './AppProviders';
+import { AppRoot } from './AppRoot';
 
 // React and react-router log caught render errors; hide only those, let anything else through.
 function silenceExpectedErrorLogs(): void {
@@ -53,9 +53,7 @@ function renderRoot(table: RouteObject[], path: string) {
   const router = createMemoryRouter(table, { initialEntries: [path] });
   render(
     <StrictMode>
-      <AppProviders>
-        <RouterProvider router={router} />
-      </AppProviders>
+      <AppRoot router={router} />
     </StrictMode>,
   );
   return router;
@@ -194,9 +192,8 @@ describe('render errors through the real route table (AC2)', () => {
 
   it('exposes the fallback as an alert that contains a button named Reload', () => {
     renderRoot(withBoomRoute(<Boom error={new Error('boom-test')} />), '/boom');
-    expect(screen.getByRole('alert')).toContainElement(
-      screen.getByRole('button', { name: 'Reload' }),
-    );
+    // The toaster's (empty) alert region is also on the page, so find the fallback by its button.
+    expect(screen.getByRole('button', { name: 'Reload' }).closest('[role="alert"]')).not.toBeNull();
   });
 
   it('shows the fallback only for the failing route', async () => {
@@ -292,7 +289,11 @@ describe('failed mutations through the real api client (AC3)', () => {
       </AppProviders>,
     );
     await userEvent.click(screen.getByRole('button', { name: 'Submit' }));
-    return screen.findByRole('alert');
+    // The alert region is always present, so wait for the toast itself.
+    await waitFor(() => {
+      expect(useToastStore.getState().toasts).toHaveLength(1);
+    });
+    return screen.getByRole('alert');
   }
 
   const envelope = {
@@ -370,8 +371,8 @@ describe('failed mutations through the real api client (AC3)', () => {
   it('shows a plain sentence for a network failure', async () => {
     const post = postWith(() => Promise.reject(new TypeError('Failed to fetch')));
     const alert = await submitAndGetAlert(() => post('/api/v1/decks'));
-    expect(alert.textContent?.trim()).not.toBe('');
-    expect(alert.textContent).not.toMatch(/[{}]|"code"|network_error/);
+    expect(alert).toHaveTextContent(NETWORK_ERROR_MESSAGE);
+    expect(alert.textContent).not.toMatch(/[{}]|"code"|network_error|Failed to fetch/);
   });
 
   it('shows no toast with errorToast false, and the screen shows the message inline', async () => {
@@ -385,7 +386,7 @@ describe('failed mutations through the real api client (AC3)', () => {
     expect(await screen.findByRole('note')).toHaveTextContent(
       'Inline: You already have a deck with that name.',
     );
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).toBeEmptyDOMElement();
     expect(useToastStore.getState().toasts).toHaveLength(0);
   });
 
@@ -407,10 +408,9 @@ describe('failed mutations through the real api client (AC3)', () => {
         name: 'Dismiss notification: You already have a deck with that name.',
       }),
     );
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).toBeEmptyDOMElement();
     await userEvent.click(screen.getByRole('button', { name: 'Submit' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'You already have a deck with that name.',
-    );
+    expect(await screen.findByText('You already have a deck with that name.')).toBeInTheDocument();
+    expect(useToastStore.getState().toasts).toHaveLength(1);
   });
 });

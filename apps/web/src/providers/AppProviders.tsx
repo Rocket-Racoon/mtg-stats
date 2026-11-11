@@ -6,12 +6,6 @@ import { ErrorBoundary } from '../errors/ErrorBoundary';
 import { Toaster } from '../ui/Toaster';
 import { useToastStore } from '../ui/toasts';
 
-declare module '@tanstack/react-query' {
-  interface Register {
-    mutationMeta: { errorToast?: boolean };
-  }
-}
-
 /** The app's QueryClient: S-1.5.4 defaults plus a toast for every failed mutation. */
 export function createAppQueryClient(): QueryClient {
   return createQueryClient({

@@ -28,7 +28,6 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(
         extra="ignore",
-        populate_by_name=True,
         case_sensitive=True,
         hide_input_in_errors=True,
     )

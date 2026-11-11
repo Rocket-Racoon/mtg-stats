@@ -1,5 +1,6 @@
 """Acceptance tests for S-1.4.1: environment settings and the app factory."""
 
+import os
 import re
 import shutil
 import subprocess
@@ -427,6 +428,15 @@ def test_importing_config_in_a_fresh_interpreter_never_raises() -> None:
 def test_lowercase_app_env_variable_is_not_honoured(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("app_env", "prod")
     monkeypatch.setenv("DATABASE_URL", DB_URL)
+    with pytest.raises(ValidationError, match="APP_ENV"):
+        load_settings()
+
+
+def test_field_names_are_not_read_as_env_vars_on_any_os(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A plain dict is case-sensitive on every OS (pydantic-settings reads ``os.environ`` at call
+    # time), so this closes the lowercase field-name lookup even on Windows.
+    lowercase = {"app_env": "prod", "database_url": DB_URL, "redis_url": REDIS_URL}
+    monkeypatch.setattr(os, "environ", lowercase)
     with pytest.raises(ValidationError, match="APP_ENV"):
         load_settings()
 

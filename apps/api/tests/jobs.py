@@ -12,7 +12,6 @@ from arq.worker import Worker, get_kwargs
 from app.core.jobs import JobFunction, deserialize_job, serialize_job
 from app.workers.registry import JOBS, build_functions, wrap_job
 from app.workers.schedule import build_cron_jobs
-from app.workers.settings import WorkerSettings
 
 
 async def run_job_in_process(
@@ -88,6 +87,12 @@ class DrainWorker(Worker):
 
 def make_drain_worker(queue_name: str, settings: Any) -> DrainWorker:
     """Build a :class:`DrainWorker` on ``queue_name`` with the cron jobs of ``settings``."""
+    # Imported here, not at module level: ``app.workers.settings`` calls ``get_settings()`` on
+    # import, and the root conftest imports this module before it points DATABASE_URL at the
+    # test database, so a top-level import would cache the outer environment's settings (on CI,
+    # the `mtg_stats` database) and send every app session to the wrong database.
+    from app.workers.settings import WorkerSettings  # noqa: PLC0415
+
     kwargs: dict[str, Any] = {
         "functions": build_functions(),
         "cron_jobs": build_cron_jobs(settings),

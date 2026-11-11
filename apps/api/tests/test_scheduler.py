@@ -8,7 +8,10 @@ import asyncio
 import json
 import logging
 import random
+import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -263,6 +266,21 @@ async def test_drain_worker_never_schedules_cron_occurrences() -> None:
     assert worker.cron_jobs  # registered, so their options apply to queued occurrences
     await worker.run_cron(datetime(2019, 6, 1, 12, 4, 59, tzinfo=UTC), 0.5)
     assert all(job.next_run is None for job in worker.cron_jobs)
+
+
+def test_importing_the_test_job_helpers_does_not_load_settings() -> None:
+    # The root conftest imports tests.jobs before it points DATABASE_URL at the test database;
+    # ``app.workers.settings`` reads settings on import, so it must not load at that point.
+    probe = "import sys, tests.jobs; print('app.workers.settings' in sys.modules)"
+    result = subprocess.run(  # noqa: S603  (fixed argv, no untrusted input)
+        [sys.executable, "-c", probe],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "False"
 
 
 async def test_a_lagging_worker_cannot_rerun_an_occurrence_that_already_finished(

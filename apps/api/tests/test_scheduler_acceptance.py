@@ -33,7 +33,7 @@ from app.workers.schedule import (
     scheduler_disabled_reason,
 )
 from app.workers.settings import WorkerSettings
-from tests.jobs import JobQueue, run_job_in_process
+from tests.jobs import JobQueue, make_drain_worker, run_job_in_process
 from tests.test_worker_e2e import _start_worker, _terminate, _wait_for
 
 HEARTBEAT = "system.heartbeat"
@@ -267,15 +267,7 @@ async def test_worker_ticking_across_ten_minutes_runs_the_heartbeat_twice(
         timezone=UTC,
         redis_pool=pool,
     )
-    drain = create_worker(
-        WorkerSettings,
-        functions=build_functions(),
-        cron_jobs=build_cron_jobs(_settings("dev")),
-        queue_name=job_queue.name,
-        burst=True,
-        poll_delay=0.05,
-        handle_signals=False,
-    )
+    drain = make_drain_worker(job_queue.name, _settings("dev"))
     try:
         for tick in range(1201):  # base .. base + 10 min, every 0.5 s
             await worker.run_cron(base + timedelta(seconds=tick * 0.5), 0.5)

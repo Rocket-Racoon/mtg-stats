@@ -7,8 +7,12 @@ import dataclasses
 from collections.abc import Mapping
 from typing import Any
 
+from arq.worker import Worker, get_kwargs
+
 from app.core.jobs import JobFunction, deserialize_job, serialize_job
-from app.workers.registry import JOBS, wrap_job
+from app.workers.registry import JOBS, build_functions, wrap_job
+from app.workers.schedule import build_cron_jobs
+from app.workers.settings import WorkerSettings
 
 
 async def run_job_in_process(
@@ -65,3 +69,31 @@ async def delete_queue_keys(pool: Any, queue: JobQueue) -> None:
         keys += [f"arq:{kind}:{job_id}" for kind in ("job", "result", "in-progress", "retry")]
     keys += [k async for k in pool.scan_iter(match=f"arq:*:{queue.token}-*")]
     await pool.delete(*keys)
+
+
+class DrainWorker(Worker):
+    """A burst worker that runs what is queued and never schedules cron occurrences itself.
+
+    arq's ``heart_beat`` calls ``run_cron`` with the real wall clock on every poll, so a drain
+    that straddles a schedule boundary (for example :00 or :05 for the heartbeat) enqueues and
+    runs one extra genuine occurrence and inflates ``jobs_complete``. Occurrences in these tests
+    are enqueued explicitly, with a controlled ``now``, so the drain must not add its own. The
+    cron jobs stay registered, so the queued occurrence still runs with its cron options.
+    """
+
+    async def run_cron(self, n: Any, delay: float, num_windows: int = 2) -> None:
+        """Skip scheduling; only an explicit call by a test would reach here, and it is a no-op."""
+        return
+
+
+def make_drain_worker(queue_name: str, settings: Any) -> DrainWorker:
+    """Build a :class:`DrainWorker` on ``queue_name`` with the cron jobs of ``settings``."""
+    kwargs: dict[str, Any] = {
+        "functions": build_functions(),
+        "cron_jobs": build_cron_jobs(settings),
+        "queue_name": queue_name,
+        "burst": True,
+        "poll_delay": 0.05,
+        "handle_signals": False,
+    }
+    return DrainWorker(**{**get_kwargs(WorkerSettings), **kwargs})

@@ -135,3 +135,85 @@ jobs:
             apps/api/htmlcov/
           retention-days: 7
           if-no-files-found: ignore
+
+  ts:
+    # Runs in parallel with `api` (no `needs`).
+    name: ts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # pnpm first (version from `packageManager`), so setup-node can cache its store.
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: package.json
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      # The client drift check and the root tests run the real OpenAPI exporter, so the TS job
+      # needs the API's Python environment too (no database: the exporter uses a dummy env).
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: 0.10.12
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+
+      - name: Install Python dependencies
+        id: uv
+        working-directory: apps/api
+        run: uv sync --locked
+
+      - name: Install TypeScript dependencies
+        id: install
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify (TypeScript half)
+        id: verify
+        # client drift check, eslint, prettier --check, tsc --noEmit, Vitest, Jest; verify.js
+        # writes its own step table to the job summary.
+        run: pnpm verify:ts
+
+      - name: Web production build
+        id: build
+        # Any absolute URL works; the build only checks that it is set and bakes it in.
+        env:
+          VITE_API_BASE_URL: http://localhost:8000/api/v1
+        run: pnpm --filter @mtg-stats/web --fail-if-no-match build
+
+      - name: Job summary
+        if: ${{ always() }}
+        env:
+          UV: ${{ steps.uv.outcome }}
+          INSTALL: ${{ steps.install.outcome }}
+          VERIFY: ${{ steps.verify.outcome }}
+          BUILD: ${{ steps.build.outcome }}
+        run: |
+          row() {
+            case "$2" in
+              success) result="passed" ;;
+              failure) result="**failed**" ;;
+              skipped|"") result="not run" ;;
+              *) result="$2" ;;
+            esac
+            echo "| $1 | $result |"
+          }
+          failed=""
+          for pair in "Install Python dependencies:$UV" "Install TypeScript dependencies:$INSTALL" \
+                      "Verify (TypeScript half):$VERIFY" "Web production build:$BUILD"; do
+            if [ "${pair##*:}" = "failure" ] && [ -z "$failed" ]; then failed="${pair%:*}"; fi
+          done
+          {
+            if [ -n "$failed" ]; then echo "### ts job: FAILED at step \"$failed\""; else echo "### ts job"; fi
+            echo ""
+            echo "| Step | Result |"
+            echo "|---|---|"
+            row "Install Python dependencies" "$UV"
+            row "Install TypeScript dependencies" "$INSTALL"
+            row "Verify (TypeScript half)" "$VERIFY"
+            row "Web production build" "$BUILD"
+          } | tee -a "$GITHUB_STEP_SUMMARY"

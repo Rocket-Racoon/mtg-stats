@@ -38,18 +38,19 @@ Install the hook from the main checkout. Worktrees share one hooks directory, so
 
 Each worktree needs `pnpm install` before you commit TS, JSON, YAML or Markdown files covered by Prettier.
 
-**Never commit with `--no-verify`.** CI will re-run the secrets check and fail the branch, once S-1.8.2 lands.
+**Never commit with `--no-verify`.** The `api` CI job re-runs the secrets check over every tracked file and fails the branch.
 
 ## Verify
 
-`pnpm verify` is the local gate and runs the same checks CI will. It runs twelve steps in order and stops at the first failure, printing `verify: FAILED at step "<name>"` and exiting non-zero:
+`pnpm verify` is the local gate and runs the same checks as CI. It runs twelve steps in order and stops at the first failure, printing `verify: FAILED at step "<name>"` and exiting non-zero:
 
 1. secrets check, 2. `ruff check`, 3. `ruff format --check`, 4. `mypy --strict`, 5. `pytest --cov=app --cov-fail-under=85`, 6. `alembic check`, 7. client drift check, 8. `eslint`, 9. `prettier --check`, 10. `tsc --noEmit`, 11. Vitest, 12. Jest.
 
 - `pnpm verify:api` runs steps 1-6 only, `pnpm verify:ts` runs steps 7-12 only.
 - `pnpm verify --list` prints the steps and their commands without running anything.
 - Needs `uv` and `pnpm` on the PATH, the Compose stack up (`docker compose -f infra/docker-compose.yml up -d postgres redis`) and a root `.env`. `alembic check` needs the dev database at head; if it fails, run `uv run alembic upgrade head` from `apps/api` (dev database only).
-- Test workspaces run one at a time, so a full run takes several minutes. The runner is one Node script with no shell, so it is cross-platform by design (developed on Windows PowerShell; CI will exercise Linux once S-1.8.2 and S-1.8.3 land). Start it with `pnpm verify`: running `node scripts/verify.js` directly cannot find pnpm on Windows.
+- Test workspaces run one at a time, so a full run takes several minutes. The runner is one Node script with no shell, so it is cross-platform by design (developed on Windows PowerShell; CI runs it on Linux). Start it with `pnpm verify`: running `node scripts/verify.js` directly cannot find pnpm on Windows.
+- CI (`.github/workflows/ci.yml`): the `api` job runs the API half (`node scripts/verify.js --only api`) against Postgres 16 and Redis 7 service containers, then an Alembic round-trip (`downgrade base`, `upgrade head`, `check`). The job summary shows each step's result and the coverage figure; the HTML and XML coverage report is the `coverage-report` artifact, kept 7 days.
 
 ## Planned layout
 

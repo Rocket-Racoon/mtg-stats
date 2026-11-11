@@ -23,7 +23,10 @@
 // was killed by a signal or could not start. A step that itself exits 2 is therefore
 // indistinguishable by code from bad usage: rely on the FAILED line. 2 means bad usage when no step
 // has run (bad flag, bad JSON, unknown step name).
+//
+// On GitHub Actions (S-1.8.2/S-1.8.3) the result table is also appended to $GITHUB_STEP_SUMMARY.
 import { spawnSync } from 'node:child_process';
+import { appendFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -256,24 +259,54 @@ function main() {
     });
     return 0;
   }
-  const timings = [];
+  const results = [];
   for (const [i, step] of steps.entries()) {
     console.log(`\n== [${i + 1}/${steps.length}] ${step.name}`);
     const started = Date.now();
     const failure = runStep(step, overrides, process.env);
     const seconds = (Date.now() - started) / 1000;
+    results.push({ name: step.name, seconds, failure });
     if (failure) {
-      console.error(
-        `\nverify: FAILED at step "${step.name}" (exit ${failure.code}): ${failure.reason}`,
-      );
+      const code = Math.min(failure.code || EXIT_FAILED, 255);
+      console.error(`\nverify: FAILED at step "${step.name}" (exit ${code}): ${failure.reason}`);
       if (step.hint) console.error(step.hint);
-      return Math.min(failure.code || EXIT_FAILED, 255);
+      writeSummary(process.env, only, steps, results);
+      return code;
     }
-    timings.push([step.name, seconds]);
   }
   console.log('\nverify: all steps passed');
-  for (const [name, seconds] of timings) console.log(`  ${name.padEnd(22)} ${seconds.toFixed(1)}s`);
+  for (const { name, seconds } of results) {
+    console.log(`  ${name.padEnd(22)} ${seconds.toFixed(1)}s`);
+  }
+  writeSummary(process.env, only, steps, results);
   return 0;
+}
+
+// On GitHub Actions (GITHUB_STEP_SUMMARY set), append a Markdown table of the selected steps to the
+// job summary: each step passed, failed or was not run, so a failure is named on the run page.
+function writeSummary(env, only, steps, results) {
+  const file = env.GITHUB_STEP_SUMMARY;
+  if (!file) return;
+  const failed = results.find((r) => r.failure);
+  const title = only ? `verify (${only})` : 'verify';
+  const lines = [
+    failed ? `### ${title}: FAILED at step "${failed.name}"` : `### ${title}: all steps passed`,
+    '',
+    '| # | Step | Result | Time |',
+    '|---|---|---|---|',
+    ...steps.map((step, i) => {
+      const r = results[i];
+      const result = !r ? 'not run' : r.failure ? '**failed**' : 'passed';
+      const time = r ? `${r.seconds.toFixed(1)}s` : '';
+      return `| ${i + 1} | ${step.name} | ${result} | ${time} |`;
+    }),
+    '',
+  ];
+  try {
+    appendFileSync(file, `${lines.join('\n')}\n`);
+  } catch (error) {
+    console.error(`verify: could not write the job summary to ${file}: ${error.message}`);
+  }
 }
 
 try {

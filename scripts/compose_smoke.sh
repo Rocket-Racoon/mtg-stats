@@ -23,10 +23,15 @@ COMPOSE=(docker compose -f infra/docker-compose.yml)
 API="http://127.0.0.1:${API_PORT:-8000}"
 RELOAD_LIMIT_S=5
 EVENTS_LOG="$(mktemp)"
+READY_JSON="$(mktemp)"
 RELOAD_FILE="apps/api/app/main.py"
+# The probe edits RELOAD_FILE; this copy restores it exactly, uncommitted edits included.
+RELOAD_BACKUP="$(mktemp)"
+cp "$RELOAD_FILE" "$RELOAD_BACKUP"
 
 if [ "${COMPOSE_SMOKE_I_KNOW_THIS_WIPES_THE_DEV_DB:-}" != "1" ] && [ "${CI:-}" != "true" ]; then
-  echo "compose-smoke: this wipes the shared dev database (down -v). Set" >&2
+  echo "compose-smoke: this wipes the shared dev database (down -v) and briefly appends a" >&2
+  echo "comment to $RELOAD_FILE (restored on exit). Set" >&2
   echo "COMPOSE_SMOKE_I_KNOW_THIS_WIPES_THE_DEV_DB=1 to run it outside CI." >&2
   exit 2
 fi
@@ -50,10 +55,12 @@ wait_healthy() { # service, timeout seconds
   done
 }
 startup_count() { "${COMPOSE[@]}" logs --no-color api 2>&1 | grep -c "Application startup complete" || true; }
-ready_body() { curl -sS -o /tmp/ready.json -w '%{http_code}' "$API/api/v1/health/ready" || echo 000; }
+ready_body() { curl -sS -o "$READY_JSON" -w '%{http_code}' "$API/api/v1/health/ready" || echo 000; }
+worker_starts() { "${COMPOSE[@]}" logs --no-color worker 2>&1 | grep -c "registered jobs" || true; }
+restore_reload_file() { cmp -s "$RELOAD_BACKUP" "$RELOAD_FILE" || cp "$RELOAD_BACKUP" "$RELOAD_FILE"; }
 
 cleanup() {
-  git checkout -- "$RELOAD_FILE" 2>/dev/null || true
+  restore_reload_file
   [ -n "${EVENTS_PID:-}" ] && kill "$EVENTS_PID" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -128,9 +135,9 @@ echo "database at head $HEAD"
 
 step "AC4: GET /api/v1/health/ready"
 CODE="$(ready_body)"
-cat /tmp/ready.json; echo
+cat "$READY_JSON"; echo
 [ "$CODE" = "200" ] || fail "/health/ready returned $CODE"
-python3 - /tmp/ready.json <<'PY'
+python3 - "$READY_JSON" <<'PY'
 import json, sys
 body = json.load(open(sys.argv[1]))
 checks = body.get("checks", {})
@@ -156,10 +163,13 @@ for _ in $(seq 1 30); do [ "$(ready_body)" = "200" ] && break; sleep 1; done
 [ "$(ready_body)" = "200" ] || fail "/health/ready not 200 after the reload"
 [ "$(docker image inspect -f '{{.Id}}' mtg-stats-api:dev)" = "$IMAGE_BEFORE" ] ||
   fail "the image changed"
-git checkout -- "$RELOAD_FILE"
+restore_reload_file
 
 step "AC3: docker compose restart worker restarts the worker"
 W_BEFORE="$(inspect worker '{{.State.StartedAt}}')"
+W_LOGS_BEFORE="$(worker_starts)"
+[ "$W_LOGS_BEFORE" -ge 1 ] || fail "the worker never logged its registered jobs"
+[ "$(inspect worker '{{.RestartCount}}')" = "0" ] || fail "the worker restarted on its own (crash loop?)"
 "${COMPOSE[@]}" restart worker
 sleep 5
 W_AFTER="$(inspect worker '{{.State.StartedAt}}')"
@@ -167,6 +177,8 @@ W_AFTER="$(inspect worker '{{.State.StartedAt}}')"
 [ "$(inspect worker '{{.State.Running}}')" = "true" ] || fail "the worker is not running after restart"
 sleep 3
 [ "$(inspect worker '{{.State.StartedAt}}')" = "$W_AFTER" ] || fail "the worker is crash-looping"
+[ "$(inspect worker '{{.RestartCount}}')" = "0" ] || fail "the worker crashed after the restart"
+[ "$(worker_starts)" -gt "$W_LOGS_BEFORE" ] || fail "the restarted worker never logged its registered jobs"
 echo "worker restarted at $W_AFTER and stays up"
 
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then

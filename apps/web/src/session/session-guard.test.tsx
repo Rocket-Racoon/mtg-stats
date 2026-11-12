@@ -43,6 +43,22 @@ describe('guard redirect (AC1)', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'Sign in' })).toBeInTheDocument();
   });
 
+  it('produces the literal location /sign-in?next=/decks (AC1)', () => {
+    const router = renderAt('/decks', SIGNED_OUT);
+    expect(router.state.location.pathname + router.state.location.search).toBe(
+      '/sign-in?next=/decks',
+    );
+  });
+
+  it.each([
+    '/decks?a=1&b=2#top',
+    '/stats?q=a+b&r=x%26y#h%23i',
+    '/decks/abc?u=https%3A%2F%2Fexample.com%2Fp%3Fx%3D1',
+  ])('round-trips %s through next exactly', (path) => {
+    const router = renderAt(path, SIGNED_OUT);
+    expect(nextOf(router)).toBe(path);
+  });
+
   it('preserves query and hash in next', () => {
     const router = renderAt('/decks?tab=a&x=1#top', SIGNED_OUT);
     expect(router.state.location.pathname).toBe('/sign-in');
@@ -85,6 +101,28 @@ describe('public routes (AC2)', () => {
       expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
     },
   );
+});
+
+describe('RequireSession above /sign-in (safety net)', () => {
+  it('renders the route and does not loop when signed out', () => {
+    const router = createMemoryRouter(
+      [
+        {
+          element: <RequireSession />,
+          children: [{ path: '/sign-in', element: <p>sign-in page</p> }],
+        },
+      ],
+      { initialEntries: ['/sign-in?next=/decks'] },
+    );
+    render(
+      <SessionProvider session={SIGNED_OUT}>
+        <RouterProvider router={router} />
+      </SessionProvider>,
+    );
+    expect(screen.getByText('sign-in page')).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/sign-in');
+    expect(nextOf(router)).toBe('/decks');
+  });
 });
 
 describe('restoring (AC3)', () => {
@@ -166,6 +204,9 @@ describe('safeNext', () => {
     '/\t/evil.com',
     '/\n/evil.com',
     ' /decks',
+    '/..//evil.com',
+    '/.//evil.com',
+    '/%2e%2e//evil.com',
   ])('falls back to / for %j', (raw) => {
     expect(safeNext(raw)).toBe('/');
   });
@@ -200,7 +241,10 @@ describe('route table coverage', () => {
           : r.path.startsWith('/')
             ? r.path
             : `${parent.replace(/\/$/, '')}/${r.path}`;
-      if (r.children) return walk(r.children, own, inGuard);
+      if (r.lazy) {
+        throw new Error(`route "${own}" uses lazy: the route-table walker must learn lazy first`);
+      }
+      if (r.children && r.children.length > 0) return walk(r.children, own, inGuard);
       return [{ pattern: own || '/', guarded: inGuard }];
     });
   }

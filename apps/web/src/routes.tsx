@@ -8,6 +8,7 @@ import { HomePage } from './pages/Home';
 import { NotFoundPage } from './pages/NotFound';
 import { PlaceholderPage } from './pages/Placeholder';
 import { RequireSession } from './session/RequireSession';
+import { SIGN_IN_PATH } from './session/sign-in';
 
 /** The route table, shared by the browser router and tests (createMemoryRouter). */
 export const routes: RouteObject[] = [
@@ -18,12 +19,12 @@ export const routes: RouteObject[] = [
     element: <RootLayout />,
     children: [
       // Public shell: no navigation, but the same footer (S-1.6.6). Nothing here is guarded; the
-      // paths must match PUBLIC_PATHS (routes.test.tsx enforces it). The real sign-in page comes
+      // paths must match PUBLIC_PATHS (session/session-guard.test.tsx enforces it). The real sign-in page comes
       // from S-2.1.6 and the invite/reset/join pages from S-1.6.7; these are placeholders.
       {
         element: <PublicLayout />,
         children: [
-          { path: '/sign-in', element: <PlaceholderPage title="Sign in" /> },
+          { path: SIGN_IN_PATH, element: <PlaceholderPage title="Sign in" /> },
           { path: '/invite/*', element: <PlaceholderPage title="Invite" /> },
           { path: '/reset/*', element: <PlaceholderPage title="Reset password" /> },
           { path: '/join/*', element: <PlaceholderPage title="Join" /> },

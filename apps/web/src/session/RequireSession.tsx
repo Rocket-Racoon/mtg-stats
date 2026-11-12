@@ -1,5 +1,6 @@
 import { Navigate, Outlet, useLocation } from 'react-router';
 import { useSession } from './session';
+import { SIGN_IN_PATH } from './sign-in';
 
 /**
  * Layout route guarding the protected pages (S-1.6.4). Reads only `status` from the session
@@ -10,17 +11,20 @@ export function RequireSession() {
   const { status } = useSession();
   const { pathname, search, hash } = useLocation();
 
-  if (pathname === '/sign-in') return <Outlet />; // never redirect to ourselves
+  if (pathname === SIGN_IN_PATH) return <Outlet />; // safety net: never redirect to ourselves
   if (status === 'restoring') {
+    // No aria-busy: it would suppress the live region's announcement.
     return (
-      <div role="status" aria-label="Loading page" aria-busy="true">
+      <div role="status" aria-label="Loading page">
         Loading…
       </div>
     );
   }
   if (status === 'signed_out') {
-    const next = encodeURIComponent(pathname + search + hash);
-    return <Navigate replace to={`/sign-in?next=${next}`} />;
+    // "/" is legal in a query, so keep it literal (AC1: /sign-in?next=/decks). & # + ? = and the
+    // rest stay encoded, so the URLSearchParams round trip is exact.
+    const next = encodeURIComponent(pathname + search + hash).replaceAll('%2F', '/');
+    return <Navigate replace to={`${SIGN_IN_PATH}?next=${next}`} />;
   }
   return <Outlet />;
 }

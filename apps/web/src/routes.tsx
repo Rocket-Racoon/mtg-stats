@@ -7,6 +7,7 @@ import { PublicLayout } from './PublicLayout';
 import { HomePage } from './pages/Home';
 import { NotFoundPage } from './pages/NotFound';
 import { PlaceholderPage } from './pages/Placeholder';
+import { RequireSession } from './session/RequireSession';
 
 /** The route table, shared by the browser router and tests (createMemoryRouter). */
 export const routes: RouteObject[] = [
@@ -16,27 +17,40 @@ export const routes: RouteObject[] = [
     errorElement: <RouteErrorFallback />,
     element: <RootLayout />,
     children: [
-      // Public shell: no navigation, but the same footer (S-1.6.6). The real sign-in page comes
-      // from S-2.1.6; no auth guard until S-1.6.4. Future public routes (/invite, /reset, /join)
-      // go here.
+      // Public shell: no navigation, but the same footer (S-1.6.6). Nothing here is guarded; the
+      // paths must match PUBLIC_PATHS (routes.test.tsx enforces it). The real sign-in page comes
+      // from S-2.1.6 and the invite/reset/join pages from S-1.6.7; these are placeholders.
       {
         element: <PublicLayout />,
-        children: [{ path: '/sign-in', element: <PlaceholderPage title="Sign in" /> }],
+        children: [
+          { path: '/sign-in', element: <PlaceholderPage title="Sign in" /> },
+          { path: '/invite/*', element: <PlaceholderPage title="Invite" /> },
+          { path: '/reset/*', element: <PlaceholderPage title="Reset password" /> },
+          { path: '/join/*', element: <PlaceholderPage title="Join" /> },
+        ],
       },
       {
         path: '/',
         element: <App />,
         children: [
-          { index: true, element: <HomePage /> },
-          { path: 'games', element: <PlaceholderPage title="Games" /> },
-          { path: 'decks', element: <PlaceholderPage title="Decks" /> },
-          { path: 'stats', element: <PlaceholderPage title="Stats" /> },
-          { path: 'collection', element: <PlaceholderPage title="Collection" /> },
-          { path: 'leagues', element: <PlaceholderPage title="Leagues" /> },
-          // /about is intentionally under the App shell and is a PUBLIC route: S-1.6.4's auth
-          // guard must not wrap it (the legal notice must be reachable signed out).
+          // /about is intentionally under the App shell and PUBLIC: it sits outside RequireSession
+          // so the legal notice is reachable signed out.
           { path: 'about', element: <AboutPage /> },
-          { path: '*', element: <NotFoundPage /> },
+          // Everything else is behind the guard. The catch-all is protected on purpose: a
+          // signed-out visitor is sent to sign-in for any unknown path, so a 404 versus a redirect
+          // never reveals which private paths exist.
+          {
+            element: <RequireSession />,
+            children: [
+              { index: true, element: <HomePage /> },
+              { path: 'games', element: <PlaceholderPage title="Games" /> },
+              { path: 'decks', element: <PlaceholderPage title="Decks" /> },
+              { path: 'stats', element: <PlaceholderPage title="Stats" /> },
+              { path: 'collection', element: <PlaceholderPage title="Collection" /> },
+              { path: 'leagues', element: <PlaceholderPage title="Leagues" /> },
+              { path: '*', element: <NotFoundPage /> },
+            ],
+          },
         ],
       },
     ],

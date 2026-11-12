@@ -7,8 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { render } from '@testing-library/react';
 import { createMemoryRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { routes } from '../routes';
+import { useSessionStore } from '../session/store';
 
 const css = readFileSync(
   resolve(dirname(fileURLToPath(import.meta.url)), '../App.css'),
@@ -42,6 +43,10 @@ const selectorList = (tapRule?.[1] ?? '')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
+
+beforeEach(() => {
+  useSessionStore.setState({ status: 'signed_in' }); // fake signed-in session: the guard lets pages render (S-1.6.4)
+});
 
 function renderApp() {
   return render(<RouterProvider router={createMemoryRouter(routes, { initialEntries: ['/'] })} />);

@@ -1,8 +1,13 @@
 import { render, screen, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { createMemoryRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 import { routes } from './routes';
+import { useSessionStore } from './session/store';
+
+beforeEach(() => {
+  useSessionStore.setState({ status: 'signed_in' }); // fake signed-in session: the guard lets pages render (S-1.6.4)
+});
 
 function renderApp() {
   return render(<RouterProvider router={createMemoryRouter(routes, { initialEntries: ['/'] })} />);

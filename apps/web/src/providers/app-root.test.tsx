@@ -14,7 +14,7 @@ import { ErrorBoundary } from '../errors/ErrorBoundary';
 import { GENERIC_ERROR_MESSAGE, NETWORK_ERROR_MESSAGE } from '../errors/message';
 import { routes } from '../routes';
 import { useSessionStore } from '../session/store';
-import { useToastStore } from '../ui/toasts';
+import { resetToasts, useToastStore } from '../ui/toasts';
 import { AppProviders } from './AppProviders';
 import { AppRoot } from './AppRoot';
 
@@ -61,7 +61,7 @@ function renderRoot(table: RouteObject[], path: string) {
 
 beforeEach(() => {
   silenceExpectedErrorLogs();
-  useToastStore.setState({ toasts: [] });
+  resetToasts();
   useSessionStore.setState({ status: 'signed_out' });
 });
 afterEach(() => {
@@ -190,10 +190,11 @@ describe('render errors through the real route table (AC2)', () => {
     expect(document.body.textContent).not.toMatch(/[{}]|\bat \w+ \(/);
   });
 
-  it('exposes the fallback as an alert that contains a button named Reload', () => {
+  it('exposes the fallback as the single main landmark, named by its heading, with a Reload button', () => {
     renderRoot(withBoomRoute(<Boom error={new Error('boom-test')} />), '/boom');
-    // The toaster's (empty) alert region is also on the page, so find the fallback by its button.
-    expect(screen.getByRole('button', { name: 'Reload' }).closest('[role="alert"]')).not.toBeNull();
+    const main = screen.getByRole('main', { name: 'Something went wrong' });
+    expect(main).toContainElement(screen.getByRole('button', { name: 'Reload' }));
+    expect(document.querySelectorAll('main, #main')).toHaveLength(1);
   });
 
   it('shows the fallback only for the failing route', async () => {

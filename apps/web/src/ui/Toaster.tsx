@@ -11,35 +11,45 @@ export function Toaster() {
   const pause = useToastStore((s) => s.pause);
   const resume = useToastStore((s) => s.resume);
   const container = useRef<HTMLDivElement>(null);
-  // Where focus goes once the dismissed toast is gone: a toast id, 'main', or nothing.
-  const focusAfter = useRef<number | 'main' | null>(null);
+  // The toast whose button holds focus, and the display order of the previous render.
+  const focusedId = useRef<number | null>(null);
+  const previousOrder = useRef<number[]>([]);
 
   const infos = toasts.filter((t) => t.kind === 'info');
   const errors = toasts.filter((t) => t.kind === 'error');
 
+  // When the toast that held focus disappears (dismissed, timed out or dropped by the cap), move
+  // focus to the next toast's Dismiss button, else the previous one, else #main. Focus that was
+  // never inside the toaster is left alone.
   useEffect(() => {
-    const target = focusAfter.current;
-    if (target === null) return;
-    focusAfter.current = null;
-    if (target === 'main') {
-      document.getElementById('main')?.focus({ preventScroll: true });
-    } else {
-      container.current
-        ?.querySelector<HTMLElement>(`[data-toast-id="${String(target)}"] button`)
-        ?.focus();
+    const order = [
+      ...toasts.filter((t) => t.kind === 'info'),
+      ...toasts.filter((t) => t.kind === 'error'),
+    ].map((t) => t.id);
+    const lost = focusedId.current;
+    if (lost !== null && !order.includes(lost)) {
+      focusedId.current = null;
+      const stillFocused = container.current?.contains(document.activeElement) ?? false;
+      if (!stillFocused) {
+        const was = previousOrder.current;
+        const index = was.indexOf(lost);
+        const next =
+          was.slice(index + 1).find((id) => order.includes(id)) ??
+          was
+            .slice(0, Math.max(0, index))
+            .reverse()
+            .find((id) => order.includes(id));
+        if (next === undefined) {
+          document.getElementById('main')?.focus({ preventScroll: true });
+        } else {
+          container.current
+            ?.querySelector<HTMLElement>(`[data-toast-id="${String(next)}"] button`)
+            ?.focus();
+        }
+      }
     }
+    previousOrder.current = order;
   }, [toasts]);
-
-  const onDismiss = (id: number) => {
-    // Only move focus when it is inside the toaster; never steal it otherwise.
-    if (container.current?.contains(document.activeElement)) {
-      const order = [...infos, ...errors];
-      const index = order.findIndex((t) => t.id === id);
-      const next = order[index + 1] ?? order[index - 1];
-      focusAfter.current = next ? next.id : 'main';
-    }
-    dismiss(id);
-  };
 
   const item = (t: Toast) => (
     <div
@@ -47,16 +57,20 @@ export function Toaster() {
       data-toast-id={t.id}
       className={`toast toast-${t.kind}`}
       onMouseEnter={() => {
-        pause(t.id);
+        pause(t.id, 'hover');
       }}
       onMouseLeave={() => {
-        resume(t.id);
+        resume(t.id, 'hover');
       }}
       onFocus={() => {
-        pause(t.id);
+        focusedId.current = t.id;
+        pause(t.id, 'focus');
       }}
-      onBlur={() => {
-        resume(t.id);
+      onBlur={(event) => {
+        // A removed element may blur on its way out; only a still-mounted toast means the user
+        // moved focus away deliberately.
+        if (event.currentTarget.isConnected) focusedId.current = null;
+        resume(t.id, 'focus');
       }}
     >
       <span>{t.message}</span>
@@ -64,7 +78,7 @@ export function Toaster() {
         type="button"
         aria-label={`Dismiss notification: ${t.message}`}
         onClick={() => {
-          onDismiss(t.id);
+          dismiss(t.id);
         }}
       >
         Dismiss

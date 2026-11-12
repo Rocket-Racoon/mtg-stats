@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GENERIC_ERROR_MESSAGE, NETWORK_ERROR_MESSAGE, errorMessage } from '../errors/message';
 import { useSessionStore } from '../session/store';
 import { Toaster } from '../ui/Toaster';
-import { INFO_TOAST_MS, MAX_TOASTS, useToastStore } from '../ui/toasts';
+import { INFO_TOAST_MS, MAX_TOASTS, resetToasts, useToastStore } from '../ui/toasts';
 import { AppProviders, createAppQueryClient } from './AppProviders';
 
 function apiError(init: Partial<ConstructorParameters<typeof ApiError>[0]> = {}) {
@@ -32,7 +32,7 @@ function silenceExpectedErrorLogs(): void {
 
 beforeEach(() => {
   silenceExpectedErrorLogs();
-  useToastStore.setState({ toasts: [] });
+  resetToasts();
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -74,6 +74,10 @@ describe('error boundary (AC2)', () => {
     );
     const heading = screen.getByRole('heading', { name: 'Something went wrong' });
     expect(heading).toHaveFocus();
+    // The fallback is the page's only main landmark, named by its heading, with no alert role.
+    expect(screen.getByRole('main', { name: 'Something went wrong' })).toContainElement(heading);
+    expect(document.querySelectorAll('main, #main')).toHaveLength(1);
+    expect(document.querySelector('.error-fallback')).not.toHaveAttribute('role');
     expect(screen.queryByText(/secret stack detail/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Request ID/)).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Reload' }));
@@ -274,6 +278,101 @@ describe('Toaster', () => {
     expect(screen.queryByText('Error 1')).not.toBeInTheDocument();
     expect(screen.queryByText('Error 2')).not.toBeInTheDocument();
     expect(screen.getByText('Error 5')).toBeInTheDocument();
+  });
+
+  it('drops the oldest info toast first at the cap, and an error only when all are errors', () => {
+    render(<Toaster />);
+    push('error', 'E1');
+    push('info', 'I1');
+    push('info', 'I2');
+    push('error', 'E2');
+    expect(screen.queryByText('I1')).not.toBeInTheDocument();
+    expect(screen.getByText('I2')).toBeInTheDocument();
+    expect(screen.getByText('E1')).toBeInTheDocument();
+    push('error', 'E3');
+    expect(screen.queryByText('I2')).not.toBeInTheDocument();
+    expect(count()).toBe(MAX_TOASTS);
+    push('error', 'E4');
+    expect(screen.queryByText('E1')).not.toBeInTheDocument();
+    expect(screen.getByText('E4')).toBeInTheDocument();
+  });
+
+  it('keeps the timer paused until both hover and focus end', () => {
+    vi.useFakeTimers();
+    render(<Toaster />);
+    push('info', 'Saved');
+    const toast = screen.getByText('Saved').closest('.toast');
+    if (!toast) throw new Error('toast missing');
+    const button = screen.getByRole('button', { name: /Dismiss notification: Saved/ });
+    act(() => {
+      fireEvent.mouseEnter(toast);
+      button.focus();
+    });
+    act(() => {
+      fireEvent.mouseLeave(toast);
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(count()).toBe(1); // still focused
+    act(() => {
+      button.blur();
+      vi.advanceTimersByTime(INFO_TOAST_MS - 1);
+    });
+    expect(count()).toBe(1);
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(count()).toBe(0);
+
+    push('info', 'Again');
+    const again = screen.getByText('Again').closest('.toast');
+    const againButton = screen.getByRole('button', { name: /Dismiss notification: Again/ });
+    if (!again) throw new Error('toast missing');
+    act(() => {
+      againButton.focus();
+      fireEvent.mouseEnter(again);
+    });
+    act(() => {
+      againButton.blur();
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(count()).toBe(1); // still hovered
+    act(() => {
+      fireEvent.mouseLeave(again);
+      vi.advanceTimersByTime(INFO_TOAST_MS);
+    });
+    expect(count()).toBe(0);
+  });
+
+  it('restores focus to #main when the focused toast is removed from outside the toaster', () => {
+    vi.useFakeTimers();
+    render(
+      <>
+        <main id="main" tabIndex={-1} />
+        <Toaster />
+      </>,
+    );
+    push('info', 'Saved');
+    act(() => {
+      screen.getByRole('button', { name: /Dismiss notification: Saved/ }).focus();
+    });
+    // Focus pauses the timer, so drop the toast the way the timer would.
+    act(() => {
+      useToastStore.getState().dismiss(useToastStore.getState().toasts[0]?.id ?? 0);
+    });
+    expect(document.getElementById('main')).toHaveFocus();
+  });
+
+  it('restores focus to the next toast when the cap drops the focused toast', () => {
+    render(<Toaster />);
+    push('info', 'I1');
+    push('error', 'E1');
+    act(() => {
+      screen.getByRole('button', { name: 'Dismiss notification: I1' }).focus();
+    });
+    push('error', 'E2');
+    push('error', 'E3'); // at the cap: drops I1, which held focus
+    expect(screen.queryByText('I1')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Dismiss notification: E1' })).toHaveFocus();
   });
 
   it('does not add a second toast for an identical message of the same kind', () => {

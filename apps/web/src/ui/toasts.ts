@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 export type ToastKind = 'info' | 'error';
+export type PauseReason = 'hover' | 'focus';
 
 export interface Toast {
   id: number;
@@ -13,23 +14,24 @@ interface ToastState {
   /** Adds a toast and returns its id; an identical live toast (same kind and message) is reused. */
   push: (kind: ToastKind, message: string) => number;
   dismiss: (id: number) => void;
-  /** Stops an info toast's auto-dismiss clock (hover or focus, WCAG 2.2.1). */
-  pause: (id: number) => void;
-  /** Restarts the clock with the time that was left. */
-  resume: (id: number) => void;
+  /** Stops an info toast's auto-dismiss clock for a reason (hover or focus, WCAG 2.2.1). */
+  pause: (id: number, reason: PauseReason) => void;
+  /** Drops a pause reason; the clock restarts with the time left once no reason remains. */
+  resume: (id: number, reason: PauseReason) => void;
 }
 
 let nextId = 1;
 
 /** Info toasts dismiss themselves after this; error toasts stay until dismissed. */
 export const INFO_TOAST_MS = 5000;
-/** At most this many toasts are visible; the oldest is dropped first. */
+/** At most this many toasts are visible; the oldest info toast is dropped first. */
 export const MAX_TOASTS = 3;
 
 interface Timer {
   handle: ReturnType<typeof setTimeout> | null;
   remaining: number;
   startedAt: number;
+  reasons: Set<PauseReason>;
 }
 const timers = new Map<number, Timer>();
 
@@ -37,7 +39,8 @@ function startTimer(id: number, remaining: number, dismiss: (id: number) => void
   const handle = setTimeout(() => {
     dismiss(id);
   }, remaining);
-  timers.set(id, { handle, remaining, startedAt: Date.now() });
+  const reasons = timers.get(id)?.reasons ?? new Set<PauseReason>();
+  timers.set(id, { handle, remaining, startedAt: Date.now(), reasons });
 }
 
 function clearTimer(id: number): void {
@@ -52,8 +55,14 @@ export const useToastStore = create<ToastState>()((set, get) => ({
     const existing = get().toasts.find((t) => t.kind === kind && t.message === message);
     if (existing) return existing.id;
     const id = nextId++;
-    const kept = get().toasts.slice(-(MAX_TOASTS - 1));
-    for (const dropped of get().toasts.filter((t) => !kept.includes(t))) clearTimer(dropped.id);
+    let kept = get().toasts;
+    while (kept.length > 0 && kept.length >= MAX_TOASTS) {
+      // Oldest info toast first; an error is only dropped when every toast is an error.
+      const victim = kept.find((t) => t.kind === 'info') ?? kept[0];
+      if (!victim) break;
+      clearTimer(victim.id);
+      kept = kept.filter((t) => t !== victim);
+    }
     set({ toasts: [...kept, { id, kind, message }] });
     if (kind === 'info') startTimer(id, INFO_TOAST_MS, get().dismiss);
     return id;
@@ -62,19 +71,26 @@ export const useToastStore = create<ToastState>()((set, get) => ({
     clearTimer(id);
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
   },
-  pause: (id) => {
+  pause: (id, reason) => {
     const timer = timers.get(id);
-    if (timer?.handle == null) return;
+    if (!timer) return;
+    timer.reasons.add(reason);
+    if (timer.handle === null) return;
     clearTimeout(timer.handle);
-    timers.set(id, {
-      handle: null,
-      remaining: Math.max(0, timer.remaining - (Date.now() - timer.startedAt)),
-      startedAt: 0,
-    });
+    timer.remaining = Math.max(0, timer.remaining - (Date.now() - timer.startedAt));
+    timer.handle = null;
   },
-  resume: (id) => {
+  resume: (id, reason) => {
     const timer = timers.get(id);
-    if (timer === undefined || timer.handle !== null) return;
+    if (!timer) return;
+    timer.reasons.delete(reason);
+    if (timer.reasons.size > 0 || timer.handle !== null) return;
     startTimer(id, timer.remaining, get().dismiss);
   },
 }));
+
+/** Clears every toast and timer. For tests. */
+export function resetToasts(): void {
+  for (const id of [...timers.keys()]) clearTimer(id);
+  useToastStore.setState({ toasts: [] });
+}

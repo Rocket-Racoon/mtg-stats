@@ -1,7 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { errorMessage, errorRequestId } from './message';
 
-/** Shared by the React ErrorBoundary and the router's root errorElement. */
+/**
+ * Shared by the React ErrorBoundary and the router's root errorElement. It replaces the whole
+ * page (including the shells), so it is the page's only <main id="main">.
+ */
 export function ErrorFallback({ error }: { error: unknown }) {
   const requestId = errorRequestId(error);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -10,8 +13,8 @@ export function ErrorFallback({ error }: { error: unknown }) {
     heading.current?.focus();
   }, []);
   return (
-    <div className="error-fallback" role="alert">
-      <h1 ref={heading} tabIndex={-1}>
+    <main id="main" tabIndex={-1} className="error-fallback" aria-labelledby="error-fallback-title">
+      <h1 id="error-fallback-title" ref={heading} tabIndex={-1}>
         Something went wrong
       </h1>
       <p>{errorMessage(error)}</p>
@@ -24,6 +27,6 @@ export function ErrorFallback({ error }: { error: unknown }) {
       >
         Reload
       </button>
-    </div>
+    </main>
   );
 }

@@ -249,6 +249,8 @@ button:focus-visible {
   gap: 0.5rem;
   inline-size: min(100% - 2rem, 24rem);
   z-index: 100;
+  /* The empty live regions stay in the DOM; do not let them block clicks on the page. */
+  pointer-events: none;
 }
 
 .toast-list {
@@ -258,6 +260,7 @@ button:focus-visible {
 }
 
 .toast {
+  pointer-events: auto;
   display: flex;
   align-items: center;
   justify-content: space-between;

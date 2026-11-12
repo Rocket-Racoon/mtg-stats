@@ -1,0 +1,41 @@
+# Process guard (S-1.8.4). Runs on every push to main.
+# GitHub Free can't enforce branch protection on a private repo (decision I1), so "merge only
+# through a pull request whose `api` and `ts` checks are green" is a convention. This workflow makes
+# a breach visible: scripts/process_guard.py fails the run and opens a `Process bypass: <short SHA>`
+# issue when a commit on main isn't part of a merged pull request, when a pull request was merged
+# while `api` or `ts` wasn't green, or when main was force-pushed.
+name: Process guard
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  process-guard:
+    name: process-guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the push came from green, merged pull requests
+        # Event values go through env, never straight into the script, so they can't inject shell.
+        # The runner's python3 (3.12 on ubuntu-24.04) is enough: the script uses only the standard
+        # library and the preinstalled `gh`.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+          FORCED: ${{ github.event.forced }}
+        run: python3 scripts/process_guard.py --repo "$REPO" --before "$BEFORE" --after "$AFTER" --forced "$FORCED"

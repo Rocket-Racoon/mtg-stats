@@ -234,7 +234,7 @@ def test_export_script_check_mode_also_exits_3_on_duplicates(
 
 
 def test_real_app_has_no_duplicate_operation_ids() -> None:
-    assert_unique_operation_ids(app_main.app)
+    assert_unique_operation_ids(app_main.create_app())
 
 
 # ------------------------------------------------------------- AC2: operation ID format
@@ -296,7 +296,7 @@ def test_untagged_core_and_non_domain_routes_get_system(module: str) -> None:
 def test_every_operation_id_in_the_real_app_matches_the_format() -> None:
     ids = [
         op["operationId"]
-        for path in app_main.app.openapi()["paths"].values()
+        for path in app_main.create_app().openapi()["paths"].values()
         for op in path.values()
     ]
     # No domain routers have landed yet, so this is vacuous today and bites once they do.
@@ -310,7 +310,7 @@ def test_real_app_operation_id_prefixes_are_architecture_domains() -> None:
         "system", "identity", "playgroups", "cards", "decks",
         "brackets", "games", "stats", "collection", "leagues",
     }  # fmt: skip
-    for op_id in collect_operation_ids(app_main.app):
+    for op_id in collect_operation_ids(app_main.create_app()):
         assert op_id.split("_", 1)[0] in allowed, op_id
 
 

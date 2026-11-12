@@ -40,6 +40,22 @@ Each worktree needs `pnpm install` before you commit TS, JSON, YAML or Markdown 
 
 **Never commit with `--no-verify`.** The `api` CI job re-runs the secrets check over every tracked file and fails the branch.
 
+## Run the backend
+
+Copy `.env.example` to `.env` (the Setup step above assumes it exists), then from the repo root:
+
+```bash
+docker compose -f infra/docker-compose.yml up              # postgres, redis, migrate, api, worker
+docker compose -f infra/docker-compose.yml up -d postgres redis   # infrastructure only, for native dev
+```
+
+- `api` and `worker` start only after Postgres and Redis are healthy and the one-shot `migrate` service has finished. `migrate` runs `alembic upgrade head` **only when `APP_ENV=dev`**; with any other value it exits non-zero without touching the database, and so `api` and `worker` do not start. Test it with `APP_ENV=prod docker compose -f infra/docker-compose.yml up` (bash).
+- The API is at `http://127.0.0.1:8000` (`API_PORT` changes the host port). `GET /api/v1/health/ready` returns 200 when the database and Redis are `ok`.
+- **Hot reload:** `apps/api` is bind-mounted into the containers, so saving a file under `apps/api/app` reloads the API within a few seconds, with no rebuild. The reloader polls, because Docker Desktop on Windows does not deliver file-change events. Rebuild only after changing `pyproject.toml` or `uv.lock`: `docker compose -f infra/docker-compose.yml up --build`.
+- The **worker does not reload**. After a change, run `docker compose -f infra/docker-compose.yml restart worker`.
+- Inside Compose the services use `postgres:5432` and `redis:6379`; the root `.env` keeps `127.0.0.1` URLs for native dev. The database credentials come from `POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_DB` (shell or `infra/.env`, defaulting to the `.env.example` values); if you changed them in the root `.env`, add `--env-file .env` to the command.
+- **Native dev** (no API container; needs Postgres and Redis up): `pnpm dev:api` (uvicorn with `--factory app.main:create_app --reload`) and `pnpm dev:worker`. Without `--reload` on Windows, add `--loop asyncio:SelectorEventLoop`. Keep `127.0.0.1` (not `localhost`) in native-dev URLs.
+
 ## Verify
 
 `pnpm verify` is the local gate; CI runs the same commands, plus the web production build (locally: `VITE_API_BASE_URL=http://localhost:8000/api/v1 pnpm --filter @mtg-stats/web build`). It runs twelve steps in order and stops at the first failure, printing `verify: FAILED at step "<name>"` and exiting non-zero:

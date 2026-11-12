@@ -12,12 +12,10 @@ with ``--directory apps/api``, so a relative ``--output`` is relative to ``apps/
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
-from unittest import mock
 
-from app.core.config import WORKSPACE_MARKER, Settings, get_settings
+from app.core.config import WORKSPACE_MARKER, Settings
 from app.core.openapi import DuplicateOperationIdError, assert_unique_operation_ids
 
 EXIT_DRIFT = 1
@@ -40,16 +38,11 @@ def render_spec() -> str:
         "DATABASE_URL": "postgresql+psycopg://mtg:CHANGE_ME@localhost:5432/mtg_stats",
         "REDIS_URL": "redis://localhost:6379/0",
     }
-    # ``app.main`` builds a module-level ``app`` on import, which reads the environment. Run the
-    # import and the build with only the dummy values (ambient variables such as
-    # CORS_ALLOWED_ORIGINS must not leak in), restoring the environment afterwards.
-    with mock.patch.dict(os.environ, dummy, clear=True):
-        try:
-            from app.main import create_app  # noqa: PLC0415
+    # ``app.main`` builds nothing on import, and ``model_validate`` never reads the environment or
+    # a ``.env`` file, so ambient variables (CORS_ALLOWED_ORIGINS and the like) cannot leak in.
+    from app.main import create_app  # noqa: PLC0415
 
-            app = create_app(Settings.model_validate(dummy))
-        finally:
-            get_settings.cache_clear()
+    app = create_app(Settings.model_validate(dummy))
     assert_unique_operation_ids(app)
     return json.dumps(app.openapi(), sort_keys=True, indent=2, ensure_ascii=False) + "\n"
 

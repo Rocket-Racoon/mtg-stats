@@ -1,5 +1,26 @@
-# Local dev infrastructure. Run from the repo root:
-#   docker compose -f infra/docker-compose.yml up -d postgres redis
+# Local dev stack. Run from the repo root:
+#   docker compose -f infra/docker-compose.yml up -d postgres redis   # infrastructure only (native dev)
+#   docker compose -f infra/docker-compose.yml up                     # the whole backend (S-1.3.2)
+#
+# The whole backend is postgres, redis, a one-shot `migrate`, then `api` and `worker`. api and
+# worker start only after postgres and redis are healthy and `migrate` has completed successfully.
+#   - migrate runs `alembic upgrade head` once, and only when APP_ENV=dev. Any other value makes it
+#     exit 1 without touching the database, which also stops api and worker from starting, so the
+#     API never serves an unmigrated schema. Override from the shell, for example
+#     `APP_ENV=prod docker compose -f infra/docker-compose.yml up` (bash) to see the refusal.
+#   - api runs `uvicorn --factory app.main:create_app --reload` on http://127.0.0.1:8000
+#     (API_PORT changes the host port) with apps/api bind-mounted read-only, so saving a Python
+#     file under apps/api/app reloads the API without rebuilding the image. Docker Desktop on
+#     Windows and macOS does not deliver file-change events to the container, so the reloader
+#     polls (WATCHFILES_FORCE_POLLING). Rebuild only when pyproject.toml or uv.lock change:
+#     `docker compose -f infra/docker-compose.yml up --build`.
+#   - worker runs the same image and mount with `python -m app.workers` and does NOT reload;
+#     pick up a change with `docker compose -f infra/docker-compose.yml restart worker`.
+#   - Inside Compose the services reach `postgres:5432` and `redis:6379`; DATABASE_URL and
+#     REDIS_URL are overridden under `environment:` (the root .env keeps 127.0.0.1 for native dev).
+#     The database credentials in that URL come from POSTGRES_USER, POSTGRES_PASSWORD and
+#     POSTGRES_DB, read from the shell or infra/.env (defaults: the .env.example values). If you
+#     changed them in the root .env, start with `--env-file .env` as well.
 #
 # Changing a host port (bash):        POSTGRES_PORT=5433 docker compose -f infra/docker-compose.yml up -d postgres redis
 # Changing a host port (PowerShell):  $env:POSTGRES_PORT=5433; docker compose -f infra/docker-compose.yml up -d postgres redis
@@ -61,6 +82,109 @@ services:
       retries: 5
       start_period: 60s
       start_interval: 1s
+
+  # One-shot: applies migrations to the dev database, then exits. See the header.
+  migrate:
+    build:
+      context: ../apps/api
+      target: dev
+    image: mtg-stats-api:dev
+    command: ['python', '-m', 'app.scripts.migrate_dev']
+    restart: 'no'
+    env_file:
+      - path: ../.env
+        required: true
+    environment:
+      APP_ENV: ${APP_ENV:-dev}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-mtg_stats}:${POSTGRES_PASSWORD:-CHANGE_ME}@postgres:5432/${POSTGRES_DB:-mtg_stats}
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ../apps/api:/app:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: ../apps/api
+      target: dev
+    image: mtg-stats-api:dev
+    # --reload-dir limits the watch to the source; polling is for bind mounts on Docker Desktop.
+    command:
+      [
+        'uvicorn',
+        '--factory',
+        'app.main:create_app',
+        '--reload',
+        '--reload-dir',
+        '/app/app',
+        '--host',
+        '0.0.0.0',
+        '--port',
+        '8000',
+      ]
+    restart: unless-stopped
+    env_file:
+      - path: ../.env
+        required: true
+    environment:
+      APP_ENV: ${APP_ENV:-dev}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-mtg_stats}:${POSTGRES_PASSWORD:-CHANGE_ME}@postgres:5432/${POSTGRES_DB:-mtg_stats}
+      REDIS_URL: redis://redis:6379/0
+      WATCHFILES_FORCE_POLLING: 'true'
+    ports:
+      - '127.0.0.1:${API_PORT:-8000}:8000'
+    volumes:
+      - ../apps/api:/app:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      # No curl in the slim image; a Python one-liner against the readiness probe.
+      test:
+        [
+          'CMD',
+          'python',
+          '-c',
+          "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/api/v1/health/ready', timeout=3)",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+      start_interval: 1s
+
+  worker:
+    image: mtg-stats-api:dev
+    build:
+      context: ../apps/api
+      target: dev
+    command: ['python', '-m', 'app.workers']
+    restart: unless-stopped
+    # init: a proper PID 1 so SIGTERM reaches the worker. The grace period must exceed
+    # WORKER_SHUTDOWN_GRACE_SECONDS (default 30), or Docker SIGKILLs running jobs.
+    init: true
+    stop_grace_period: 45s
+    env_file:
+      - path: ../.env
+        required: true
+    environment:
+      APP_ENV: ${APP_ENV:-dev}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-mtg_stats}:${POSTGRES_PASSWORD:-CHANGE_ME}@postgres:5432/${POSTGRES_DB:-mtg_stats}
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ../apps/api:/app:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   postgres_data:

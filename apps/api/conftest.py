@@ -26,7 +26,7 @@ pytest_plugins = ["pytester"]
 
 DEFAULT_TEST_REDIS_URL = "redis://127.0.0.1:6379/15"
 
-# `app.main` builds `app = create_app()` at import time, which needs valid settings.
+# `create_app()` reads the settings, which need a valid environment.
 # Forced, not defaulted, so a shell with APP_ENV=dev cannot leak into the run.
 TEST_DATABASE_URL = resolve_test_database_url(os.environ)
 os.environ["APP_ENV"] = "test"
@@ -103,7 +103,7 @@ async def api_app(db_session: AppSession) -> AsyncIterator[FastAPI]:
     Mirrors the real dependency: commit on success (a savepoint release here), rollback on error,
     and never closes the shared session. Add the routes under test to the returned app.
     """
-    from app.main import create_app  # noqa: PLC0415  (import builds the app; env is set above)
+    from app.main import create_app  # noqa: PLC0415
 
     app = create_app()
 

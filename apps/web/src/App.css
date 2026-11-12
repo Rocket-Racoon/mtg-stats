@@ -231,3 +231,49 @@ button:focus-visible {
     scroll-behavior: auto !important;
   }
 }
+
+/* Error fallback and toasts (S-1.6.3). */
+.error-fallback {
+  margin: 2rem auto;
+  padding: 1rem;
+  inline-size: min(100% - 2rem, 36rem);
+  overflow-wrap: anywhere;
+}
+
+.toaster {
+  position: fixed;
+  inset-block-end: 1rem;
+  inset-inline-end: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  inline-size: min(100% - 2rem, 24rem);
+  z-index: 100;
+  /* The empty live regions stay in the DOM; do not let them block clicks on the page. */
+  pointer-events: none;
+}
+
+.toast-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  color: var(--fg);
+  background: var(--muted-bg);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+.toast-error {
+  border-color: var(--fg);
+  border-inline-start-width: 0.375rem;
+}

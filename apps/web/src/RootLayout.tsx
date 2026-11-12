@@ -4,7 +4,8 @@ import { Outlet, useLocation } from 'react-router';
 /**
  * Pathless root route above both shells (App and PublicLayout). It owns "move focus to #main on
  * pathname change" so focus survives a switch between layouts (a shell unmounting would otherwise
- * drop focus to <body>). S-1.6.3's providers and the root errorElement belong here too.
+ * drop focus to <body>). The root errorElement is set on this route in routes.tsx; the providers
+ * wrap RouterProvider in main.tsx.
  */
 export function RootLayout() {
   const { pathname } = useLocation();

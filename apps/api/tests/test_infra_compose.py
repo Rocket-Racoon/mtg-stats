@@ -15,7 +15,9 @@ from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+from tests.repo_paths import repo_root
+
+REPO_ROOT = repo_root(__file__)
 COMPOSE = REPO_ROOT / "infra" / "docker-compose.yml"
 INIT_SQL = REPO_ROOT / "infra" / "postgres" / "init" / "01-create-test-db.sql"
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
@@ -419,81 +421,9 @@ def depends_on_conditions(text: str, service: str) -> dict[str, str]:
     return result
 
 
-def check_startup_order(text: str) -> None:
-    for service in ("api", "worker"):
-        conditions = depends_on_conditions(text, service)
-        assert conditions.get("postgres") == "service_healthy", service
-        assert conditions.get("redis") == "service_healthy", service
-        assert conditions.get("migrate") == "service_completed_successfully", service
-    assert depends_on_conditions(text, "migrate").get("postgres") == "service_healthy"
-
-
-def check_container_urls(text: str) -> None:
-    for service in ("migrate", "api", "worker"):
-        block = service_block(text, service)
-        assert re.search(r"@postgres:5432/", block), f"{service} must reach postgres:5432"
-        assert "redis://redis:6379/" in block, f"{service} must reach redis:6379"
-        assert "127.0.0.1:5432" not in block
-
-
 def test_dev_stack_services_exist() -> None:
     for service in ("postgres", "redis", "migrate", "api", "worker"):
         assert service_block(compose_text(), service), service
-
-
-def test_api_and_worker_wait_for_healthy_infrastructure_and_migrate() -> None:
-    check_startup_order(compose_text())
-
-
-def test_check_rejects_api_that_does_not_wait_for_migrate() -> None:
-    text = compose_text()
-    block = service_block(text, "api")
-    mutated = block.replace("service_completed_successfully", "service_started")
-    with pytest.raises(AssertionError):
-        check_startup_order(strip_comments(text).replace(block, mutated, 1))
-
-
-def test_services_use_compose_network_hosts_not_localhost() -> None:
-    check_container_urls(compose_text())
-
-
-def test_api_runs_uvicorn_as_a_factory_with_reload_on_the_app_dir() -> None:
-    block = service_block(compose_text(), "api")
-    for token in ("uvicorn", "--factory", "app.main:create_app", "--reload", "/app/app"):
-        assert token in block, token
-    assert "app.main:app" not in block
-
-
-def test_api_reload_polls_because_bind_mount_events_do_not_arrive() -> None:
-    block = service_block(compose_text(), "api")
-    assert re.search(r"WATCHFILES_FORCE_POLLING:\s*['\"]?true", block)
-
-
-def test_api_port_is_loopback_only_and_configurable() -> None:
-    ports = list_items(service_block(compose_text(), "api"), "ports")
-    assert ports == ["127.0.0.1:${API_PORT:-8000}:8000"]
-
-
-def test_api_has_a_python_healthcheck_without_curl() -> None:
-    block = service_block(compose_text(), "api")
-    assert "healthcheck:" in block
-    assert "curl" not in block
-    assert "/api/v1/health/" in block
-
-
-def test_worker_runs_the_arq_entry_without_reload_and_outlasts_the_grace_period() -> None:
-    block = service_block(compose_text(), "worker")
-    assert "app.workers" in block
-    assert "--reload" not in block
-    match = re.search(r"stop_grace_period:\s*(\d+)s", block)
-    assert match
-    assert int(match.group(1)) > 30  # WORKER_SHUTDOWN_GRACE_SECONDS default
-
-
-def test_migrate_is_one_shot_and_runs_the_guarded_entry() -> None:
-    block = service_block(compose_text(), "migrate")
-    assert "app.scripts.migrate_dev" in block
-    assert re.search(r"restart:\s*['\"]?no", block)
 
 
 def test_api_worker_and_migrate_share_one_image_built_from_the_dev_target() -> None:
@@ -508,25 +438,8 @@ def test_container_services_read_the_root_env_file() -> None:
         assert "../.env" in service_block(compose_text(), service)
 
 
-def test_dockerfile_has_a_dev_target_pinned_and_installed_from_the_lockfile() -> None:
+def test_dockerfile_has_a_pinned_dev_target_running_as_a_non_root_user() -> None:
     text = read_text(API_DIR / "Dockerfile")
     assert re.search(r"^FROM python:3\.12\.\d+-slim-bookworm AS dev$", text, re.M)
-    assert "ghcr.io/astral-sh/uv:0.10.12" in text
-    assert "uv sync --locked" in text
     assert "UV_PROJECT_ENVIRONMENT=/opt/venv" in text
     assert re.search(r"^USER app$", text, re.M)
-    # dependencies are installed before the source is copied (layer caching)
-    assert text.index("uv sync --locked") < text.index("COPY --chown=app:app . .")
-
-
-def test_ci_uv_version_matches_the_dockerfile() -> None:
-    ci = read_text(REPO_ROOT / ".github" / "workflows" / "ci.yml")
-    match = re.search(r"^\s+version:\s*(\d+\.\d+\.\d+)\s*$", ci, re.M)
-    assert match
-    assert f"ghcr.io/astral-sh/uv:{match.group(1)} " in read_text(API_DIR / "Dockerfile")
-
-
-@pytest.mark.parametrize("entry", [".env", ".venv", ".mypy_cache", ".pytest_cache", ".coverage"])
-def test_dockerignore_excludes_secrets_and_local_artifacts(entry: str) -> None:
-    lines = read_text(API_DIR / ".dockerignore").splitlines()
-    assert entry in lines

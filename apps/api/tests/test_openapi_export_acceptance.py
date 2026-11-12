@@ -24,9 +24,14 @@ from app.core.openapi import (
 )
 from app.scripts import export_openapi
 from app.scripts.export_openapi import default_output, main
+from tests.repo_paths import repo_root
 
 API_DIR = Path(__file__).resolve().parents[1]
-REPO_ROOT = API_DIR.parents[1]
+REPO_ROOT = repo_root(__file__)
+needs_monorepo = pytest.mark.skipif(
+    not (REPO_ROOT / "pnpm-workspace.yaml").is_file(),
+    reason="needs the full monorepo checkout (the repo root files)",
+)
 OPERATION_ID_RE = re.compile(r"^[a-z][a-z0-9]*_[a-z0-9_]+$")
 
 
@@ -166,15 +171,18 @@ def test_bad_arguments_exit_with_code_2() -> None:
     assert info.value.code == 2
 
 
+@needs_monorepo
 def test_default_output_path_is_packages_api_client_openapi_json() -> None:
     assert default_output() == REPO_ROOT / "packages" / "api-client" / "openapi.json"
 
 
+@needs_monorepo
 def test_committed_spec_matches_the_current_app() -> None:
     assert default_output().is_file()
     assert main(["--output", str(default_output()), "--check"]) == 0
 
 
+@needs_monorepo
 def test_root_package_script_runs_the_export_from_apps_api() -> None:
     scripts = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))["scripts"]
     assert "app.scripts.export_openapi" in scripts["openapi:export"]
@@ -376,6 +384,7 @@ def test_nested_include_duplicate_message_shows_full_paths() -> None:
     assert "GET /api/v1/y/b" in str(info.value)
 
 
+@needs_monorepo
 def test_default_output_is_resolved_lazily() -> None:
     assert default_output().name == "openapi.json"
 

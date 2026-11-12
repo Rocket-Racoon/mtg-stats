@@ -17,6 +17,10 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
+# Entrypoint for api, worker and migrate: builds DATABASE_URL from the root .env's POSTGRES_*.
+# Copied outside /app so the dev bind mount cannot hide it.
+COPY --chmod=755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+
 RUN useradd --create-home --uid 1000 app \
     && mkdir /opt/venv /app \
     && chown app:app /opt/venv /app
@@ -25,8 +29,12 @@ USER app
 WORKDIR /app
 
 COPY --chown=app:app pyproject.toml uv.lock .python-version ./
-# Dev dependencies are included (the default group), so pytest and mypy run in the container.
-RUN uv sync --locked --no-install-project --no-cache
+# Dev dependencies are included (the default group). With the read-only dev bind mount, pytest
+# needs `-p no:cacheprovider --no-cov`; running the suite in the container is not supported yet
+# (the tests expect the monorepo layout). Bytecode is compiled into /opt/venv now, because
+# PYTHONDONTWRITEBYTECODE stops Python from caching it at runtime, and recompiling every
+# dependency on each reload or restart would blow the 5 s reload budget.
+RUN UV_COMPILE_BYTECODE=1 uv sync --locked --no-install-project --no-cache
 
 COPY --chown=app:app . .
 

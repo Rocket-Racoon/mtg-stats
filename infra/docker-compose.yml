@@ -16,19 +16,20 @@
 #     `docker compose -f infra/docker-compose.yml up --build`.
 #   - worker runs the same image and mount with `python -m app.workers` and does NOT reload;
 #     pick up a change with `docker compose -f infra/docker-compose.yml restart worker`.
-#   - Inside Compose the services reach `postgres:5432` and `redis:6379`; DATABASE_URL and
-#     REDIS_URL are overridden under `environment:` (the root .env keeps 127.0.0.1 for native dev).
-#     The database credentials in that URL come from POSTGRES_USER, POSTGRES_PASSWORD and
-#     POSTGRES_DB, read from the shell or infra/.env (defaults: the .env.example values). If you
-#     changed them in the root .env, start with `--env-file .env` as well.
+#   - Inside Compose the services reach `postgres:5432` and `redis:6379`. REDIS_URL is set under
+#     `environment:`. DATABASE_URL is built at container start by docker-entrypoint.sh from
+#     POSTGRES_USER, POSTGRES_PASSWORD and POSTGRES_DB, which env_file passes from the root .env
+#     (the same file the postgres container reads), so that file is the single source of the
+#     credentials. The root .env keeps its 127.0.0.1 URLs for native dev.
 #
 # Changing a host port (bash):        POSTGRES_PORT=5433 docker compose -f infra/docker-compose.yml up -d postgres redis
 # Changing a host port (PowerShell):  $env:POSTGRES_PORT=5433; docker compose -f infra/docker-compose.yml up -d postgres redis
 # (REDIS_PORT works the same way.) The API's database URL (S-1.3.3) must use the same port.
 #
 # Compose reads interpolation values from infra/.env (the project directory), not the
-# root .env, so credentials are passed with env_file instead of ${VAR}. Interpolation
-# is used only for non-secret values that have defaults (the ports).
+# root .env, so no credential is interpolated: the postgres, migrate, api and worker services
+# all take theirs from the root .env through env_file. Interpolation is used only for
+# non-secret values that have defaults (the ports and APP_ENV).
 #
 # The fixed project name means all git worktrees share one set of containers and volumes,
 # so `down -v` in any worktree wipes the shared dev database.
@@ -89,6 +90,7 @@ services:
       context: ../apps/api
       target: dev
     image: mtg-stats-api:dev
+    entrypoint: ['/usr/local/bin/docker-entrypoint.sh']
     command: ['python', '-m', 'app.scripts.migrate_dev']
     restart: 'no'
     env_file:
@@ -96,7 +98,6 @@ services:
         required: true
     environment:
       APP_ENV: ${APP_ENV:-dev}
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-mtg_stats}:${POSTGRES_PASSWORD:-CHANGE_ME}@postgres:5432/${POSTGRES_DB:-mtg_stats}
       REDIS_URL: redis://redis:6379/0
     volumes:
       - ../apps/api:/app:ro
@@ -109,6 +110,7 @@ services:
       context: ../apps/api
       target: dev
     image: mtg-stats-api:dev
+    entrypoint: ['/usr/local/bin/docker-entrypoint.sh']
     # --reload-dir limits the watch to the source; polling is for bind mounts on Docker Desktop.
     command:
       [
@@ -129,7 +131,6 @@ services:
         required: true
     environment:
       APP_ENV: ${APP_ENV:-dev}
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-mtg_stats}:${POSTGRES_PASSWORD:-CHANGE_ME}@postgres:5432/${POSTGRES_DB:-mtg_stats}
       REDIS_URL: redis://redis:6379/0
       WATCHFILES_FORCE_POLLING: 'true'
     ports:
@@ -163,6 +164,7 @@ services:
     build:
       context: ../apps/api
       target: dev
+    entrypoint: ['/usr/local/bin/docker-entrypoint.sh']
     command: ['python', '-m', 'app.workers']
     restart: unless-stopped
     # init: a proper PID 1 so SIGTERM reaches the worker. The grace period must exceed
@@ -174,7 +176,6 @@ services:
         required: true
     environment:
       APP_ENV: ${APP_ENV:-dev}
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-mtg_stats}:${POSTGRES_PASSWORD:-CHANGE_ME}@postgres:5432/${POSTGRES_DB:-mtg_stats}
       REDIS_URL: redis://redis:6379/0
     volumes:
       - ../apps/api:/app:ro

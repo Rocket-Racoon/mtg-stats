@@ -132,7 +132,11 @@ Full detail lives in @docs/architecture.md. The non-negotiables:
 - NEVER commit secrets, `.env` files or coverage artifacts. NEVER bypass the pre-commit hooks (`--no-verify`).
   - The hooks (`.pre-commit-config.yaml`, S-1.8.7) run on staged files: the secrets check (first, fail-fast), `detect-private-key`, `check-added-large-files` (500 KB), `end-of-file-fixer`, `ruff check --fix` and `ruff format`, Prettier and ESLint.
   - Never run `pre-commit install` inside an agent worktree: worktrees share one `.git/hooks`.
-- NEVER push directly to `main`. This is a convention, because GitHub Free can't enforce it (decision I1).
+- **Merge convention (S-1.8.4, CONTRIBUTING.md).** GitHub does NOT enforce any of this: GitHub Free has no branch protection on a private repo (decision I1). It holds by convention only.
+  - All work goes through a pull request.
+  - Merge only when the `api` and `ts` checks are green on the final head commit and `code-reviewer` has reviewed the diff.
+  - NEVER push directly to `main`, force-push `main` or delete `main`.
+  - The process guard workflow (`.github/workflows/process-guard.yml`) fails and opens a `Process bypass: <short SHA>` issue when a commit reaches `main` outside a merged pull request, or a pull request merges while a required check isn't green.
 - **Approved dependencies** are those in plan §8, ADR-0002 and the OPEN-QUESTIONS.md decisions log. Ask before adding anything else, and prefer the standard library.
 - The game event log is append-only: NEVER update or delete `game_events` rows. Corrections and undo are compensating events. The only exceptions are the audited `games.reassign_player` (guest merge) and `games.delete_playgroup_data` (playgroup deletion).
 - Every drag-and-drop interaction has a tap or keyboard alternative.

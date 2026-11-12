@@ -43,4 +43,6 @@ Merge with a merge commit (`gh pr merge --merge --match-head-commit <sha>`), so 
 - a pull request was merged while `api` or `ts` was red, still running or missing (a check that turned green only after the merge counts too);
 - `main` was force-pushed.
 
-It can't tell whether `code-reviewer` reviewed the diff. If it opens an issue, review the commit, fix anything wrong forward through a pull request, then close the issue with a note on what was done.
+All the commits of one push that came from no merged pull request share one issue, named by the newest of them. A commit of a stacked pull request counts as merged when the pull request merged into `main` contains it. If GitHub can't be asked (an API error or a rate limit), the run fails and says the push couldn't be verified; re-run it.
+
+It can't tell whether `code-reviewer` reviewed the diff. It also can't catch a push that changes or removes the guard itself (its workflow or `scripts/process_guard.py`), because that push's own copy is what runs. If it opens an issue, review the commit, fix anything wrong forward through a pull request, then close the issue with a note on what was done.

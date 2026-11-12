@@ -29,6 +29,7 @@ After cloning, install dependencies and the git hooks (required):
 ```bash
 uv sync --project apps/api       # Python deps
 pnpm install                     # TypeScript deps
+cp .env.example .env             # root .env (PowerShell: Copy-Item .env.example .env); edit CHANGE_ME values if you like
 pnpm hooks:install               # = uv run --frozen --project apps/api pre-commit install
 ```
 
@@ -39,6 +40,22 @@ Install the hook from the main checkout. Worktrees share one hooks directory, so
 Each worktree needs `pnpm install` before you commit TS, JSON, YAML or Markdown files covered by Prettier.
 
 **Never commit with `--no-verify`.** The `api` CI job re-runs the secrets check over every tracked file and fails the branch.
+
+## Run the backend
+
+With the root `.env` from Setup in place, run from the repo root:
+
+```bash
+docker compose -f infra/docker-compose.yml up              # postgres, redis, migrate, api, worker
+docker compose -f infra/docker-compose.yml up -d postgres redis   # infrastructure only, for native dev
+```
+
+- `api` and `worker` start only after Postgres and Redis are healthy and the one-shot `migrate` service has finished. `migrate` runs `alembic upgrade head` **only when `APP_ENV=dev`**; with any other value it exits non-zero without touching the database, and so `api` and `worker` do not start. Test it with `APP_ENV=prod docker compose -f infra/docker-compose.yml up` (bash).
+- The API is at `http://127.0.0.1:8000` (`API_PORT` changes the host port). `GET /api/v1/health/ready` returns 200 when the database and Redis are `ok`.
+- **Hot reload:** `apps/api` is bind-mounted into the containers, so saving a file under `apps/api/app` reloads the API within a few seconds, with no rebuild. The reloader polls, because Docker Desktop on Windows does not deliver file-change events. Rebuild only after changing `pyproject.toml` or `uv.lock`: `docker compose -f infra/docker-compose.yml up --build`.
+- The **worker does not reload**. After a change, run `docker compose -f infra/docker-compose.yml restart worker`.
+- Inside Compose the services use `postgres:5432` and `redis:6379`; the root `.env` keeps `127.0.0.1` URLs for native dev. The root `.env` is the single source of the database credentials: the containers build their `DATABASE_URL` from its `POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_DB`. The containers run as uid 1000 and read the read-only `apps/api` mount, so on Linux keep source files world-readable (umask 022, not 077).
+- **Native dev** (no API container; needs Postgres and Redis up): `pnpm dev:api` (uvicorn with `--factory app.main:create_app --reload`) and `pnpm dev:worker`. Without `--reload` on Windows, add `--loop asyncio:SelectorEventLoop`. Keep `127.0.0.1` (not `localhost`) in native-dev URLs.
 
 ## Verify
 

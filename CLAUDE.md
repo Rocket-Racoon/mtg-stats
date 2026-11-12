@@ -12,7 +12,8 @@ docker compose -f infra/docker-compose.yml up -d postgres redis
 pnpm hooks:install                        # pre-commit hooks (S-1.8.7); run once from the main checkout
 
 # Run
-pnpm dev:api                              # uv run uvicorn app.main:app --reload (apps/api)
+pnpm dev:api                              # uv run uvicorn --factory app.main:create_app --reload (apps/api)
+docker compose -f infra/docker-compose.yml up   # whole backend: postgres, redis, migrate (dev only), api (hot reload), worker
 pnpm dev:worker                           # uv run python -m app.workers (arq; SelectorEventLoop on Windows)
 pnpm dev:web                              # Vite dev server
 pnpm dev:mobile                           # Expo dev server

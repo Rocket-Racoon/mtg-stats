@@ -15,10 +15,18 @@ from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+from tests.repo_paths import repo_root
+
+REPO_ROOT = repo_root(__file__)
 COMPOSE = REPO_ROOT / "infra" / "docker-compose.yml"
 INIT_SQL = REPO_ROOT / "infra" / "postgres" / "init" / "01-create-test-db.sql"
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
+
+# Inside the API container only apps/api exists (no infra/, no .env.example): skip the whole file.
+pytestmark = pytest.mark.skipif(
+    not (REPO_ROOT / "pnpm-workspace.yaml").is_file() or not COMPOSE.is_file(),
+    reason="needs the full monorepo checkout (infra/ and the repo root files)",
+)
 
 PG_PORT = '"127.0.0.1:${POSTGRES_PORT:-5432}:5432"'
 REDIS_PORT = '"127.0.0.1:${REDIS_PORT:-6379}:6379"'
@@ -165,7 +173,8 @@ def check_ports_loopback(text: str) -> None:
 
 
 def check_no_hardcoded_password(text: str) -> None:
-    assert not re.search(r"POSTGRES_PASSWORD\s*[:=]", strip_comments(text))
+    # `${POSTGRES_PASSWORD:-CHANGE_ME}` is an interpolation with the allowed default, not a literal.
+    assert not re.search(r"(?<!\{)POSTGRES_PASSWORD\s*[:=]", strip_comments(text))
 
 
 def check_env_file(text: str) -> None:
@@ -385,3 +394,52 @@ def test_check_rejects_unsafe_durability_flags(flag: str) -> None:
     text = broken('"synchronous_commit=off"]', f'"synchronous_commit=off", "-c", "{flag}"]')
     with pytest.raises(AssertionError):
         check_unsafe_durability_absent(text)
+
+
+# ------------------------------------------------------- API and worker (S-1.3.2)
+
+API_DIR = REPO_ROOT / "apps" / "api"
+
+
+def depends_on_conditions(text: str, service: str) -> dict[str, str]:
+    """Map each `depends_on` entry of a service to its `condition` (long syntax only)."""
+    result: dict[str, str] = {}
+    current = ""
+    inside = False
+    for line in service_block(text, service).splitlines():
+        stripped = line.strip()
+        indent = len(line) - len(line.lstrip())
+        if stripped == "depends_on:":
+            inside = True
+            continue
+        if inside and indent <= 4 and stripped:
+            break
+        if inside and indent == 6 and stripped.endswith(":"):
+            current = stripped[:-1]
+        elif inside and stripped.startswith("condition:"):
+            result[current] = stripped.split(":", 1)[1].strip()
+    return result
+
+
+def test_dev_stack_services_exist() -> None:
+    for service in ("postgres", "redis", "migrate", "api", "worker"):
+        assert service_block(compose_text(), service), service
+
+
+def test_api_worker_and_migrate_share_one_image_built_from_the_dev_target() -> None:
+    for service in ("migrate", "api", "worker"):
+        block = service_block(compose_text(), service)
+        assert re.search(r"image:\s*mtg-stats-api:dev", block), service
+        assert re.search(r"target:\s*dev", block), service
+
+
+def test_container_services_read_the_root_env_file() -> None:
+    for service in ("migrate", "api", "worker"):
+        assert "../.env" in service_block(compose_text(), service)
+
+
+def test_dockerfile_has_a_pinned_dev_target_running_as_a_non_root_user() -> None:
+    text = read_text(API_DIR / "Dockerfile")
+    assert re.search(r"^FROM python:3\.12\.\d+-slim-bookworm AS dev$", text, re.M)
+    assert "UV_PROJECT_ENVIRONMENT=/opt/venv" in text
+    assert re.search(r"^USER app$", text, re.M)

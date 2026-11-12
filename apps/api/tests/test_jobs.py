@@ -7,7 +7,6 @@ in-process burst worker, so they need Redis but no subprocess.
 import asyncio
 import json
 import re
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -23,9 +22,10 @@ from app.core.logging import JsonFormatter, log_context
 from app.workers.registry import JOBS, build_functions
 from app.workers.settings import WorkerSettings
 from tests.jobs import JobQueue, run_job_in_process
+from tests.repo_paths import repo_root
 from tests.slow_worker import TEST_JOBS
 
-ARCHITECTURE = Path(__file__).resolve().parents[3] / "docs" / "architecture.md"
+ARCHITECTURE = repo_root(__file__) / "docs" / "architecture.md"
 
 
 async def _drain(queue: JobQueue) -> Worker:
@@ -111,6 +111,7 @@ def _documented_job_names() -> set[str]:
     return names
 
 
+@pytest.mark.skipif(not ARCHITECTURE.is_file(), reason="needs docs/architecture.md (monorepo)")
 def test_every_registered_job_is_listed_in_architecture_section_7() -> None:
     assert set(JOBS) <= _documented_job_names()
 

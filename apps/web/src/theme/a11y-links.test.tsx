@@ -7,10 +7,15 @@ import { fileURLToPath } from 'node:url';
 import { render } from '@testing-library/react';
 import { createMemoryRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { routes } from '../routes';
+import { useSessionStore } from '../session/store';
 import { CONTRAST_PAIRS, TOKENS, THEMES } from './tokens';
 import { contrastRatio } from '../../tests/contrast';
+
+beforeEach(() => {
+  useSessionStore.setState({ status: 'signed_in' }); // fake signed-in session (S-1.6.4)
+});
 
 const css = readFileSync(
   resolve(dirname(fileURLToPath(import.meta.url)), '../App.css'),

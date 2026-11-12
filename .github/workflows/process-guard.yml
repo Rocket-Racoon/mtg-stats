@@ -17,7 +17,7 @@ jobs:
   process-guard:
     name: process-guard
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: read

@@ -118,8 +118,10 @@ def pushed_commits(api: Api, repo: str, before: str, after: str) -> list[str]:
         shas.extend(batch)
         if len(shas) >= total or len(batch) < 100:
             break
-    if len(shas) != total:
-        raise RuntimeError(f"compare {before}...{after} listed {len(shas)} of {total} commits")
+    if len(set(shas)) != total or len(shas) != total:
+        raise RuntimeError(
+            f"compare {before}...{after} listed {len(set(shas))} distinct of {total} commits"
+        )
     return shas
 
 

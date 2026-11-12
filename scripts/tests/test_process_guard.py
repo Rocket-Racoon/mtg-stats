@@ -20,7 +20,7 @@ AFTER_MERGE = "2026-11-10T12:30:00Z"
 
 
 def sha(n: int) -> str:
-    return f"{n:x}".ljust(40, "c")
+    return f"{n:07x}".ljust(40, "c")  # unique, with distinct 7-char prefixes
 
 
 def run(

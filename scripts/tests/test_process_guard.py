@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
 from typing import Any
-from urllib.parse import unquote
 
 import process_guard
 import pytest
@@ -61,27 +62,43 @@ def pull(
 
 
 class FakeGitHub:
-    """Serves canned GitHub REST responses and records every call."""
+    """Serves canned GitHub REST responses (honouring ``page``) and records every call."""
 
     def __init__(self) -> None:
         self.commits: list[str] = []
+        self.total_commits: int | None = None
         self.pulls: dict[str, list[dict[str, Any]]] = {}
         self.pulls_after_attempt: dict[str, int] = {}
+        self.pull_commits: dict[int, list[str]] = {}
         self.checks: dict[str, list[dict[str, Any]]] = {}
         self.existing_titles: list[str] = []
+        self.fail_with: str | None = None
         self.calls: list[tuple[str, str]] = []
         self.created: list[dict[str, Any]] = []
         self.pull_lookups: dict[str, int] = {}
 
+    @staticmethod
+    def _page(items: list[Any], path: str) -> list[Any]:
+        match = re.search(r"[?&]page=(\d+)", path)
+        page = int(match.group(1)) if match else 1
+        return items[(page - 1) * 100 : page * 100]
+
     def __call__(self, path: str, *, method: str = "GET", payload: Any = None) -> Any:
         self.calls.append((method, path))
+        if self.fail_with is not None:
+            raise RuntimeError(self.fail_with)
         base = path.split("?", maxsplit=1)[0]
         if method == "POST":
             assert base == f"repos/{REPO}/issues"
             self.created.append(payload)
             return {"number": len(self.created)}
         if base.startswith(f"repos/{REPO}/compare/"):
-            return {"commits": [{"sha": s} for s in self.commits]}
+            total = len(self.commits) if self.total_commits is None else self.total_commits
+            batch = self._page(self.commits, path)
+            return {"total_commits": total, "commits": [{"sha": s} for s in batch]}
+        if base.startswith(f"repos/{REPO}/pulls/") and base.endswith("/commits"):
+            number = int(base.split("/")[-2])
+            return [{"sha": s} for s in self._page(self.pull_commits.get(number, []), path)]
         if base.endswith("/pulls"):
             s = base.split("/")[-2]
             self.pull_lookups[s] = self.pull_lookups.get(s, 0) + 1
@@ -90,16 +107,26 @@ class FakeGitHub:
             return self.pulls.get(s, [])
         if base.endswith("/check-runs"):
             s = base.split("/")[-2]
-            return {"check_runs": self.checks.get(s, [])}
-        if base == "search/issues":
-            query = unquote(path.split("q=")[1].split("&", maxsplit=1)[0])
-            return {"items": [{"title": t} for t in self.existing_titles if f'"{t}"' in query]}
+            return {"check_runs": self._page(self.checks.get(s, []), path)}
+        if base == f"repos/{REPO}/issues":
+            assert "state=all" in path
+            return self._page([{"title": t} for t in self.existing_titles], path)
         raise AssertionError(f"unexpected call {method} {path}")
 
     def merged_pr(self, commit: str, number: int, checks: list[dict[str, Any]], **kw: Any) -> None:
         p = pull(number, **kw)
         self.pulls.setdefault(commit, []).append(p)
         self.checks[p["head"]["sha"]] = checks
+
+
+class Sleeps:
+    """Counts the waits the guard asks for instead of sleeping."""
+
+    def __init__(self) -> None:
+        self.count = 0
+
+    def __call__(self, _: float) -> None:
+        self.count += 1
 
 
 def nosleep(_: float) -> None:
@@ -151,8 +178,112 @@ def test_association_is_retried_until_github_links_the_pull_request() -> None:
 def test_association_that_never_appears_is_a_bypass_after_retries() -> None:
     gh = FakeGitHub()
     gh.commits = [sha(1)]
-    assert len(check(gh)) == 1
-    assert gh.pull_lookups[sha(1)] > 1
+    sleeps = Sleeps()
+    bypasses = find_bypasses(gh, REPO, BEFORE, AFTER, forced=False, sleep=sleeps)
+    assert len(bypasses) == 1
+    assert gh.pull_lookups[sha(1)] == process_guard.ASSOCIATION_ATTEMPTS
+    assert sleeps.count == process_guard.ASSOCIATION_ATTEMPTS - 1
+
+
+def test_link_that_appears_on_the_second_pass_is_found_after_exactly_one_sleep() -> None:
+    gh = FakeGitHub()
+    gh.commits = [sha(1), sha(2)]
+    gh.merged_pr(sha(1), 7, green())
+    gh.merged_pr(sha(2), 8, green())
+    gh.pulls_after_attempt[sha(2)] = 1
+    sleeps = Sleeps()
+    assert find_bypasses(gh, REPO, BEFORE, AFTER, forced=False, sleep=sleeps) == []
+    assert sleeps.count == 1
+    assert gh.pull_lookups[sha(1)] == 1
+    assert gh.pull_lookups[sha(2)] == 2
+
+
+def test_many_unlinked_commits_wait_per_push_and_make_one_bypass() -> None:
+    gh = FakeGitHub()
+    gh.commits = [sha(i) for i in range(1, 41)]
+    sleeps = Sleeps()
+    bypasses = find_bypasses(gh, REPO, BEFORE, AFTER, forced=False, sleep=sleeps)
+    assert sleeps.count <= process_guard.ASSOCIATION_ATTEMPTS - 1
+    assert len(bypasses) == 1
+    assert bypasses[0].sha == sha(40)
+    assert bypasses[0].title == f"Process bypass: {sha(40)[:7]}"
+    for s in gh.commits:
+        assert s in bypasses[0].reason
+    assert "more" not in bypasses[0].reason
+
+
+def test_many_unlinked_commits_open_exactly_one_issue_naming_them_all() -> None:
+    gh = FakeGitHub()
+    gh.commits = [sha(i) for i in range(1, 41)]
+    bypasses = find_bypasses(gh, REPO, BEFORE, AFTER, forced=False, sleep=nosleep)
+    assert len(open_issues(gh, REPO, bypasses, "")) == 1
+    assert len(gh.created) == 1
+    assert all(s in gh.created[0]["body"] for s in gh.commits)
+
+
+def test_unlinked_commits_past_the_listing_cap_say_how_many_more() -> None:
+    gh = FakeGitHub()
+    total = process_guard.MAX_LISTED + 5
+    gh.commits = [sha(i) for i in range(1, total + 1)]
+    bypasses = find_bypasses(gh, REPO, BEFORE, AFTER, forced=False, sleep=nosleep)
+    assert len(bypasses) == 1
+    assert "and 5 more" in bypasses[0].reason
+    assert sha(1) in bypasses[0].reason
+    assert bypasses[0].sha == sha(total)
+
+
+def test_commit_linked_to_several_merged_pull_requests_uses_the_earliest_merge() -> None:
+    gh = FakeGitHub()
+    gh.commits = [sha(1)]
+    late = pull(8, merged_at="2026-11-10T13:00:00Z")
+    early = pull(7, merged_at=MERGED, merge=sha(1))
+    gh.pulls[sha(1)] = [late, early]
+    gh.checks[late["head"]["sha"]] = green()
+    gh.checks[early["head"]["sha"]] = [run("api", id=1, conclusion="failure"), run("ts", id=2)]
+    bypasses = check(gh)
+    assert len(bypasses) == 1
+    assert "#7" in bypasses[0].reason
+
+
+def test_stacked_pull_request_commit_listed_by_a_main_pull_request_is_not_a_bypass() -> None:
+    gh = FakeGitHub()
+    gh.commits = [sha(1), sha(2)]
+    gh.merged_pr(sha(1), 7, green())
+    gh.merged_pr(sha(2), 8, green(), base="feature")
+    gh.pull_commits[7] = [sha(1), sha(2)]
+    assert check(gh) == []
+
+
+def test_stacked_commit_not_listed_by_any_main_pull_request_is_still_a_bypass() -> None:
+    gh = FakeGitHub()
+    gh.commits = [sha(1), sha(2)]
+    gh.merged_pr(sha(1), 7, green())
+    gh.merged_pr(sha(2), 8, green(), base="feature")
+    gh.pull_commits[7] = [sha(1)]
+    assert [b.sha for b in check(gh)] == [sha(2)]
+
+
+def test_compare_over_100_commits_is_read_page_by_page() -> None:
+    gh = FakeGitHub()
+    gh.commits = [sha(i) for i in range(1, 151)]
+    assert process_guard.pushed_commits(gh, REPO, BEFORE, AFTER) == gh.commits
+    assert len([p for _, p in gh.calls if "/compare/" in p]) == 2
+
+
+def test_compare_listing_shorter_than_total_commits_raises() -> None:
+    gh = FakeGitHub()
+    gh.commits = [sha(i) for i in range(1, 11)]
+    gh.total_commits = 12
+    with pytest.raises(RuntimeError):
+        process_guard.pushed_commits(gh, REPO, BEFORE, AFTER)
+
+
+def test_required_check_run_on_the_second_page_is_found() -> None:
+    gh = FakeGitHub()
+    gh.commits = [sha(1)]
+    filler = [run(f"other-{i}", id=100 + i) for i in range(100)]
+    gh.merged_pr(sha(1), 7, [*filler, *green()])
+    assert check(gh) == []
 
 
 @pytest.mark.parametrize("name", ["api", "ts"])
@@ -284,6 +415,25 @@ def test_issue_has_exact_short_sha_title_and_full_sha_in_body() -> None:
     assert "https://example.test/run/1" in gh.created[0]["body"]
 
 
+def test_existing_title_from_the_issues_list_suppresses_the_issue() -> None:
+    gh = FakeGitHub()
+    gh.commits = [sha(1)]
+    gh.existing_titles = [f"Process bypass: {sha(1)[:7]}"]
+    assert open_issues(gh, REPO, check(gh), "") == []
+    assert gh.created == []
+    listing = [p for m, p in gh.calls if m == "GET" and p.startswith(f"repos/{REPO}/issues")]
+    assert listing
+    assert "state=all" in listing[0]
+
+
+def test_existing_title_on_a_later_issues_page_suppresses_the_issue() -> None:
+    gh = FakeGitHub()
+    gh.commits = [sha(1)]
+    gh.existing_titles = [f"other {i}" for i in range(100)] + [f"Process bypass: {sha(1)[:7]}"]
+    assert open_issues(gh, REPO, check(gh), "") == []
+    assert gh.created == []
+
+
 def test_no_duplicate_issue_when_one_with_the_title_exists() -> None:
     gh = FakeGitHub()
     gh.commits = [sha(1)]
@@ -299,9 +449,12 @@ def test_an_issue_with_a_different_title_does_not_suppress_a_new_one() -> None:
     assert len(open_issues(gh, REPO, check(gh), "")) == 1
 
 
-def test_one_issue_per_bypassing_commit() -> None:
+def test_one_issue_per_red_pull_request() -> None:
     gh = FakeGitHub()
     gh.commits = [sha(1), sha(2)]
+    red = [run("api", id=1, conclusion="failure"), run("ts", id=2)]
+    gh.merged_pr(sha(1), 7, red, merge=sha(1))
+    gh.merged_pr(sha(2), 8, red, merge=sha(2))
     open_issues(gh, REPO, check(gh), "")
     assert [c["title"] for c in gh.created] == [
         f"Process bypass: {sha(1)[:7]}",
@@ -351,3 +504,26 @@ def test_main_requires_its_arguments() -> None:
     with pytest.raises(SystemExit) as exc:
         main([], FakeGitHub())
     assert exc.value.code == 2
+
+
+def test_main_returns_2_and_writes_the_error_summary_when_gh_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    summary = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    gh = FakeGitHub()
+    gh.fail_with = "gh api failed"
+    assert main(args(), gh) == 2
+    assert "ERROR (could not verify this push)" in summary.read_text(encoding="utf-8")
+    assert gh.created == []
+
+
+def test_main_returns_2_when_the_compare_listing_is_short(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    gh = FakeGitHub()
+    gh.commits = [sha(1)]
+    gh.total_commits = 3
+    assert main(args(), gh) == 2
+    assert gh.created == []

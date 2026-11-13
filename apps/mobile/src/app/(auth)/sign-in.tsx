@@ -1,4 +1,4 @@
-import { Stack } from 'expo-router';
+import { Stack, router } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 import { AppButton } from '../../components/AppButton';
 import { useSession } from '../../session/SessionProvider';
@@ -14,6 +14,7 @@ export default function SignIn() {
       </Text>
       <Text>Placeholder: sign-in arrives with S-2.1.7.</Text>
       <AppButton label="Continue (placeholder)" onPress={signIn} testID="sign-in-continue" />
+      <AppButton label="About" onPress={() => router.push('/about')} testID="sign-in-about" />
     </View>
   );
 }

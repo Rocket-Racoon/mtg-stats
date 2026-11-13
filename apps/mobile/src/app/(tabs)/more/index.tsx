@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 import { AppButton } from '../../../components/AppButton';
 import { useSession } from '../../../session/SessionProvider';
@@ -10,6 +11,7 @@ export default function More() {
       <Text accessibilityRole="header" style={styles.title}>
         More
       </Text>
+      <AppButton label="About" onPress={() => router.push('/more/about')} testID="more-about" />
       <AppButton label="Sign out" onPress={signOut} testID="sign-out" />
     </View>
   );

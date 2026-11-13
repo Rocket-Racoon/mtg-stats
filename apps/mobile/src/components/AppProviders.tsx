@@ -4,7 +4,7 @@ import {
   createQueryClient,
   type QueryClient,
 } from '@mtg-stats/api-client';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { api } from '../api';
 import { env } from '../env';
 import { ConfigErrorScreen } from './ConfigErrorScreen';
@@ -23,10 +23,7 @@ export function AppProviders({
   /** Tests inject their own client; the default is created once with `createQueryClient()`. */
   queryClient?: QueryClient;
 }) {
-  const [created] = useState<QueryClient>(() => createQueryClient());
-  const queryClient = injected ?? created;
-  // Dropping the cache on unmount cancels TanStack's gc timers (they would keep Jest workers alive).
-  useEffect(() => () => created.clear(), [created]);
+  const [queryClient] = useState<QueryClient>(() => injected ?? createQueryClient());
   if (!env.ok || api === null) {
     return <ConfigErrorScreen problem={env.ok ? 'missing' : env.problem} />;
   }

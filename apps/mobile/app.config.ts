@@ -24,9 +24,14 @@ const API_BASE_URL_VAR = 'EXPO_PUBLIC_API_BASE_URL';
  * Expo only reads `apps/mobile/.env`. Mobile shares the single root `.env` with the API, so when
  * the variable is not already set (shell or `apps/mobile/.env` win) it is copied from the root
  * file into `process.env` here. Expo evaluates this config before Metro starts, and the Babel
- * inlining of `EXPO_PUBLIC_*` reads `process.env`, so the value reaches the bundle.
+ * inlining of `EXPO_PUBLIC_*` reads `process.env`, so the value reaches the bundle. Development
+ * profile only.
  */
 export function loadRootEnv(env: Record<string, string | undefined>, rootDir: string): void {
+  // Only the local development profile reads the dev machine's root .env. A preview or production
+  // build must get the value from its own environment (eas.json env, E-11), so a missing value
+  // shows the config error screen instead of baking a LAN address into the binary.
+  if (resolveBuildProfile(env) !== 'development') return;
   if (env[API_BASE_URL_VAR]?.trim()) return;
   const file = path.join(rootDir, '.env');
   if (!existsSync(file)) return;

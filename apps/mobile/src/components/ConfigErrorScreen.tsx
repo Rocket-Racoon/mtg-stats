@@ -21,8 +21,8 @@ export function ConfigErrorScreen({ problem = 'missing' }: { problem?: EnvProble
         .
       </Text>
       <Text style={styles.body}>
-        Example: {API_BASE_URL_VAR}=http://192.168.1.20:8000/api/v1 in the root .env file, then
-        restart Expo with a cleared cache (pnpm dev:mobile, then press shift+R or use --clear).
+        Example: {API_BASE_URL_VAR}=http://192.168.1.20:8000/api/v1 in the root .env file, then stop
+        Expo and run pnpm dev:mobile --clear.
       </Text>
     </ScrollView>
   );

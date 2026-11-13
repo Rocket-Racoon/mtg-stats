@@ -4,6 +4,9 @@ import type { ReactNode } from 'react';
 jest.setTimeout(60000);
 
 const VAR = 'EXPO_PUBLIC_API_BASE_URL';
+// RNTL auto cleanup is skipped here, so unmount explicitly (frees TanStack's gc timers).
+let lastRtl: typeof import('@testing-library/react-native') | undefined;
+afterEach(() => lastRtl?.cleanup());
 /** Loads the app modules fresh with the variable set to `value` (env.ts reads it at import). */
 function loadWithEnv(value: string | undefined) {
   const saved = process.env[VAR];
@@ -27,6 +30,7 @@ function loadWithEnv(value: string | undefined) {
     if (saved === undefined) delete process.env[VAR];
     else process.env[VAR] = saved;
   }
+  lastRtl = loaded.rtl;
   return loaded;
 }
 

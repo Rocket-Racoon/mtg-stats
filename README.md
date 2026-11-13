@@ -63,7 +63,7 @@ docker compose -f infra/docker-compose.yml up -d postgres redis   # infrastructu
 pnpm dev:mobile                  # Expo dev server (from the repo root)
 ```
 
-`EXPO_PUBLIC_API_BASE_URL` is **required**. Without it (or with a value that is not an `http(s)` URL) the app shows a "Configuration error" screen naming the variable. `apps/mobile/app.config.ts` copies it from the root `.env` (a value set in the shell or in `apps/mobile/.env` wins). The value is inlined into the bundle, so restart with a cleared cache after changing it: `pnpm dev:mobile --clear`.
+`EXPO_PUBLIC_API_BASE_URL` is **required**. Without it (or with a value that is not an `http(s)` URL) the app shows a "Configuration error" screen naming the variable. For the `development` profile `apps/mobile/app.config.ts` copies it from the root `.env`; `preview` and `production` builds never read that file and must get the value from the build's own environment (a missing value shows the error screen). A value set in the shell or in `apps/mobile/.env` wins. The value is inlined into the bundle, so restart with a cleared cache after changing it: `pnpm dev:mobile --clear`.
 
 The build profile comes from `EAS_BUILD_PROFILE`, else `APP_PROFILE` (`development`, `preview` or `production`), else `development`. In a dev build (a dev-server or dev-client bundle whose profile is not `production`), **More > About** shows the profile, the API base URL and the result of `GET /api/v1/health/ready`, with a retry button. Release builds show none of this.
 

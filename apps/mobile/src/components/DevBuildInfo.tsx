@@ -8,11 +8,14 @@ type Checks = { database?: unknown; redis?: unknown };
 
 function describeError(error: unknown): string {
   if (error instanceof ApiError) {
-    if (error.code === 'unexpected_response') {
+    if (error.code === 'unexpected_response' && error.status === 503) {
       const checks = (error.details?.checks ?? {}) as Checks;
       return `API not ready (database ${String(checks.database ?? '?')}, redis ${String(checks.redis ?? '?')})`;
     }
     if (error.code === 'network_error') return 'API unreachable (network error)';
+    if (error.code === 'unexpected_response') {
+      return `API error (HTTP ${error.status}, unexpected response)`;
+    }
     return `API error (${error.code})`;
   }
   return 'API check failed';
@@ -22,7 +25,7 @@ function describeError(error: unknown): string {
 export function DevBuildInfo() {
   const ready = useHealthReady();
   let status: string;
-  if (ready.isPending) status = 'API: checking...';
+  if (ready.isPending || ready.isFetching) status = 'API: checking...';
   else if (ready.isError) status = describeError(ready.error);
   else {
     const { database, redis } = ready.data.checks;

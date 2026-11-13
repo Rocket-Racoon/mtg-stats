@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { BackHandler, Linking, StyleSheet } from 'react-native';
 import { AboutScreen } from '../components/AboutScreen';
+import { AppProviders } from '../components/AppProviders';
 import { ExternalLink } from '../components/ExternalLink';
 import AuthAbout from '../app/(auth)/about';
 import MoreAbout from '../app/(tabs)/more/about';
@@ -25,8 +26,18 @@ const mockConstants = require('expo-constants').default as {
   expoConfig: { version?: string } | null;
 };
 
-/** Mounts AboutScreen inside an in-memory route tree (it uses Stack.Screen). */
-const renderAbout = () => lib.renderRouter({ index: AboutScreen });
+/**
+ * Mounts AboutScreen inside an in-memory route tree (it uses Stack.Screen). In dev builds About
+ * also calls the API (S-1.7.4), so it sits inside the same providers the root layout mounts.
+ */
+const renderAbout = () =>
+  lib.renderRouter({
+    index: () => (
+      <AppProviders>
+        <AboutScreen />
+      </AppProviders>
+    ),
+  });
 
 const APP_DIR = './src/app';
 
@@ -37,6 +48,15 @@ let addListener: jest.SpyInstance;
 
 beforeEach(() => {
   mockConstants.expoConfig = { version: '4.5.6' };
+  // The dev-build readiness check (S-1.7.4) must not hit the network.
+  jest
+    .spyOn(globalThis, 'fetch')
+    .mockResolvedValue(
+      new Response(
+        JSON.stringify({ status: 'ok', version: 'dev', checks: { database: 'ok', redis: 'ok' } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
   backHandlers = [];
   const original = BackHandler.addEventListener.bind(BackHandler);
   addListener = jest.spyOn(BackHandler, 'addEventListener').mockImplementation((name, handler) => {

@@ -57,6 +57,29 @@ docker compose -f infra/docker-compose.yml up -d postgres redis   # infrastructu
 - Inside Compose the services use `postgres:5432` and `redis:6379`; the root `.env` keeps `127.0.0.1` URLs for native dev. The root `.env` is the single source of the database credentials: the containers build their `DATABASE_URL` from its `POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_DB`. The containers run as uid 1000 and read the read-only `apps/api` mount, so on Linux keep source files world-readable (umask 022, not 077).
 - **Native dev** (no API container; needs Postgres and Redis up): `pnpm dev:api` (uvicorn with `--factory app.main:create_app --reload`) and `pnpm dev:worker`. Without `--reload` on Windows, add `--loop asyncio:SelectorEventLoop`. Keep `127.0.0.1` (not `localhost`) in native-dev URLs.
 
+## Run the mobile app
+
+```bash
+pnpm dev:mobile                  # Expo dev server (from the repo root)
+```
+
+`EXPO_PUBLIC_API_BASE_URL` is **required**. Without it (or with a value that is not an `http(s)` URL) the app shows a "Configuration error" screen naming the variable. For the `development` profile `apps/mobile/app.config.ts` copies it from the root `.env`; `preview` and `production` builds never read that file and must get the value from the build's own environment (a missing value shows the error screen). A value set in the shell or in `apps/mobile/.env` wins. The value is inlined into the bundle, so restart with a cleared cache after changing it: `pnpm dev:mobile --clear`.
+
+The build profile comes from `EAS_BUILD_PROFILE`, else `APP_PROFILE` (`development`, `preview` or `production`), else `development`. In a dev build (a dev-server or dev-client bundle whose profile is not `production`), **More > About** shows the profile, the API base URL and the result of `GET /api/v1/health/ready`, with a retry button. Release builds show none of this.
+
+### Test on a phone
+
+`localhost` and `127.0.0.1` on a phone are the phone itself, not your computer. The API and Compose publish on `127.0.0.1` only, so to reach the API from a physical Android phone on the same Wi-Fi:
+
+1. Start Postgres and Redis: `docker compose -f infra/docker-compose.yml up -d postgres redis`.
+2. Start the API on all interfaces: `pnpm dev:api:lan` (same as `pnpm dev:api` with `--host 0.0.0.0`). **This exposes the dev API to everyone on your network; use it only on a network you trust.** Do not also run the Compose `api` service (both use port 8000). On Windows, allow Python/uvicorn through the firewall on a private network when the prompt appears.
+3. Find your computer's LAN IP: Windows `ipconfig` (the IPv4 Address of the Wi-Fi adapter); macOS `ipconfig getifaddr en0` (Wi-Fi). Check it from the phone's browser: `http://<lan-ip>:8000/api/v1/health/ready`.
+4. In the root `.env` set `EXPO_PUBLIC_API_BASE_URL=http://<lan-ip>:8000/api/v1`.
+5. Run `pnpm dev:mobile --clear` and open the app on the phone with Expo Go (scan the QR code) or a development build. The computer and phone must be on the same network.
+6. Open **More > About**: the API line should read "API: reachable (database ok, redis ok)".
+
+For the Android emulator use `http://10.0.2.2:8000/api/v1` (the emulator's alias for the host) and the normal `pnpm dev:api`.
+
 ## Verify
 
 `pnpm verify` is the local gate; CI runs the same commands, plus the web production build (locally: `VITE_API_BASE_URL=http://localhost:8000/api/v1 pnpm --filter @mtg-stats/web build`). It runs twelve steps in order and stops at the first failure, printing `verify: FAILED at step "<name>"` and exiting non-zero:

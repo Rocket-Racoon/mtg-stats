@@ -1,5 +1,6 @@
 import { Stack } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { AppProviders } from '../components/AppProviders';
 import { SessionProvider, useSession } from '../session/SessionProvider';
 
 export function RootNavigator() {
@@ -27,9 +28,11 @@ export function RootNavigator() {
 export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <SessionProvider>
-        <RootNavigator />
-      </SessionProvider>
+      <AppProviders>
+        <SessionProvider>
+          <RootNavigator />
+        </SessionProvider>
+      </AppProviders>
     </GestureHandlerRootView>
   );
 }

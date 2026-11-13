@@ -15,11 +15,9 @@ describe('Play tab screen (S-1.7.1 AC4 render smoke)', () => {
     expect(text).toHaveTextContent(/game-core/);
   });
 
-  it('renders the API base URL', async () => {
+  it('does not show the API base URL (it lives in the dev-only About section, S-1.7.4)', async () => {
     await render(<Index />);
-    const url = screen.getByTestId('api-base-url');
-    expect(url).toBeTruthy();
-    expect(url).toHaveTextContent(/\/api\/v1$/);
+    expect(screen.queryByTestId('api-base-url')).toBeNull();
   });
 
   it('shows the gesture test link in dev', async () => {

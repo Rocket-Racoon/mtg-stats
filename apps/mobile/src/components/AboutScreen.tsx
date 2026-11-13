@@ -7,6 +7,8 @@ import {
 import Constants from 'expo-constants';
 import { Stack } from 'expo-router';
 import { ScrollView, StyleSheet, Text } from 'react-native';
+import { isDevBuild } from '../buildInfo';
+import { DevBuildInfo } from './DevBuildInfo';
 import { ExternalLink } from './ExternalLink';
 
 /** App version from the Expo config (`version` in app.json); "unknown" if the config has none. */
@@ -47,7 +49,8 @@ export function AboutScreen() {
       <Notice segments={FAN_CONTENT_DISCLAIMER} testID="fan-content-notice" />
       <Notice segments={SCRYFALL_CREDIT} testID="scryfall-credit" />
       <Text style={styles.body}>{SCRYFALL_IMAGES_NOTE}</Text>
-      {/* S-1.7.4 adds the build profile and API URL here in dev builds. */}
+      {/* Dev builds only (S-1.7.4): build profile, API URL and readiness; release builds omit it. */}
+      {isDevBuild() ? <DevBuildInfo /> : null}
     </ScrollView>
   );
 }

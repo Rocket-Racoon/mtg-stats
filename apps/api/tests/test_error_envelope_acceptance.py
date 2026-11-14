@@ -77,7 +77,12 @@ def capture_logs() -> Iterator[_Capture]:
 
 
 def _build(env: str = "test", origins: str = "") -> FastAPI:
-    settings = Settings(APP_ENV=env, DATABASE_URL=DB_URL, CORS_ALLOWED_ORIGINS=origins)
+    settings = Settings(
+        APP_ENV=env,
+        DATABASE_URL=DB_URL,
+        PUBLIC_WEB_URL="https://app.example.com",  # prod requires https
+        CORS_ALLOWED_ORIGINS=origins,
+    )
     app = create_app(settings)
 
     @app.get("/p/401")

@@ -155,6 +155,10 @@ describe('the api job', () => {
     expect(env).toMatch(/^ {6}REDIS_URL:\s*redis:\/\/\S+/m);
   });
 
+  it('sets PUBLIC_WEB_URL (required by Settings, S-1.6.7) in the job env', () => {
+    expect(jobBlock('env')).toMatch(/^ {6}PUBLIC_WEB_URL:\s*https?:\/\/\S+\s*$/m);
+  });
+
   it('gives both services a health check so steps wait for them', () => {
     const services = jobBlock('services');
     expect(block(services, 'postgres', 6).join('\n')).toContain('--health-cmd');

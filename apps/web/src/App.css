@@ -277,3 +277,18 @@ button:focus-visible {
   border-color: var(--fg);
   border-inline-start-width: 0.375rem;
 }
+
+/* "Open in app" link (S-1.6.7): only rendered on Android browsers, so the 44px target is unconditional. */
+.open-in-app,
+.open-in-app:visited {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0.5rem 1rem;
+  border-radius: 0.25rem;
+  background: var(--accent);
+  color: var(--on-accent);
+  text-decoration: none;
+}

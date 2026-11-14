@@ -45,6 +45,7 @@ class Settings(BaseSettings):
         default=30, ge=0, validation_alias="WORKER_SHUTDOWN_GRACE_SECONDS"
     )
     scheduler_enabled: bool = Field(default=True, validation_alias="SCHEDULER_ENABLED")
+    public_web_url: str = Field(validation_alias="PUBLIC_WEB_URL")
     cors_allowed_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=list, validation_alias="CORS_ALLOWED_ORIGINS"
     )
@@ -58,6 +59,11 @@ class Settings(BaseSettings):
     @classmethod
     def _check_redis_url(cls, value: str) -> str:
         return _check_url(value, REDIS_URL_SCHEMES, "must start with redis:// or rediss://")
+
+    @field_validator("public_web_url")
+    @classmethod
+    def _check_public_web_url(cls, value: str) -> str:
+        return _normalise_public_web_url(value)
 
     @field_validator("git_sha")
     @classmethod
@@ -75,6 +81,12 @@ class Settings(BaseSettings):
     @classmethod
     def _check_origins(cls, value: list[str]) -> list[str]:
         return [_normalise_origin(origin) for origin in value]
+
+    @model_validator(mode="after")
+    def _prod_requires_https_web_url(self) -> Self:
+        if self.app_env == "prod" and not self.public_web_url.startswith("https://"):
+            raise ValueError("PUBLIC_WEB_URL must use https:// when APP_ENV=prod")
+        return self
 
     @model_validator(mode="after")
     def _dev_allows_web_origin(self) -> Self:
@@ -119,6 +131,31 @@ def _normalise_origin(origin: str) -> str:
     if port == {"http": 80, "https": 443}[scheme]:
         port = None
     return f"{scheme}://{host}" + (f":{port}" if port is not None else "")
+
+
+def _normalise_public_web_url(value: str) -> str:
+    """Validate ``PUBLIC_WEB_URL`` and return it without trailing slashes.
+
+    Accepts ``http(s)://host[:port][/path-prefix]``; rejects userinfo, query, fragment, whitespace
+    and backslashes (browsers read a backslash as a slash, so it would hide a path inside the
+    host). Scheme and host are lowercased; the path keeps its case. The message never echoes
+    the value.
+    """
+    msg = (
+        "must be an http(s) URL with a host, an optional port and path, "
+        "and no credentials, query or fragment"
+    )
+    if any(ch in value for ch in "?#@\\") or any(ch.isspace() for ch in value):
+        raise ValueError(msg)
+    try:
+        parts = urlsplit(value)
+        parts.port  # noqa: B018  (raises ValueError on an invalid port)
+    except ValueError:
+        raise ValueError(msg) from None
+    if parts.scheme not in {"http", "https"} or not parts.hostname:
+        raise ValueError(msg)
+    # Canonical form: lowercase scheme and host (no userinfo is possible here), path kept as given.
+    return f"{parts.scheme}://{parts.netloc.lower()}{parts.path}".rstrip("/")
 
 
 def find_env_file() -> Path | None:

@@ -31,9 +31,10 @@ _env_path: list[Path] = []
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[None]:
     """Start from an empty environment and never read a real ``.env``."""
-    for name in ("APP_ENV", "DATABASE_URL", "REDIS_URL", "CORS_ALLOWED_ORIGINS"):
+    for name in ("APP_ENV", "DATABASE_URL", "REDIS_URL", "CORS_ALLOWED_ORIGINS", "PUBLIC_WEB_URL"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("REDIS_URL", REDIS_URL)
+    monkeypatch.setenv("PUBLIC_WEB_URL", "https://app.example.com")
     env_path = tmp_path / ".env"
     _env_path.append(env_path)
     monkeypatch.setattr(config, "find_env_file", lambda: env_path if env_path.is_file() else None)
@@ -435,7 +436,12 @@ def test_lowercase_app_env_variable_is_not_honoured(monkeypatch: pytest.MonkeyPa
 def test_field_names_are_not_read_as_env_vars_on_any_os(monkeypatch: pytest.MonkeyPatch) -> None:
     # A plain dict is case-sensitive on every OS (pydantic-settings reads ``os.environ`` at call
     # time), so this closes the lowercase field-name lookup even on Windows.
-    lowercase = {"app_env": "prod", "database_url": DB_URL, "redis_url": REDIS_URL}
+    lowercase = {
+        "app_env": "prod",
+        "database_url": DB_URL,
+        "redis_url": REDIS_URL,
+        "public_web_url": "https://app.example.com",
+    }
     monkeypatch.setattr(os, "environ", lowercase)
     with pytest.raises(ValidationError, match="APP_ENV"):
         load_settings()

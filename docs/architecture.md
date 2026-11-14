@@ -233,7 +233,7 @@ Each row is a need from the backlog that would otherwise require an upward call.
 - **Money**: `{amount: "12.34", currency: "USD"}` as a decimal string. Each user picks one currency, USD or EUR, and nothing is ever converted.
 - **Links** (S-1.6.7, which refines decision B6):
   - Shareable links are built on the server only, with `app/core/links.py` `public_link(kind, value)`, which returns `<PUBLIC_WEB_URL>/<kind>/<value>` for `invite`, `reset` and `join`.
-  - The public pages show an `OpenInAppButton` that links to `mtgstats://<kind>/<value>` on mobile browsers.
+  - The public pages show an `OpenInAppButton` that links to `mtgstats://<kind>/<value>` on Android browsers only, while the native app is Android-only (decision on #38).
   - The mobile app uses `mtgstats://` for in-app navigation.
   - Universal and App Links replace the button in Phase 5 (S-11.5.6). Native is Android only for now, so in practice that means Android App Links.
 - **CORS**: only `CORS_ALLOWED_ORIGINS` (S-1.4.1). In `dev`, the web dev server origin is allowed.

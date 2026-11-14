@@ -24,6 +24,7 @@ from tests.statement_counter import StatementCounter
 
 pytest_plugins = ["pytester"]
 
+TEST_PUBLIC_WEB_URL = "http://localhost:5173"
 DEFAULT_TEST_REDIS_URL = "redis://127.0.0.1:6379/15"
 
 # `create_app()` reads the settings, which need a valid environment.
@@ -32,6 +33,8 @@ TEST_DATABASE_URL = resolve_test_database_url(os.environ)
 os.environ["APP_ENV"] = "test"
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 os.environ["REDIS_URL"] = os.environ.get("TEST_REDIS_URL", "").strip() or DEFAULT_TEST_REDIS_URL
+# Forced for the same reason: link assertions must not depend on the shell.
+os.environ["PUBLIC_WEB_URL"] = TEST_PUBLIC_WEB_URL
 
 if sys.platform == "win32":
     # psycopg's async mode cannot run on the default Proactor loop.

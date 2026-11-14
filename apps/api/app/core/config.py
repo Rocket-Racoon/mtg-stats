@@ -152,7 +152,8 @@ def _normalise_public_web_url(value: str) -> str:
         raise ValueError(msg) from None
     if parts.scheme not in {"http", "https"} or not parts.hostname:
         raise ValueError(msg)
-    return value.rstrip("/")
+    # Canonical form: lowercase scheme and host (no userinfo is possible here), path kept as given.
+    return f"{parts.scheme}://{parts.netloc.lower()}{parts.path}".rstrip("/")
 
 
 def find_env_file() -> Path | None:

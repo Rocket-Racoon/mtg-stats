@@ -29,8 +29,8 @@ AWKWARD = [
     "%2F",
     "a+b",
     "a&b=c",
-    "..",
     "../..",
+    "...",
     "a/b/c",
     "with space",
     "a?b#c",
@@ -77,10 +77,16 @@ def test_percent_plus_ampersand_equals_and_slash_are_encoded(value: str, encoded
     assert public_link("invite", value, settings=_settings(BASE)) == f"{BASE}/invite/{encoded}"
 
 
-def test_dot_dot_value_stays_a_single_path_segment() -> None:
-    link = public_link("join", "..", settings=_settings(BASE))
+@pytest.mark.parametrize("value", [".", ".."])
+def test_dot_segment_values_are_rejected(value: str) -> None:
+    with pytest.raises(ValueError, match="dot segment"):
+        public_link("join", value, settings=_settings(BASE))
+
+
+def test_slash_separated_dots_stay_a_single_path_segment() -> None:
+    link = public_link("join", "../..", settings=_settings(BASE))
+    assert link == f"{BASE}/join/..%2F.."
     assert urlsplit(link).path.count("/") == 2
-    assert unquote(link.rsplit("/", 1)[1]) == ".."
 
 
 def test_link_uses_the_configured_value_not_a_constant() -> None:
@@ -134,6 +140,12 @@ def test_https_is_accepted_in_prod() -> None:
     assert _settings(BASE, env="prod").public_web_url == BASE
 
 
+def test_uppercase_scheme_and_host_are_canonicalised_and_accepted_in_prod() -> None:
+    settings = _settings("HTTPS://App.Example.com/", env="prod")
+    assert settings.public_web_url == BASE
+    assert public_link("join", "x", settings=settings) == f"{BASE}/join/x"
+
+
 # ---- static guards ----------------------------------------------------------------------------
 
 _SOURCE_FILES = sorted(
@@ -145,7 +157,7 @@ _SETTINGS_SUPPLIERS = {Path("scripts/export_openapi.py")}
 _LINKS = Path("core/links.py")
 
 
-def _is_public_web_url_ref(node: ast.AST) -> bool:
+def _is_public_web_url_ref(node: ast.AST, docs: set[int] | None = None) -> bool:
     if isinstance(node, ast.Attribute):
         return node.attr == "public_web_url"
     if isinstance(node, ast.Name):
@@ -153,8 +165,16 @@ def _is_public_web_url_ref(node: ast.AST) -> bool:
     if isinstance(node, ast.keyword):
         return node.arg == "public_web_url"
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        if docs and id(node) in docs:
+            return False
         return "PUBLIC_WEB_URL" in node.value or "public_web_url" in node.value
     return False
+
+
+def _has_public_web_url_ref(source: str) -> bool:
+    tree = ast.parse(source)
+    docs = _docstring_ids(tree)
+    return any(_is_public_web_url_ref(node, docs) for node in ast.walk(tree))
 
 
 def _docstring_ids(tree: ast.AST) -> set[int]:
@@ -195,8 +215,7 @@ def test_only_config_and_links_touch_public_web_url() -> None:
     for path in _SOURCE_FILES:
         if path.relative_to(APP_DIR) in _DEFINERS | _SETTINGS_SUPPLIERS:
             continue
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        if any(_is_public_web_url_ref(node) for node in ast.walk(tree)):
+        if _has_public_web_url_ref(path.read_text(encoding="utf-8")):
             offenders.append(str(path.relative_to(APP_DIR)))
     assert offenders == []
 
@@ -243,6 +262,10 @@ def test_public_web_url_guard_catches_a_read_but_not_a_comment() -> None:
     assert not any(
         _is_public_web_url_ref(n) for n in ast.walk(ast.parse("# public_web_url\nx = 1"))
     )
+    doc = 'def f():\n    """Builds {PUBLIC_WEB_URL}/invite/{token}."""\n    return 1\n'
+    assert not _has_public_web_url_ref(doc)
+    assert _has_public_web_url_ref(doc + 'URL = "PUBLIC_WEB_URL"\n')
+    assert _has_public_web_url_ref(doc + "x = s.public_web_url\n")
 
 
 def test_committed_openapi_spec_offers_no_mtgstats_link() -> None:

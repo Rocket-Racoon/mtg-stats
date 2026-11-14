@@ -4,7 +4,7 @@ import { PlaceholderPage } from './Placeholder';
 
 /**
  * Public landing page for /invite/*, /reset/* and /join/* (S-1.6.7). A placeholder until S-2.1.6,
- * S-2.1.9 and S-6.2.3; it already offers "Open in app" on mobile browsers. The router decodes the
+ * S-2.1.9 and S-6.2.3; it already offers "Open in app" on Android browsers. The router decodes the
  * splat and the button re-encodes it.
  */
 export function SharedLinkPage({ kind, title }: { kind: LinkKind; title: string }) {

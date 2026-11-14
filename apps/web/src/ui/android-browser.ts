@@ -1,4 +1,7 @@
-/** The parts of `navigator` that Android detection reads; tests pass fakes. */
+/**
+ * The parts of `navigator` that Android detection reads; tests pass fakes. `platform` and
+ * `maxTouchPoints` aren't read today; they stay for iOS detection once there's an iOS app.
+ */
 export interface NavigatorLike {
   userAgent?: string;
   platform?: string;

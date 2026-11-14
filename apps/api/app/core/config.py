@@ -136,14 +136,16 @@ def _normalise_origin(origin: str) -> str:
 def _normalise_public_web_url(value: str) -> str:
     """Validate ``PUBLIC_WEB_URL`` and return it without trailing slashes.
 
-    Accepts ``http(s)://host[:port][/path-prefix]``; rejects userinfo, query, fragment and
-    whitespace. The message never echoes the value.
+    Accepts ``http(s)://host[:port][/path-prefix]``; rejects userinfo, query, fragment, whitespace
+    and backslashes (browsers read a backslash as a slash, so it would hide a path inside the
+    host). Scheme and host are lowercased; the path keeps its case. The message never echoes
+    the value.
     """
     msg = (
         "must be an http(s) URL with a host, an optional port and path, "
         "and no credentials, query or fragment"
     )
-    if any(ch in value for ch in "?#@") or any(ch.isspace() for ch in value):
+    if any(ch in value for ch in "?#@\\") or any(ch.isspace() for ch in value):
         raise ValueError(msg)
     try:
         parts = urlsplit(value)

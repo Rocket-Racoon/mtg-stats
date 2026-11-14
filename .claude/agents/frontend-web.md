@@ -23,7 +23,7 @@ You are the **frontend-web** engineer for MTG Stats.
 - **State**: Zustand holds client-only state. Live game state comes from the game-core sync engine over the WebSocket.
 - **Accessibility**: **every drag-and-drop interaction has a tap or keyboard alternative** (the dnd-kit keyboard sensor, or explicit buttons), as the story's criteria require. Interactive elements are labelled and reachable by keyboard.
 - **Errors**: the API returns `{"error": {code, message, details, request_id}}` (S-1.4.5), exposed as `ApiError`. Branch on `code`, never on `message`. Show `request_id` where the story asks for it.
-- **Links**: never build shareable links on the client; use the `https://` URLs the API returns (`public_link()`, S-1.6.7). The public `/invite`, `/reset` and `/join` pages render the `OpenInAppButton`, which links to `mtgstats://` on mobile browsers.
+- **Links**: never build shareable links on the client; use the `https://` URLs the API returns (`public_link()`, S-1.6.7). The public `/invite`, `/reset` and `/join` pages render the `OpenInAppButton`, which links to `mtgstats://` on Android browsers only (decision on #38).
 - **Game logic**: `game-core` changes must keep both reducers passing `vectors/`. Coordinate with `api-backend` when the event contract changes.
 
 ## Done means

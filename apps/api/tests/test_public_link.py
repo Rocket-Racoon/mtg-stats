@@ -92,6 +92,11 @@ def test_prod_rejects_http() -> None:
         _settings("http://app.example.com", env="prod")
 
 
+def test_scheme_and_host_are_lowercased_but_path_prefix_case_is_kept() -> None:
+    settings = _settings("HTTPS://App.Example.com/MTG/", env="prod")
+    assert settings.public_web_url == "https://app.example.com/MTG"
+
+
 def test_prod_accepts_https() -> None:
     assert _settings("https://app.example.com", env="prod").public_web_url.startswith("https://")
 
@@ -113,6 +118,7 @@ def test_dev_and_test_accept_http(env: str) -> None:
         "https://app.example.com/#secret",
         "https://app.example.com:notaport",
         "https://app .example.com/secret",
+        "https://app.example.com\\secret",
     ],
 )
 def test_bad_urls_fail_without_echoing_the_value(bad: str) -> None:

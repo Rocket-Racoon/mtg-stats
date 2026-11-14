@@ -1,5 +1,5 @@
 // S-1.6.7 acceptance (AC2, AC3): the invite, reset and join pages through the real route table,
-// signed out, on mobile and desktop navigators. Complements ui/OpenInAppButton.test.tsx.
+// signed out, on Android, iOS and desktop navigators. Complements ui/OpenInAppButton.test.tsx.
 import { render, screen, within } from '@testing-library/react';
 import { createMemoryRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
@@ -8,7 +8,7 @@ import { routes } from '../routes';
 import { PUBLIC_PATHS } from '../session/public-paths';
 import { useSessionStore } from '../session/store';
 import { LINK_KINDS, OpenInAppButton, type LinkKind } from '../ui/OpenInAppButton';
-import { isMobileBrowser, type NavigatorLike } from '../ui/mobile-browser';
+import { isAndroidBrowser, type NavigatorLike } from '../ui/android-browser';
 
 const ANDROID: NavigatorLike = {
   userAgent:
@@ -71,35 +71,43 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
 });
+const ANDROID_TABLET: NavigatorLike = {
+  userAgent:
+    'Mozilla/5.0 (Linux; Android 14; SM-X710) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+  platform: 'Linux armv81',
+  maxTouchPoints: 5,
+  userAgentData: { mobile: false },
+};
 
-describe('desktop detection', () => {
+describe('Android detection', () => {
   it.each<[string, NavigatorLike]>([
-    ['Windows Chrome', WINDOWS_CHROME],
-    ['macOS Safari without touch', MAC_SAFARI],
-    ['Linux Firefox', LINUX_FIREFOX],
-  ])('treats %s as a desktop browser', (_name, nav) => {
-    expect(isMobileBrowser(nav)).toBe(false);
-  });
-
-  it.each<[string, NavigatorLike]>([
-    ['Android Chrome', ANDROID],
     ['iPhone Safari', IPHONE],
     ['iPad', IPAD],
     ['iPadOS in desktop mode', IPADOS_DESKTOP_MODE],
-  ])('treats %s as a mobile browser', (_name, nav) => {
-    expect(isMobileBrowser(nav)).toBe(true);
+    ['Windows Chrome', WINDOWS_CHROME],
+    ['macOS Safari without touch', MAC_SAFARI],
+    ['Linux Firefox', LINUX_FIREFOX],
+  ])('does not treat %s as Android', (_name, nav) => {
+    expect(isAndroidBrowser(nav)).toBe(false);
+  });
+
+  it.each<[string, NavigatorLike]>([
+    ['Android Chrome phone', ANDROID],
+    ['Android tablet', ANDROID_TABLET],
+  ])('treats %s as Android', (_name, nav) => {
+    expect(isAndroidBrowser(nav)).toBe(true);
   });
 
   it('reads the real navigator when none is passed', () => {
+    vi.stubGlobal('navigator', ANDROID);
+    expect(isAndroidBrowser()).toBe(true);
     vi.stubGlobal('navigator', IPHONE);
-    expect(isMobileBrowser()).toBe(true);
-    vi.stubGlobal('navigator', WINDOWS_CHROME);
-    expect(isMobileBrowser()).toBe(false);
+    expect(isAndroidBrowser()).toBe(false);
   });
 });
 
 describe.each(LINK_KINDS)('/%s/<value> signed out', (kind) => {
-  it('shows the page and an mtgstats:// link on a mobile browser', () => {
+  it('shows the page and an mtgstats:// link on an Android browser', () => {
     vi.stubGlobal('navigator', ANDROID);
     const router = mount(`/${kind}/tok123`);
     expect(router.state.location.pathname).toBe(`/${kind}/tok123`);
@@ -110,7 +118,7 @@ describe.each(LINK_KINDS)('/%s/<value> signed out', (kind) => {
   });
 
   it('offers exactly one Open in app link, and no https link to the same path', () => {
-    vi.stubGlobal('navigator', IPHONE);
+    vi.stubGlobal('navigator', ANDROID);
     mount(`/${kind}/tok123`);
     expect(screen.getAllByRole('link', { name: 'Open in app' })).toHaveLength(1);
     for (const a of document.querySelectorAll('a[href]')) {
@@ -119,7 +127,7 @@ describe.each(LINK_KINDS)('/%s/<value> signed out', (kind) => {
   });
 
   it('round-trips an encoded slash and space from the browser path', () => {
-    vi.stubGlobal('navigator', IPHONE);
+    vi.stubGlobal('navigator', ANDROID);
     mount(`/${kind}/a%2Fb%20c`);
     expect(screen.getByRole('link', { name: 'Open in app' })).toHaveAttribute(
       'href',
@@ -128,7 +136,7 @@ describe.each(LINK_KINDS)('/%s/<value> signed out', (kind) => {
   });
 
   it('round-trips an encoded unicode value', () => {
-    vi.stubGlobal('navigator', IPHONE);
+    vi.stubGlobal('navigator', ANDROID);
     mount(`/${kind}/caf%C3%A9`);
     expect(screen.getByRole('link', { name: 'Open in app' })).toHaveAttribute(
       'href',
@@ -146,16 +154,20 @@ describe.each(LINK_KINDS)('/%s/<value> signed out', (kind) => {
   });
 
   it.each([
+    ['iPhone Safari', IPHONE],
+    ['iPad', IPAD],
+    ['iPadOS in desktop mode', IPADOS_DESKTOP_MODE],
     ['Mac Safari', MAC_SAFARI],
     ['Linux Firefox', LINUX_FIREFOX],
-  ])('has no link on %s', (_name, nav) => {
+  ])('shows the page with no link on %s', (_name, nav) => {
     vi.stubGlobal('navigator', nav);
     mount(`/${kind}/tok123`);
     expect(screen.queryByRole('link', { name: 'Open in app' })).not.toBeInTheDocument();
   });
 
   it.each([
-    ['mobile', IPHONE],
+    ['Android', ANDROID],
+    ['iPhone', IPHONE],
     ['desktop', WINDOWS_CHROME],
   ])('keeps the public layout (main landmark and footer) on %s', (_name, nav) => {
     vi.stubGlobal('navigator', nav);

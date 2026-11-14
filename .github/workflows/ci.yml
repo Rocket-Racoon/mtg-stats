@@ -53,6 +53,8 @@ jobs:
       APP_ENV: test
       DATABASE_URL: postgresql+psycopg://mtg_stats:CHANGE_ME@127.0.0.1:5432/mtg_stats
       REDIS_URL: redis://127.0.0.1:6379/0
+      # Required by Settings (S-1.6.7); migrations/env.py builds Settings for the alembic steps.
+      PUBLIC_WEB_URL: http://localhost:5173
     defaults:
       run:
         working-directory: apps/api

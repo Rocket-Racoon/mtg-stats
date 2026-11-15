@@ -1358,3 +1358,19 @@ def test_removing_any_one_required_file_fails_the_layout_check_naming_it(
         else:
             target.unlink()
         assert check_layout(app) == {"decks": [required]}, required
+
+
+def test_another_domain_importing_identity_models_fails_but_identity_services_is_allowed(
+    tmp_path: Path,
+) -> None:
+    """S-2.2.1 AC4: only ``app.identity.services`` is reachable from another domain."""
+    bad = "from app.identity.models import Player" + chr(10)
+    found = _violations(tmp_path, {"playgroups/bad.py": bad})
+    assert [(v.path.name, v.imported) for v in found] == [("bad.py", "app.identity.models")]
+    for ok in (
+        "from app.identity.services import get_player",
+        "from app.identity.services import get_players, get_player_for_user",
+    ):
+        assert _violations(tmp_path / "ok", {"playgroups/ok.py": ok}) == []
+    repo = _violations(tmp_path / "repo", {"playgroups/r.py": "import app.identity.repository"})
+    assert [v.imported for v in repo] == ["app.identity.repository"]

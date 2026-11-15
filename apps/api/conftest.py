@@ -205,3 +205,16 @@ async def job_queue(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[JobQueue]:
         await delete_queue_keys(pool, queue)
         await core_jobs.close_jobs_pool()
         get_settings.cache_clear()
+
+
+@pytest.fixture
+async def app_schema(db_session: AppSession) -> AppSession:
+    """``db_session`` with every real app table created inside its (rolled-back) transaction.
+
+    ``mtg_stats_test`` is never migrated, so this builds the schema from the model registry.
+    """
+    from app.model_registry import metadata  # noqa: PLC0415
+
+    connection = await db_session.connection()
+    await connection.run_sync(metadata.create_all)
+    return db_session

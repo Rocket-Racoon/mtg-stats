@@ -1,5 +1,6 @@
 """Player and user creation and lookup. Everything here runs in the caller's session."""
 
+import unicodedata
 from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import datetime
@@ -12,13 +13,17 @@ from app.core.ids import uuid7
 from app.identity import repository
 from app.identity.models import AVATAR_COLORS, DISPLAY_NAME_MAX_LENGTH, Player, User
 
+_FORBIDDEN_CATEGORIES = frozenset({"Cc", "Cs"})
+"""Unicode categories a display name may not contain: control characters and lone surrogates."""
+
 
 class InvalidDisplayNameError(DomainError, ValueError):
-    """The display name is empty or longer than 32 characters after trimming."""
+    """The display name is empty, longer than 32 characters after trimming, or has a control
+    character or lone surrogate."""
 
     code = "invalid_display_name"
     status_code = 422
-    default_message = "Display name must be 1 to 32 characters."
+    default_message = "Display name must be 1 to 32 characters, with no control characters."
 
 
 class InvalidAvatarColorError(DomainError, ValueError):
@@ -64,11 +69,18 @@ def default_avatar_color(player_id: UUID) -> str:
 def normalize_display_name(value: str) -> str:
     """Trim a display name and check it is 1 to 32 characters.
 
+    Control characters (Unicode category Cc, which includes NUL) and lone surrogates (Cs) are
+    rejected too: Postgres can't store NUL and psycopg can't encode a lone surrogate, so without
+    this check they would surface as a 500 instead of ``invalid_display_name``.
+
     Raises:
-        InvalidDisplayNameError: if the trimmed name is empty or too long.
+        InvalidDisplayNameError: if the trimmed name is empty, too long or contains a control
+            character or lone surrogate.
     """
     name = value.strip()
-    if not 1 <= len(name) <= DISPLAY_NAME_MAX_LENGTH:
+    if not 1 <= len(name) <= DISPLAY_NAME_MAX_LENGTH or any(
+        unicodedata.category(char) in _FORBIDDEN_CATEGORIES for char in name
+    ):
         raise InvalidDisplayNameError(details={"max_length": DISPLAY_NAME_MAX_LENGTH})
     return name
 

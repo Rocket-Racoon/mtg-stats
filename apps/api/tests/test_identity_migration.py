@@ -3,8 +3,6 @@
 Synchronous because ``env.py`` runs its own event loop with ``asyncio.run``.
 """
 
-from pathlib import Path
-
 import pytest
 from alembic import command
 from alembic.script import ScriptDirectory
@@ -12,16 +10,18 @@ from sqlalchemy import create_engine, inspect, text
 
 from tests.migration_support import alembic_config, temporary_database
 
+IDENTITY_REVISION = "80d7f2564c67"
+"""The revision that creates ``users`` and ``players`` (pinned, so later migrations that touch
+``players`` don't change which revision these tests downgrade)."""
+
 
 def _identity_revision_parent() -> str:
-    """Parent of the revision whose file creates the ``players`` table."""
-    script = ScriptDirectory.from_config(alembic_config())
-    for revision in script.walk_revisions():
-        path = revision.path
-        if path and '"players"' in Path(path).read_text(encoding="utf-8"):
-            assert isinstance(revision.down_revision, str)
-            return revision.down_revision
-    pytest.fail("no migration creates the players table")
+    """Parent of the revision that creates the ``users`` and ``players`` tables."""
+    revision = ScriptDirectory.from_config(alembic_config()).get_revision(IDENTITY_REVISION)
+    if revision is None:
+        pytest.fail(f"identity revision {IDENTITY_REVISION} not found")
+    assert isinstance(revision.down_revision, str)
+    return revision.down_revision
 
 
 def _inspect(url: str) -> tuple[set[str], dict[str, list[str]], list[str], list[str], list[str]]:

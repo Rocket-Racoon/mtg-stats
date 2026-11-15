@@ -54,6 +54,21 @@ def test_display_name_empty_whitespace_only_or_too_long_is_rejected(raw: str) ->
         normalize_display_name(raw)
 
 
+@pytest.mark.parametrize(
+    "raw",
+    ["Ada\x00", "A\x00da", "Ada\x1b[31m", "A\x7fda", "Ada\ud800", "\udfffAda"],
+    ids=["nul-end", "nul-middle", "escape", "delete", "lone-high-surrogate", "lone-low-surrogate"],
+)
+def test_display_name_with_control_character_or_lone_surrogate_is_rejected(raw: str) -> None:
+    with pytest.raises(InvalidDisplayNameError):
+        normalize_display_name(raw)
+
+
+@pytest.mark.parametrize("raw", ["Zoë", "Jean-Luc O'Neil", "\U0001f468‍\U0001f469", "李雷"])
+def test_display_name_with_letters_punctuation_and_emoji_sequences_is_accepted(raw: str) -> None:
+    assert normalize_display_name(raw) == raw
+
+
 def test_identity_errors_are_value_errors() -> None:
     assert issubclass(InvalidDisplayNameError, ValueError)
     assert issubclass(InvalidAvatarColorError, ValueError)

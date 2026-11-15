@@ -9,6 +9,7 @@ a registration side effect, and importing ``models`` is the whole point.
 
 from sqlalchemy import MetaData
 
+import app.identity.models
 import app.system.models  # noqa: F401  (registration side effect)
 from app.core.db import Base
 

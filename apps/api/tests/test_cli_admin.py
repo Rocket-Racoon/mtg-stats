@@ -20,14 +20,18 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.exc import OperationalError
 
 import app.cli
+import app.core.db
+import app.identity.repository
 from app.cli import run
 from app.core.db import AppSession
 from app.core.logging import JsonFormatter
 from app.identity.models import Player, User
 from app.identity.services import (
     InvalidDisplayNameError,
+    InvalidEmailError,
     InvalidPasswordError,
     InvalidUsernameError,
     UsernameTakenError,
@@ -39,7 +43,7 @@ from app.identity.services import (
 from tests.factories import UserFactory, create
 
 PASSWORD = "correct horse battery staple"
-OTHER_PASSWORD = "a completely different one"  # secrets-check: allow
+NEW_PASSPHRASE = "a completely different one"
 API_ROOT = Path(__file__).resolve().parents[1]
 E_ACUTE = chr(0xE9)
 CYRILLIC_A = chr(0x430)
@@ -177,7 +181,7 @@ async def test_create_admin_stores_an_argon2id_hash_that_verifies_with_the_typed
     assert user.password_hash.startswith("$argon2id$")
     assert PASSWORD not in user.password_hash
     assert verify_password(user.password_hash, PASSWORD) is True
-    assert verify_password(user.password_hash, OTHER_PASSWORD) is False
+    assert verify_password(user.password_hash, NEW_PASSPHRASE) is False
     assert user.password_changed_at.tzinfo is not None
 
 
@@ -192,6 +196,7 @@ async def test_create_admin_uses_getpass_as_the_default_hidden_prompt(
     session: AppSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     asked: list[str] = []
+    monkeypatch.setattr(sys, "stdin", _FakeStdin(tty=True))
 
     def fake_getpass(text: str = "Password: ") -> str:
         asked.append(text)
@@ -398,7 +403,7 @@ async def test_a_bad_username_is_reported_before_a_bad_display_name(session: App
 
 
 async def test_password_mismatch_exits_1_and_writes_nothing(session: AppSession) -> None:
-    result = await invoke(session, create_admin(), PASSWORD, OTHER_PASSWORD)
+    result = await invoke(session, create_admin(), PASSWORD, NEW_PASSPHRASE)
     assert result.code == 1
     assert result.err == "error: Passwords do not match.\n"
     assert result.out == ""
@@ -423,20 +428,20 @@ async def test_set_password_replaces_the_hash_old_password_stops_working(
     await seed_member(session, "ada", PASSWORD)
     old_hash = (await user_named(session, "ada")).password_hash
     result = await invoke(
-        session, ["set-password", "--username", "ada"], OTHER_PASSWORD, OTHER_PASSWORD
+        session, ["set-password", "--username", "ada"], NEW_PASSPHRASE, NEW_PASSPHRASE
     )
     assert result.code == 0
     user = await user_named(session, "ada")
     assert user.password_hash != old_hash
     assert user.password_hash.startswith("$argon2id$")
-    assert verify_password(user.password_hash, OTHER_PASSWORD) is True
+    assert verify_password(user.password_hash, NEW_PASSPHRASE) is True
     assert verify_password(user.password_hash, PASSWORD) is False
 
 
 async def test_set_password_prints_the_success_line(session: AppSession) -> None:
     await seed_member(session, "ada")
     result = await invoke(
-        session, ["set-password", "--username", "ada"], OTHER_PASSWORD, OTHER_PASSWORD
+        session, ["set-password", "--username", "ada"], NEW_PASSPHRASE, NEW_PASSPHRASE
     )
     assert result.out == "Password updated for ada.\n"
     assert result.err == ""
@@ -455,7 +460,7 @@ async def test_set_password_updates_password_changed_at(session: AppSession) -> 
     await session.commit()
     before = datetime.now(UTC)
     result = await invoke(
-        session, ["set-password", "--username", "grace"], OTHER_PASSWORD, OTHER_PASSWORD
+        session, ["set-password", "--username", "grace"], NEW_PASSPHRASE, NEW_PASSPHRASE
     )
     assert result.code == 0
     changed = (await user_named(session, "grace")).password_changed_at
@@ -466,17 +471,17 @@ async def test_set_password_updates_password_changed_at(session: AppSession) -> 
 async def test_set_password_finds_the_user_case_insensitively(session: AppSession) -> None:
     await seed_member(session, "Ada", PASSWORD)
     result = await invoke(
-        session, ["set-password", "--username", "ADA"], OTHER_PASSWORD, OTHER_PASSWORD
+        session, ["set-password", "--username", "ADA"], NEW_PASSPHRASE, NEW_PASSPHRASE
     )
     assert result.code == 0
-    assert verify_password((await user_named(session, "ada")).password_hash, OTHER_PASSWORD)
+    assert verify_password((await user_named(session, "ada")).password_hash, NEW_PASSPHRASE)
 
 
 async def test_set_password_leaves_other_users_untouched(session: AppSession) -> None:
     await seed_member(session, "ada", PASSWORD, "Ada")
     await seed_member(session, "bob", PASSWORD, "Bob")
     bob_hash = (await user_named(session, "bob")).password_hash
-    await invoke(session, ["set-password", "--username", "ada"], OTHER_PASSWORD, OTHER_PASSWORD)
+    await invoke(session, ["set-password", "--username", "ada"], NEW_PASSPHRASE, NEW_PASSPHRASE)
     assert (await user_named(session, "bob")).password_hash == bob_hash
 
 
@@ -486,7 +491,7 @@ async def test_set_password_for_an_unknown_user_exits_1_with_user_not_found(
     await seed_member(session, "ada")
     before = await snapshot(session)
     result = await invoke(
-        session, ["set-password", "--username", "nobody"], OTHER_PASSWORD, OTHER_PASSWORD
+        session, ["set-password", "--username", "nobody"], NEW_PASSPHRASE, NEW_PASSPHRASE
     )
     assert result.code == 1
     assert result.err == "error: User not found.\n"
@@ -513,7 +518,7 @@ async def test_set_password_mismatch_exits_1_and_keeps_the_old_password(
     await seed_member(session, "ada", PASSWORD)
     old_hash = (await user_named(session, "ada")).password_hash
     result = await invoke(
-        session, ["set-password", "--username", "ada"], OTHER_PASSWORD, PASSWORD + "x"
+        session, ["set-password", "--username", "ada"], NEW_PASSPHRASE, PASSWORD + "x"
     )
     assert result.code == 1
     assert result.err == "error: Passwords do not match.\n"
@@ -549,13 +554,13 @@ async def test_set_password_never_prints_or_logs_the_password(
     await seed_member(session, "ada", PASSWORD)
     caplog.set_level(logging.DEBUG)
     result = await invoke(
-        session, ["set-password", "--username", "ada"], OTHER_PASSWORD, OTHER_PASSWORD
+        session, ["set-password", "--username", "ada"], NEW_PASSPHRASE, NEW_PASSPHRASE
     )
-    assert OTHER_PASSWORD not in result.out + result.err
-    assert OTHER_PASSWORD not in _log_text(caplog)
+    assert NEW_PASSPHRASE not in result.out + result.err
+    assert NEW_PASSPHRASE not in _log_text(caplog)
     assert PASSWORD not in _log_text(caplog)
     captured = capsys.readouterr()
-    assert OTHER_PASSWORD not in captured.out + captured.err
+    assert NEW_PASSPHRASE not in captured.out + captured.err
 
 
 @pytest.mark.parametrize(
@@ -633,7 +638,7 @@ async def test_set_password_logs_the_event_with_the_username_only(
 ) -> None:
     await seed_member(session, "ada", PASSWORD)
     caplog.set_level(logging.INFO)
-    await invoke(session, ["set-password", "--username", "ada"], OTHER_PASSWORD, OTHER_PASSWORD)
+    await invoke(session, ["set-password", "--username", "ada"], NEW_PASSPHRASE, NEW_PASSPHRASE)
     records = [r for r in caplog.records if "identity.password_set" in r.getMessage()]
     assert len(records) == 1
     assert "ada" in records[0].getMessage()
@@ -748,3 +753,376 @@ def test_python_m_app_cli_rejects_a_password_option_with_exit_code_2() -> None:
     result = _python_m_cli("set-password", "--username", "ada", "--password", "hunter2hunter2")
     assert result.returncode == 2
     assert "hunter2hunter2" not in result.stdout
+
+
+# ---------------------------------------------------------------- review fixes (S-2.1.1)
+UNEXPECTED_FAILURE = "error: Unexpected failure (OperationalError).\n"
+LEAKY_HASH = "$argon2id$v=19$m=1,t=1,p=1$leaky$leaky"
+
+
+class _FakeStdin(io.StringIO):
+    def __init__(self, tty: bool) -> None:
+        super().__init__("")
+        self.tty = tty
+
+    def isatty(self) -> bool:
+        return self.tty
+
+
+def _count_commits(session: AppSession, monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Spy on ``session.commit``; the returned list gets one item per commit."""
+    original = session.commit
+    calls: list[int] = []
+
+    async def spy() -> None:
+        calls.append(1)
+        await original()
+
+    monkeypatch.setattr(session, "commit", spy)
+    return calls
+
+
+def _failing_flush(session: AppSession, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make every ``session.flush`` raise a database error that carries a hash and a password."""
+
+    async def boom(*args: object, **kwargs: object) -> None:
+        raise OperationalError(
+            "UPDATE users SET password_hash=%(password_hash)s",
+            {"password_hash": LEAKY_HASH, "password": PASSWORD},
+            Exception(f"connection lost {PASSWORD} {LEAKY_HASH}"),
+        )
+
+    monkeypatch.setattr(session, "flush", boom)
+
+
+def _assert_no_leak(
+    result: Outcome, caplog: pytest.LogCaptureFixture, capsys: pytest.CaptureFixture[str]
+) -> None:
+    captured = capsys.readouterr()
+    everything = result.out + result.err + captured.out + captured.err + _log_text(caplog)
+    assert PASSWORD not in everything
+    assert "$argon2id$" not in everything
+    assert "connection lost" not in everything
+
+
+def _assert_error_log_is_type_name_only(caplog: pytest.LogCaptureFixture) -> None:
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert errors
+    assert any("OperationalError" in r.getMessage() for r in errors)
+    for record in errors:
+        assert not record.exc_info
+        assert not record.exc_text
+        assert "Traceback" not in JsonFormatter().format(record)
+
+
+async def test_create_admin_unexpected_database_failure_exits_1_without_leaking_anything(
+    session: AppSession,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    commits = _count_commits(session, monkeypatch)
+    _failing_flush(session, monkeypatch)
+    result = await invoke(session, create_admin(), PASSWORD, PASSWORD)
+    assert result.code == 1
+    assert result.out == ""
+    assert result.err == UNEXPECTED_FAILURE
+    _assert_no_leak(result, caplog, capsys)
+    _assert_error_log_is_type_name_only(caplog)
+    assert commits == []
+    assert await count(session, User) == 0
+    assert await count(session, Player) == 0
+
+
+async def test_set_password_unexpected_database_failure_exits_1_without_leaking_anything(
+    session: AppSession,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    await seed_member(session, "ada", PASSWORD)
+    before = await snapshot(session)
+    caplog.set_level(logging.DEBUG)
+    commits = _count_commits(session, monkeypatch)
+    _failing_flush(session, monkeypatch)
+    result = await invoke(
+        session, ["set-password", "--username", "ada"], NEW_PASSPHRASE, NEW_PASSPHRASE
+    )
+    assert result.code == 1
+    assert result.out == ""
+    assert result.err == UNEXPECTED_FAILURE
+    _assert_no_leak(result, caplog, capsys)
+    assert NEW_PASSPHRASE not in result.err + _log_text(caplog)
+    _assert_error_log_is_type_name_only(caplog)
+    assert commits == []
+    assert await snapshot(session) == before
+
+
+async def test_an_unexpected_failure_names_only_the_exception_type(
+    session: AppSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("secret detail")
+
+    monkeypatch.setattr(session, "flush", boom)
+    result = await invoke(session, create_admin(), PASSWORD, PASSWORD)
+    assert result.code == 1
+    assert result.err == "error: Unexpected failure (RuntimeError).\n"
+
+
+# ---- the username race (review M2)
+def _hide_existing_usernames(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def none_found(*args: object, **kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(app.identity.repository, "get_user_by_username", none_found)
+
+
+async def test_losing_the_username_race_raises_username_taken_and_keeps_the_session_usable(
+    session: AppSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await seed_member(session, "ada")
+    _hide_existing_usernames(monkeypatch)
+    with pytest.raises(UsernameTakenError):
+        await create_user_with_player(
+            session, username="ADA", password=PASSWORD, display_name="Other"
+        )
+    assert await count(session, User) == 1
+    assert await count(session, Player) == 1
+
+
+async def test_cli_reports_username_taken_when_it_loses_the_race_and_never_commits(
+    session: AppSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await seed_member(session, "ada")
+    before = await snapshot(session)
+    _hide_existing_usernames(monkeypatch)
+    commits = _count_commits(session, monkeypatch)
+    result = await invoke(session, create_admin("ADA"), PASSWORD, PASSWORD)
+    assert result.code == 1
+    assert result.out == ""
+    assert result.err == "error: Username already taken.\n"
+    assert commits == []
+    assert await snapshot(session) == before
+
+
+# ---- prompt edge cases (review m2)
+@dataclasses.dataclass
+class DefaultPromptRun:
+    code: int
+    out: str
+    err: str
+    touched_db: bool
+    getpass_calls: list[str]
+
+
+async def _run_with_default_prompt(
+    session: AppSession,
+    monkeypatch: pytest.MonkeyPatch,
+    argv: Sequence[str],
+    *,
+    tty: bool,
+    typed: Sequence[str] = (),
+) -> DefaultPromptRun:
+    monkeypatch.setattr(sys, "stdin", _FakeStdin(tty))
+    answers = list(typed)
+    calls: list[str] = []
+
+    def fake_getpass(prompt: str = "Password: ", *args: object, **kwargs: object) -> str:
+        calls.append(prompt)
+        if not tty:
+            pytest.fail("getpass must not be called without a terminal")
+        return answers.pop(0)
+
+    monkeypatch.setattr(getpass, "getpass", fake_getpass)
+    entered: list[int] = []
+
+    @asynccontextmanager
+    async def factory() -> AsyncIterator[AppSession]:
+        entered.append(1)
+        yield session
+
+    out, err = io.StringIO(), io.StringIO()
+    code = await run(argv, session_factory=factory, stdout=out, stderr=err)
+    return DefaultPromptRun(code, out.getvalue(), err.getvalue(), bool(entered), calls)
+
+
+@pytest.mark.parametrize(
+    "argv", [create_admin(), ["set-password", "--username", "ada"]], ids=["create", "set"]
+)
+async def test_default_prompt_without_a_terminal_fails_without_asking_or_touching_the_db(
+    session: AppSession, monkeypatch: pytest.MonkeyPatch, argv: list[str]
+) -> None:
+    await seed_member(session, "ada")
+    before = await snapshot(session)
+    result = await _run_with_default_prompt(session, monkeypatch, argv, tty=False)
+    assert result.code == 1
+    assert result.out == ""
+    assert result.err == "error: A terminal is required to type the password.\n"
+    assert result.getpass_calls == []
+    assert result.touched_db is False
+    assert await snapshot(session) == before
+
+
+async def test_default_prompt_with_a_terminal_reads_the_password_through_getpass(
+    session: AppSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = await _run_with_default_prompt(
+        session, monkeypatch, create_admin(), tty=True, typed=[PASSWORD, PASSWORD]
+    )
+    assert result.code == 0
+    assert result.getpass_calls == ["Password: ", "Repeat password: "]
+    assert verify_password((await user_named(session, "hector")).password_hash, PASSWORD)
+
+
+class _RaisingPrompt:
+    """Answers ``before`` times, then raises ``exc``."""
+
+    def __init__(self, exc: BaseException, before: int = 0) -> None:
+        self.exc = exc
+        self.before = before
+
+    def __call__(self, text: str) -> str:
+        if self.before == 0:
+            raise self.exc
+        self.before -= 1
+        return PASSWORD
+
+
+async def _invoke_with_prompt(
+    session: AppSession, argv: Sequence[str], prompt: _RaisingPrompt
+) -> tuple[int, str, str]:
+    @asynccontextmanager
+    async def factory() -> AsyncIterator[AppSession]:
+        yield session
+
+    out, err = io.StringIO(), io.StringIO()
+    code = await run(argv, session_factory=factory, prompt=prompt, stdout=out, stderr=err)
+    return code, out.getvalue(), err.getvalue()
+
+
+@pytest.mark.parametrize("before", [0, 1], ids=["first_prompt", "repeat_prompt"])
+@pytest.mark.parametrize(
+    "argv", [create_admin(), ["set-password", "--username", "ada"]], ids=["create", "set"]
+)
+async def test_end_of_input_at_the_prompt_exits_1_with_no_password_entered(
+    session: AppSession, argv: list[str], before: int
+) -> None:
+    await seed_member(session, "ada")
+    snap = await snapshot(session)
+    code, out, err = await _invoke_with_prompt(session, argv, _RaisingPrompt(EOFError(), before))
+    assert code == 1
+    assert out == ""
+    assert err == "error: No password entered.\n"
+    assert await snapshot(session) == snap
+
+
+@pytest.mark.parametrize("before", [0, 1], ids=["first_prompt", "repeat_prompt"])
+@pytest.mark.parametrize(
+    "argv", [create_admin(), ["set-password", "--username", "ada"]], ids=["create", "set"]
+)
+async def test_ctrl_c_at_the_prompt_exits_130_with_cancelled(
+    session: AppSession, argv: list[str], before: int
+) -> None:
+    await seed_member(session, "ada")
+    snap = await snapshot(session)
+    code, out, err = await _invoke_with_prompt(
+        session, argv, _RaisingPrompt(KeyboardInterrupt(), before)
+    )
+    assert code == 130
+    assert out == ""
+    assert err == "error: Cancelled.\n"
+    assert await snapshot(session) == snap
+
+
+# ---- engine disposal (review m3)
+@pytest.fixture
+def disposals(session: AppSession, monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Swap the real engine pieces for fakes backed by the test session; record disposals."""
+    awaited: list[int] = []
+
+    async def fake_dispose() -> None:
+        awaited.append(1)
+
+    @asynccontextmanager
+    async def one_session() -> AsyncIterator[AppSession]:
+        yield session
+
+    # ``app.cli.main`` is shadowed by the re-exported function, so go through sys.modules.
+    for module in (app.core.db, sys.modules["app.cli.main"]):
+        monkeypatch.setattr(module, "dispose_engine", fake_dispose, raising=False)
+        monkeypatch.setattr(module, "get_sessionmaker", lambda: one_session, raising=False)
+    return awaited
+
+
+async def test_default_session_factory_disposes_the_engine_after_a_successful_command(
+    disposals: list[int],
+) -> None:
+    out, err = io.StringIO(), io.StringIO()
+    code = await run(create_admin(), prompt=FakePrompt(PASSWORD, PASSWORD), stdout=out, stderr=err)
+    assert code == 0, err.getvalue()
+    assert disposals == [1]
+
+
+async def test_default_session_factory_disposes_the_engine_after_a_failed_command(
+    session: AppSession, disposals: list[int]
+) -> None:
+    await seed_member(session, "hector")
+    out, err = io.StringIO(), io.StringIO()
+    code = await run(create_admin(), prompt=FakePrompt(PASSWORD, PASSWORD), stdout=out, stderr=err)
+    assert code == 1
+    assert err.getvalue() == "error: Username already taken.\n"
+    assert disposals == [1]
+
+
+async def test_an_injected_session_factory_never_disposes_the_engine(
+    session: AppSession, disposals: list[int]
+) -> None:
+    result = await invoke(session, create_admin(), PASSWORD, PASSWORD)
+    assert result.code == 0
+    assert disposals == []
+
+
+# ---- email (review fix 5)
+def _with_email(email: str) -> list[str]:
+    return create_admin("hector", "Hector", "--email", email)
+
+
+async def test_cli_accepts_a_320_character_email(session: AppSession) -> None:
+    email = "a" * 308 + "@example.com"
+    assert len(email) == 320
+    result = await invoke(session, _with_email(email), PASSWORD, PASSWORD)
+    assert result.code == 0
+    assert (await user_named(session, "hector")).email == email
+
+
+async def test_cli_rejects_a_321_character_email_and_writes_nothing(session: AppSession) -> None:
+    email = "a" * 309 + "@example.com"
+    assert len(email) == 321
+    result = await invoke(session, _with_email(email), PASSWORD, PASSWORD)
+    assert result.code == 1
+    assert result.out == ""
+    assert result.err == f"error: {InvalidEmailError().message}\n"
+    assert InvalidEmailError().message == "Email must be at most 320 characters."
+    assert await count(session, User) == 0
+    assert await count(session, Player) == 0
+
+
+async def test_cli_rejects_an_email_with_a_control_character(session: AppSession) -> None:
+    result = await invoke(session, _with_email("a\x00b@example.com"), PASSWORD, PASSWORD)
+    assert result.code == 1
+    assert result.err == f"error: {InvalidEmailError().message}\n"
+    assert await count(session, User) == 0
+
+
+async def test_cli_trims_whitespace_around_the_email(session: AppSession) -> None:
+    result = await invoke(session, _with_email("  h@example.com \t"), PASSWORD, PASSWORD)
+    assert result.code == 0
+    assert (await user_named(session, "hector")).email == "h@example.com"
+
+
+async def test_cli_stores_an_empty_email_when_none_is_given(session: AppSession) -> None:
+    result = await invoke(session, create_admin(), PASSWORD, PASSWORD)
+    assert result.code == 0
+    assert (await user_named(session, "hector")).email == ""

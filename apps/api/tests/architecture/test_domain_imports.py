@@ -22,7 +22,8 @@ Rules (architecture §4.2 "Enforcement"), with ``A`` the domain a module belongs
   (``__pycache__`` and hidden entries starting with ``.`` are ignored).
 * Nothing under ``app/`` imports ``app.model_registry``, ``app/main.py`` included (only
   ``migrations/env.py`` and ``apps/api/tests/`` may). ``main.py`` and ``scripts/`` are exempt
-  from every other rule. Domain tests (``app/<domain>/tests/``) obey their domain's rules.
+  from every other rule except the registry rule above and the "only ``app.cli`` imports
+  ``app.cli``" rule. Domain tests (``app/<domain>/tests/``) obey their domain's rules.
 * A *router module* is a module that imports ``fastapi.APIRouter``: ``from fastapi import
   APIRouter`` (also ``as``), ``from fastapi.routing import APIRouter``, or ``fastapi.APIRouter`` /
   ``fastapi.routing.APIRouter`` used through ``import fastapi[.routing] [as x]`` or ``from fastapi

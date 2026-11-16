@@ -247,3 +247,12 @@ def test_the_test_environment_forces_cheap_argon2_values() -> None:
     settings = get_settings()
     assert (settings.argon2_time_cost, settings.argon2_memory_cost) == (1, 8)
     assert settings.argon2_parallelism == 1
+
+
+def test_password_with_a_lone_surrogate_is_rejected_even_at_a_valid_length() -> None:
+    with pytest.raises(InvalidPasswordError):
+        validate_password("a" * 11 + chr(0xD800))
+
+
+def test_an_unparseable_hash_needs_a_rehash() -> None:
+    assert password_needs_rehash("garbage") is True

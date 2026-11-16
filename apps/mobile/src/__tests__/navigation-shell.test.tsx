@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import * as lib from 'expo-router/testing-library';
 import { StyleSheet } from 'react-native';
+import { signInViaStore } from './sign-in-via-store';
 
 jest.setTimeout(60000); // the first render loads the whole route tree and can be slow
 
@@ -12,8 +13,8 @@ async function mount(initialUrl: string) {
 }
 
 async function signIn() {
-  const { screen, fireEvent } = lib;
-  await fireEvent.press(await screen.findByLabelText('Continue (placeholder)'));
+  const { screen } = lib;
+  await signInViaStore();
   await screen.findByLabelText('Play');
 }
 
@@ -21,14 +22,14 @@ describe('signed-out navigation', () => {
   it('shows the sign-in stack and no tabs at the root URL', async () => {
     await mount('/');
     const { screen } = lib;
-    expect(await screen.findByLabelText('Continue (placeholder)')).toBeTruthy();
+    expect(await screen.findByLabelText('I have an invite')).toBeTruthy();
     expect(screen.queryByLabelText('Play')).toBeNull();
   });
 
   it('redirects a signed-out user away from a tab route', async () => {
     await mount('/play');
     const { screen } = lib;
-    expect(await screen.findByLabelText('Continue (placeholder)')).toBeTruthy();
+    expect(await screen.findByLabelText('I have an invite')).toBeTruthy();
     expect(screen.queryByLabelText('Play')).toBeNull();
   });
 });
@@ -41,7 +42,7 @@ describe('signed-in navigation', () => {
     for (const name of ['Play', 'Decks', 'Stats', 'More']) {
       expect(screen.getByLabelText(name)).toBeTruthy();
     }
-    expect(screen.queryByLabelText('Continue (placeholder)')).toBeNull();
+    expect(screen.queryByLabelText('I have an invite')).toBeNull();
   });
 
   it('switches tabs when a tab is pressed', async () => {
@@ -61,7 +62,7 @@ describe('signed-in navigation', () => {
     const { screen, fireEvent } = lib;
     await fireEvent.press(screen.getByLabelText('More'));
     await fireEvent.press(await screen.findByLabelText('Sign out'));
-    expect(await screen.findByLabelText('Continue (placeholder)')).toBeTruthy();
+    expect(await screen.findByLabelText('I have an invite')).toBeTruthy();
     expect(screen.queryByLabelText('Play')).toBeNull();
   });
 });
@@ -83,37 +84,39 @@ describe('back navigation', () => {
 });
 
 describe('deep links', () => {
-  it('opens the Join placeholder with the code from mtgstats://join/<code>', async () => {
-    await mount('/join/ABC123');
+  it('opens the Join placeholder with the code from mtgstats://join/<code> when signed in', async () => {
+    await mount('/');
+    await signIn();
+    await lib.act(async () => router.push('/join/ABC123'));
     const { screen } = lib;
     expect(await screen.findByTestId('join-screen')).toBeTruthy();
     expect(screen.getByTestId('join-screen-value')).toHaveTextContent('ABC123');
   });
 
-  it('opens the Invite placeholder with the token from mtgstats://invite/<token>', async () => {
-    await mount('/invite/tok-9f2');
+  it('opens the Reset placeholder with the token from mtgstats://reset/<token>', async () => {
+    await mount('/reset/tok-9f2');
     const { screen } = lib;
-    expect(await screen.findByTestId('invite-screen')).toBeTruthy();
-    expect(screen.getByTestId('invite-screen-value')).toHaveTextContent('tok-9f2');
+    expect(await screen.findByTestId('reset-screen')).toBeTruthy();
+    expect(screen.getByTestId('reset-screen-value')).toHaveTextContent('tok-9f2');
   });
 
   it('on a cold start, Back to app leads to the root (sign-in when signed out)', async () => {
-    await mount('/join/ABC123');
+    await mount('/reset/ABC123');
     const { screen, fireEvent } = lib;
     await fireEvent.press(await screen.findByLabelText('Back to app'));
-    expect(await screen.findByLabelText('Continue (placeholder)')).toBeTruthy();
-    expect(screen.queryByTestId('join-screen')).toBeNull();
+    expect(await screen.findByLabelText('I have an invite')).toBeTruthy();
+    expect(screen.queryByTestId('reset-screen')).toBeNull();
   });
 
   it('is pushed on top of the app when signed in, and back returns to it', async () => {
     await mount('/');
     await signIn();
     const { screen, fireEvent, waitFor } = lib;
-    await lib.act(async () => router.push('/invite/tok-1'));
-    expect(await screen.findByTestId('invite-screen')).toBeTruthy();
+    await lib.act(async () => router.push('/reset/tok-1'));
+    expect(await screen.findByTestId('reset-screen')).toBeTruthy();
     expect(router.canGoBack()).toBe(true);
     await fireEvent.press(screen.getByLabelText('Back to app'));
-    await waitFor(() => expect(screen.queryByTestId('invite-screen')).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('reset-screen')).toBeNull());
     expect(screen.getByLabelText('Play')).toBeTruthy();
   });
 });
@@ -122,7 +125,7 @@ describe('accessibility', () => {
   it('gives buttons a label, a button role and a 44 pt minimum touch target', async () => {
     await mount('/');
     const { screen } = lib;
-    const button = await screen.findByLabelText('Continue (placeholder)');
+    const button = await screen.findByLabelText('I have an invite');
     expect(button.props.accessibilityRole).toBe('button');
     const style = StyleSheet.flatten(button.props.style);
     expect(style.minHeight).toBeGreaterThanOrEqual(44);

@@ -9,6 +9,24 @@ function goBackOrHome() {
 }
 
 /**
+ * Hardware back on a screen opened by a deep link: pop one screen if there is history, otherwise
+ * (a cold start) go to the app root instead of leaving a dead end.
+ */
+export function useColdStartBack() {
+  // Only while focused: a screen left underneath another must not swallow hardware back.
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+        if (router.canGoBack()) return false; // default: pop one screen
+        router.replace('/');
+        return true;
+      });
+      return () => sub.remove();
+    }, []),
+  );
+}
+
+/**
  * Placeholder for a deep-link target (`mtgstats://join/<code>`, `mtgstats://invite/<token>`).
  * It is pushed on top of the app; on a cold start there is no history, so back goes to the root.
  */
@@ -23,17 +41,7 @@ export function DeepLinkScreen({
   value: string;
   testID: string;
 }) {
-  // Only while focused: a screen left underneath another must not swallow hardware back.
-  useFocusEffect(
-    useCallback(() => {
-      const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-        if (router.canGoBack()) return false; // default: pop one screen
-        router.replace('/');
-        return true;
-      });
-      return () => sub.remove();
-    }, []),
-  );
+  useColdStartBack();
 
   return (
     <View style={styles.container} testID={testID}>

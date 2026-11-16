@@ -1,4 +1,5 @@
 import { ScrollView, StyleSheet, Text } from 'react-native';
+import { useHideSplashOnMount } from '../session/splash';
 import { API_BASE_URL_VAR, type EnvProblem } from '../env';
 
 /**
@@ -6,6 +7,7 @@ import { API_BASE_URL_VAR, type EnvProblem } from '../env';
  * failure is visible rather than silent. Deliberately free of providers, navigation and the API.
  */
 export function ConfigErrorScreen({ problem = 'missing' }: { problem?: EnvProblem }) {
+  useHideSplashOnMount();
   return (
     <ScrollView contentContainerStyle={styles.container} testID="config-error-screen">
       <Text accessibilityRole="header" style={styles.title}>

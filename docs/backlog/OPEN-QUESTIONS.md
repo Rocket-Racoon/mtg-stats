@@ -135,6 +135,7 @@ Status: `open` · `answered` (with the decision recorded). Answers are also copi
 | Topic | Decision |
 |---|---|
 | `@types/node` | **Approved** as a type-only TypeScript devDependency (S-1.1.3 review). Under TypeScript 6 it loads only where a tsconfig opts in with `"types": ["node"]`, such as root tooling tests, Vite and Playwright configs, never app code. |
+| `expo-splash-screen` | **Approved by the user (2026-11-16, S-1.7.3):** an Expo SDK module that keeps the native splash up while the session is `restoring`. |
 | Issue titles | The imported issues keep the `[S-1.1.1] Title` form rather than S-1.2.4 AC1's `S-1.1.1 — …` example (comment on #11). |
 | SQLAlchemy | **Approved by the user (2026-11-10):** 2.1.x (`>=2.1,<2.2`) falls within the plan §8 "SQLAlchemy 2.0" approval, because it is the same 2.0-style API. Locked at 2.1.8 in PR #451. CLAUDE.md's "SQLAlchemy 2.0" means this 2.0-style API. |
 | Type-only and test-runner packages | **Approved** (2026-11-08): `@types/react` and `@types/react-dom` (web, S-1.6.1), `@types/jest` (mobile), and `jest` itself as the required peer of the approved jest-expo (S-1.7.1). None ships in the app at runtime. |

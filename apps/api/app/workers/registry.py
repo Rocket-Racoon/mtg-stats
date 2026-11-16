@@ -36,6 +36,7 @@ from app.core.jobs import (
     RetryableJobError,
 )
 from app.core.logging import log_context
+from app.identity import services as identity_services
 from app.system import services as system_services
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,7 @@ def retry_delay(job_try: int) -> int:
 
 
 JOBS: Mapping[str, JobSpec] = {
+    "identity.cleanup_refresh_tokens": JobSpec(identity_services.cleanup_refresh_tokens_job),
     "system.heartbeat": JobSpec(system_services.heartbeat),
     "system.ping": JobSpec(system_services.ping),
 }

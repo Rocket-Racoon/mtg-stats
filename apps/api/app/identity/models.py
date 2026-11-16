@@ -1,4 +1,4 @@
-"""ORM models of the ``identity`` domain: ``User`` and ``Player``."""
+"""ORM models of the ``identity`` domain: ``User``, ``Player`` and ``RefreshToken``."""
 
 from datetime import datetime
 from uuid import UUID
@@ -65,4 +65,20 @@ class Player(IdMixin, Base):
     # No foreign key yet: the ``playgroups`` table does not exist. The playgroups story adds it.
     home_playgroup_id: Mapped[UUID | None] = mapped_column(default=None)
     merged_into_id: Mapped[UUID | None] = mapped_column(ForeignKey("players.id"), default=None)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_utcnow)
+
+
+class RefreshToken(IdMixin, Base):
+    """An issued refresh token, stored as the SHA-256 hex of the JWT; one family per sign-in."""
+
+    __tablename__ = "refresh_tokens"
+
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    family_id: Mapped[UUID] = mapped_column(index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    expires_at: Mapped[datetime] = mapped_column(UtcDateTime)
+    revoked_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+    replaced_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("refresh_tokens.id", ondelete="SET NULL"), default=None
+    )
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_utcnow)

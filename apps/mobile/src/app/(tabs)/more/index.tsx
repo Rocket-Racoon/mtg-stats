@@ -12,6 +12,11 @@ export default function More() {
         More
       </Text>
       <AppButton label="About" onPress={() => router.push('/more/about')} testID="more-about" />
+      <AppButton
+        label="Change password"
+        onPress={() => router.push('/more/change-password')}
+        testID="more-change-password"
+      />
       <AppButton label="Sign out" onPress={signOut} testID="sign-out" />
     </View>
   );

@@ -103,6 +103,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register with an invite link
+         * @description Create an account from an invite and sign the new user in.
+         *
+         *     The invite is checked first (410 `invite_no_longer_valid`), then the username (409
+         *     `username_taken`, and the invite is not used up). Field errors are a 422.
+         *
+         *     Client mode, as for login: send `X-Client: mobile` without an `Origin` header to get the
+         *     refresh token in the response body; every other request is a web client and gets it in the
+         *     `mtgstats_refresh` cookie (`HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/api/v1/auth`).
+         */
+        post: operations["identity_register"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health/live": {
         parameters: {
             query?: never;
@@ -186,6 +213,29 @@ export interface paths {
          * @description Revoke one of the caller's invites. Idempotent. Anyone else's, or unknown, is a 404.
          */
         post: operations["playgroups_revoke_invite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invites/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview an invite
+         * @description Show the inviter's display name and the expiry of an invite. No authentication.
+         *
+         *     The token is in the body so it never reaches a URL or an access log. A revoked, expired,
+         *     used-up or unknown token is a 410 `invite_no_longer_valid`.
+         */
+        post: operations["playgroups_preview_invite"];
         delete?: never;
         options?: never;
         head?: never;
@@ -332,6 +382,30 @@ export interface components {
             next_cursor: string | null;
         };
         /**
+         * InvitePreviewOut
+         * @description What the public preview shows: nothing but the inviter's name and the expiry.
+         */
+        InvitePreviewOut: {
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Inviter Display Name */
+            inviter_display_name: string;
+        };
+        /**
+         * InvitePreviewRequest
+         * @description Body of ``POST /invites/preview``. The token travels in the body, never in a URL.
+         */
+        InvitePreviewRequest: {
+            /**
+             * Token
+             * @description The invite token.
+             */
+            token: string;
+        };
+        /**
          * LiveResponse
          * @description Body of ``GET /health/live``.
          */
@@ -397,8 +471,28 @@ export interface components {
             refresh_token?: string | null;
         };
         /**
+         * RegisterRequest
+         * @description Body of ``POST /auth/register``. The rules live in ``identity.services``.
+         */
+        RegisterRequest: {
+            /** Display Name */
+            display_name: string;
+            /**
+             * Email
+             * @description Optional. Stored trimmed; never verified, unique, shown or used to sign in.
+             * @default
+             */
+            email: string;
+            /** Invite Token */
+            invite_token: string;
+            /** Password */
+            password: string;
+            /** Username */
+            username: string;
+        };
+        /**
          * TokenResponse
-         * @description Tokens issued by a successful sign-in.
+         * @description Tokens issued by a successful sign-in or registration.
          */
         TokenResponse: {
             /** Access Token */
@@ -823,6 +917,111 @@ export interface operations {
             };
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    identity_register: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description Client error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Successful Response */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1353,6 +1552,111 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InviteOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    playgroups_preview_invite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InvitePreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Client error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitePreviewOut"];
                 };
             };
             /** @description Unauthorized */

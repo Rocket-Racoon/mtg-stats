@@ -3,6 +3,7 @@ import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
+import { AppProviders } from './providers/AppProviders';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { routes } from './routes';
 import { useSessionStore } from './session/store';
@@ -12,10 +13,14 @@ beforeEach(() => {
 });
 
 function renderAt(path: string) {
+  // A signed-in visitor is redirected away from /sign-in (S-2.1.6), so those cases start signed out.
+  if (path.startsWith('/sign-in')) useSessionStore.setState({ status: 'signed_out' });
   const router = createMemoryRouter(routes, { initialEntries: [path] });
   render(
     <StrictMode>
-      <RouterProvider router={router} />
+      <AppProviders>
+        <RouterProvider router={router} />
+      </AppProviders>
     </StrictMode>,
   );
   return router;
@@ -167,7 +172,9 @@ describe('focus after navigation (S-1.6.2)', () => {
 
   it('keeps focus on main across layouts: /about -> /sign-in', async () => {
     const router = renderAt('/about');
+    useSessionStore.setState({ status: 'signed_out' }); // a signed-in visitor is redirected away
     await act(() => router.navigate('/sign-in'));
+    expect(router.state.location.pathname).toBe('/sign-in');
     expect(screen.getByRole('main')).toHaveFocus();
     expect(document.activeElement?.id).toBe('main');
   });

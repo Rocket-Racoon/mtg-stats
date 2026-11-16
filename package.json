@@ -18,6 +18,7 @@
     "dev:web": "pnpm --filter @mtg-stats/web dev",
     "dev:mobile": "pnpm --filter @mtg-stats/mobile start",
     "dev:worker": "uv run --directory apps/api python -m app.workers",
+    "db:reset": "uv run --directory apps/api python -m app.scripts.reset_dev",
     "openapi:export": "uv run --directory apps/api python -m app.scripts.export_openapi",
     "client:generate": "pnpm openapi:export && pnpm --filter @mtg-stats/api-client generate",
     "client:check": "node scripts/client-drift-check.js",

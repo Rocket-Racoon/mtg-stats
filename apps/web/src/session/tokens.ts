@@ -1,22 +1,21 @@
 import type { TokenStore } from '@mtg-stats/api-client';
-
-let accessToken: string | null = null;
+import { useSessionStore } from './store';
 
 /**
- * Web token store (decision B3): the access token lives in memory only. There is no
- * `getRefreshToken`, so the client refreshes in cookie mode with the HttpOnly refresh cookie.
+ * Web token store (decision B3, cookie mode): an adapter over the in-memory session store. There
+ * is no `getRefreshToken`, so the client refreshes with the HttpOnly refresh cookie.
  */
 export const memoryTokenStore: TokenStore = {
-  getAccessToken: () => accessToken,
-  setTokens: ({ accessToken: token }) => {
-    accessToken = token;
+  getAccessToken: () => useSessionStore.getState().accessToken,
+  setTokens: ({ accessToken }) => {
+    useSessionStore.getState().setAccessToken(accessToken);
   },
   clear: () => {
-    accessToken = null;
+    useSessionStore.getState().setAccessToken(null);
   },
 };
 
-/** Call after sign-in with the access token from the login response. */
+/** Sets (or clears) the access token without changing the session status. */
 export function setAccessToken(token: string | null): void {
-  accessToken = token;
+  useSessionStore.getState().setAccessToken(token);
 }

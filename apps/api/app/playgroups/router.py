@@ -10,7 +10,14 @@ from app.core.db import SessionDep
 from app.core.errors import NotFoundError
 from app.core.paging import PageParamsDep
 from app.playgroups import services
-from app.playgroups.schemas import InviteCreate, InviteCreated, InviteOut, InvitePageOut
+from app.playgroups.schemas import (
+    InviteCreate,
+    InviteCreated,
+    InviteOut,
+    InvitePageOut,
+    InvitePreviewOut,
+    InvitePreviewRequest,
+)
 
 router = APIRouter(prefix="/invites", tags=["invites"])
 
@@ -46,6 +53,19 @@ async def create_invite(
         max_uses=body.max_uses,
     )
     return InviteCreated(**_out(created.invite).model_dump(), url=created.url)
+
+
+@router.post("/preview", summary="Preview an invite")
+async def preview_invite(body: InvitePreviewRequest, session: SessionDep) -> InvitePreviewOut:
+    """Show the inviter's display name and the expiry of an invite. No authentication.
+
+    The token is in the body so it never reaches a URL or an access log. A revoked, expired,
+    used-up or unknown token is a 410 `invite_no_longer_valid`.
+    """
+    preview = await services.preview_invite(session, body.token)
+    return InvitePreviewOut(
+        inviter_display_name=preview.inviter_display_name, expires_at=preview.expires_at
+    )
 
 
 @router.get("", summary="List my invites")

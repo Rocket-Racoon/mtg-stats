@@ -8,6 +8,6 @@ export const api = createApiClient({
   baseUrl: apiOrigin(env.apiBaseUrl),
   tokenStore: memoryTokenStore,
   onSessionExpired: () => {
-    useSessionStore.getState().setStatus('signed_out');
+    useSessionStore.getState().signOut();
   },
 });

@@ -28,3 +28,15 @@ jest.mock(
     installUIRuntimeBindings: jest.fn(),
   }),
 );
+
+// Unit tests never reach the network. fetch rejects by default; a test that needs a response stubs
+// its own (jest.spyOn(globalThis, 'fetch'), or the app-harness stub, which is installed again after
+// the app modules load because Expo's runtime replaces globalThis.fetch then).
+Object.defineProperty(globalThis, 'fetch', {
+  configurable: true,
+  writable: true,
+  value: (input: unknown) => {
+    const url = input instanceof Request ? input.url : String(input);
+    return Promise.reject(new TypeError(`Unstubbed fetch in a unit test: ${url}`));
+  },
+});

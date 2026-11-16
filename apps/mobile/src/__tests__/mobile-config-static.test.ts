@@ -81,7 +81,7 @@ describe('T-1.7.4.1: app.config.ts', () => {
     expect(config.scheme).toBe('mtgstats');
     expect(config.android?.package).toBe('app.mtgstats');
     expect(config.version).toBe('0.0.0');
-    expect(config.plugins).toEqual(['expo-router']);
+    expect(config.plugins).toEqual(['expo-router', 'expo-secure-store']);
     expect(config.extra?.buildProfile).toMatch(/^(development|preview|production)$/);
   });
 });

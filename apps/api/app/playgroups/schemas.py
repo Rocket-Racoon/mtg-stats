@@ -38,3 +38,16 @@ class InviteCreated(InviteOut):
 
 class InvitePageOut(Page[InviteOut]):
     """A page of the caller's invites."""
+
+
+class InvitePreviewRequest(BaseModel):
+    """Body of ``POST /invites/preview``. The token travels in the body, never in a URL."""
+
+    token: str = Field(min_length=1, max_length=128, description="The invite token.")
+
+
+class InvitePreviewOut(BaseModel):
+    """What the public preview shows: nothing but the inviter's name and the expiry."""
+
+    inviter_display_name: str
+    expires_at: datetime

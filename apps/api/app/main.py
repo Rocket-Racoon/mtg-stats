@@ -20,6 +20,7 @@ from app.identity import services as identity_services
 from app.identity.router import router as identity_router
 from app.playgroups.router import router as playgroups_router
 from app.system.router import router as system_router
+from app.workflows.registration import router as registration_router
 
 API_PREFIX = "/api/v1"
 
@@ -74,5 +75,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api_router.include_router(system_router)
     api_router.include_router(identity_router)
     api_router.include_router(playgroups_router)
+    api_router.include_router(registration_router)
     app.include_router(api_router)
     return app

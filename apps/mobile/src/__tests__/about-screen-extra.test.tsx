@@ -14,6 +14,7 @@ import { AppProviders } from '../components/AppProviders';
 import { ExternalLink } from '../components/ExternalLink';
 import AuthAbout from '../app/(auth)/about';
 import MoreAbout from '../app/(tabs)/more/about';
+import { signInViaStore } from './sign-in-via-store';
 
 jest.setTimeout(60000);
 
@@ -212,7 +213,7 @@ describe('AC3: one About screen, reachable signed out', () => {
     await lib.fireEvent.press(await lib.screen.findByLabelText('About'));
     await lib.screen.findByRole('header', { name: 'About' });
     await pressHardwareBack();
-    expect(await lib.screen.findByLabelText('Continue (placeholder)')).toBeTruthy();
+    expect(await lib.screen.findByLabelText('I have an invite')).toBeTruthy();
     expect(exitApp).not.toHaveBeenCalled();
   });
 
@@ -224,7 +225,7 @@ describe('AC3: one About screen, reachable signed out', () => {
 
   it('returns to the More tab on Android back from About when signed in', async () => {
     await lib.renderRouter(APP_DIR, { initialUrl: '/' });
-    await lib.fireEvent.press(await lib.screen.findByLabelText('Continue (placeholder)'));
+    await signInViaStore();
     await lib.fireEvent.press(await lib.screen.findByLabelText('More'));
     const about = await lib.screen.findByLabelText('About');
     expect(minSize(about)?.minHeight).toBeGreaterThanOrEqual(44);

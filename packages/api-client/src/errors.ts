@@ -7,6 +7,8 @@ export interface ApiErrorInit {
   message: string;
   details?: ApiErrorDetails | null;
   requestId?: string | null;
+  /** Seconds to wait before retrying, from the `Retry-After` header. */
+  retryAfter?: number | null;
   cause?: unknown;
 }
 
@@ -24,6 +26,8 @@ export class ApiError extends Error {
   readonly code: string;
   readonly details: ApiErrorDetails | null;
   readonly requestId: string | null;
+  /** Seconds from the `Retry-After` header (usually on a 429), or null when absent or invalid. */
+  readonly retryAfter: number | null;
 
   constructor(init: ApiErrorInit) {
     super(init.message, init.cause === undefined ? undefined : { cause: init.cause });
@@ -32,6 +36,7 @@ export class ApiError extends Error {
     this.code = init.code;
     this.details = init.details ?? null;
     this.requestId = init.requestId ?? null;
+    this.retryAfter = init.retryAfter ?? null;
     if (init.cause !== undefined && this.cause !== init.cause) {
       // Hermes may ignore the Error options bag; assign it explicitly.
       Object.defineProperty(this, 'cause', {
@@ -50,12 +55,34 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** Upper bound for `retryAfter`, in seconds (24 hours): a larger value is not useful to show. */
+const MAX_RETRY_AFTER = 86_400;
+
+/**
+ * Parses a `Retry-After` header: delta-seconds (a non-negative integer) or an HTTP date, measured
+ * from now and clamped at 0 (rounded up to whole seconds). Anything else gives null.
+ */
+export function parseRetryAfter(
+  value: string | null | undefined,
+  now: number = Date.now(),
+): number | null {
+  if (value === null || value === undefined) return null;
+  const text = value.trim();
+  if (/^\d+$/.test(text)) return Math.min(Number(text), MAX_RETRY_AFTER);
+  // Only the IMF-fixdate form ("Wed, 21 Oct 2015 07:28:00 GMT") that servers send.
+  if (!/^[A-Za-z]{3}, \d{2} [A-Za-z]{3} \d{4} \d{2}:\d{2}:\d{2} GMT$/.test(text)) return null;
+  const at = Date.parse(text);
+  if (Number.isNaN(at)) return null;
+  return Math.min(MAX_RETRY_AFTER, Math.max(0, Math.ceil((at - now) / 1000)));
+}
+
 /**
  * Builds the ApiError for a non-2xx response. `body` is the parsed JSON body, or the raw
  * text when it was not JSON.
  */
 export function apiErrorFromResponse(response: Response, body: unknown): ApiError {
   const headerRequestId = response.headers.get('X-Request-ID');
+  const retryAfter = parseRetryAfter(response.headers.get('Retry-After'));
   const envelope = isRecord(body) ? body.error : undefined;
   if (
     isRecord(envelope) &&
@@ -71,6 +98,7 @@ export function apiErrorFromResponse(response: Response, body: unknown): ApiErro
         typeof envelope.request_id === 'string' && envelope.request_id !== ''
           ? envelope.request_id
           : headerRequestId,
+      retryAfter,
     });
   }
   return new ApiError({
@@ -79,6 +107,7 @@ export function apiErrorFromResponse(response: Response, body: unknown): ApiErro
     message: response.statusText || `Unexpected response (HTTP ${response.status})`,
     details: isRecord(body) ? body : null,
     requestId: headerRequestId,
+    retryAfter,
   });
 }
 

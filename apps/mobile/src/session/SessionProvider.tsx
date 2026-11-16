@@ -1,40 +1,29 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { useSessionStore, type SessionStatus } from './store';
 
-/** `restoring` is the cold-start window while the stored session is read; it never flashes sign-in. */
-export type SessionStatus = 'restoring' | 'signed_in' | 'signed_out';
-
-/**
- * The session interface the route guards depend on. E-2's secure session store implements it
- * (tokens stay in that store on expo-secure-store); nothing here touches a token.
- */
-export type Session = {
-  status: SessionStatus;
-  signIn: () => void;
-  signOut: () => void;
-};
-
-const SessionContext = createContext<Session | null>(null);
+export type { SessionStatus } from './store';
 
 /**
- * In-memory session placeholder. Real tokens and the sign-in flow arrive with E-2; they replace
- * this provider but keep the `useSession()` shape so the route guards need no change.
+ * Test seam only: sets the store's initial status before the first render of `children`. The app
+ * itself needs no provider; the Zustand store is the session.
  */
 export function SessionProvider({
-  initialStatus = 'signed_out',
+  initialStatus,
   children,
 }: {
   initialStatus?: SessionStatus;
   children: ReactNode;
 }) {
-  const [status, setStatus] = useState<SessionStatus>(initialStatus);
-  const signIn = useCallback(() => setStatus('signed_in'), []);
-  const signOut = useCallback(() => setStatus('signed_out'), []);
-  const value = useMemo(() => ({ status, signIn, signOut }), [status, signIn, signOut]);
-  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
+  useState(() => {
+    if (initialStatus) useSessionStore.setState({ status: initialStatus, pendingHref: null });
+    return null;
+  });
+  return <>{children}</>;
 }
 
-export function useSession(): Session {
-  const session = useContext(SessionContext);
-  if (!session) throw new Error('useSession must be used inside a SessionProvider');
-  return session;
+export function useSession() {
+  const status = useSessionStore((s) => s.status);
+  const signIn = useSessionStore((s) => s.signIn);
+  const signOut = useSessionStore((s) => s.signOut);
+  return { status, signIn, signOut };
 }

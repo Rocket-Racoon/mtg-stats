@@ -7,6 +7,8 @@ import { PublicLayout } from './PublicLayout';
 import { HomePage } from './pages/Home';
 import { NotFoundPage } from './pages/NotFound';
 import { PlaceholderPage } from './pages/Placeholder';
+import { InvitePage } from './pages/auth/InvitePage';
+import { SignInPage } from './pages/auth/SignInPage';
 import { SharedLinkPage } from './pages/SharedLinkPage';
 import { RequireSession } from './session/RequireSession';
 import { SIGN_IN_PATH } from './session/sign-in';
@@ -20,14 +22,14 @@ export const routes: RouteObject[] = [
     element: <RootLayout />,
     children: [
       // Public shell: no navigation, but the same footer (S-1.6.6). Nothing here is guarded; the
-      // paths must match PUBLIC_PATHS (session/session-guard.test.tsx enforces it). The real sign-in page comes
-      // from S-2.1.6. The invite/reset/join pages are placeholders until S-2.1.6, S-2.1.9 and S-6.2.3;
-      // S-1.6.7 gives them the "Open in app" button.
+      // paths must match PUBLIC_PATHS (session/session-guard.test.tsx enforces it). Sign-in and the
+      // invite page are real (S-2.1.6); the reset and join pages are placeholders until S-2.1.9 and
+      // S-6.2.3, with the "Open in app" button from S-1.6.7.
       {
         element: <PublicLayout />,
         children: [
-          { path: SIGN_IN_PATH, element: <PlaceholderPage title="Sign in" /> },
-          { path: '/invite/*', element: <SharedLinkPage kind="invite" title="Invite" /> },
+          { path: SIGN_IN_PATH, element: <SignInPage /> },
+          { path: '/invite/*', element: <InvitePage /> },
           { path: '/reset/*', element: <SharedLinkPage kind="reset" title="Reset password" /> },
           { path: '/join/*', element: <SharedLinkPage kind="join" title="Join" /> },
         ],

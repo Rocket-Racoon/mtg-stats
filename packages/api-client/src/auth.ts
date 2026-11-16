@@ -103,12 +103,23 @@ function toApiError(error: unknown): Error {
   });
 }
 
+/** The auth middleware plus `refresh`, the same single-flight refresh the 401 retry uses. */
+export type AuthMiddleware = Middleware & {
+  /**
+   * Refreshes the session now (cookie or body mode, as the token store dictates). Resolves true
+   * after `setTokens`, false when the refresh was rejected (the store is cleared and
+   * `onSessionExpired` has run) or when there is no token store; throws the ApiError when the
+   * failure was transient.
+   */
+  refresh(fetchFn: FetchFn): Promise<boolean>;
+};
+
 /**
  * The auth middleware: sets the Bearer header, sends cookies to `/api/v1/auth/*`, and on a 401
  * refreshes once (single-flight per client) and retries the original request once.
  * Must be registered before any other middleware.
  */
-export function createAuthMiddleware(options: AuthMiddlewareOptions): Middleware {
+export function createAuthMiddleware(options: AuthMiddlewareOptions): AuthMiddleware {
   const { tokenStore, onSessionExpired } = options;
   const baseUrl = options.baseUrl.replace(/\/+$/, '');
   // Keyed by the per-call `options` object openapi-fetch passes to every hook of one call.
@@ -201,6 +212,13 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions): Middleware
   };
 
   return {
+    async refresh(fetchFn) {
+      if (!tokenStore) return false;
+      const outcome = await refreshOnce(fetchFn);
+      if (outcome.kind === 'transient') throw outcome.error;
+      return outcome.kind === 'ok';
+    },
+
     async onRequest({ request, schemaPath, options: callOptions }) {
       let current = request;
       if (schemaPath.startsWith(AUTH_PREFIX) && current.credentials === 'same-origin') {

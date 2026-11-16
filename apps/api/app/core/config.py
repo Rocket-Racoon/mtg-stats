@@ -206,7 +206,7 @@ class _AppEnvProbe(BaseSettings):
     app_env: str | None = Field(default=None, validation_alias="APP_ENV")
 
 
-def _dev_env_file() -> Path | None:
+def dev_env_file() -> Path | None:
     """Return the root ``.env`` only when the effective ``APP_ENV`` is ``dev``."""
     env_file = find_env_file()
     if env_file is None:
@@ -217,9 +217,12 @@ def _dev_env_file() -> Path | None:
     return env_file if app_env == "dev" else None
 
 
+_dev_env_file = dev_env_file  # private alias kept for existing callers
+
+
 def load_settings() -> Settings:
     """Build settings from the environment (and the root ``.env`` in dev only)."""
-    return Settings(_env_file=_dev_env_file())
+    return Settings(_env_file=dev_env_file())
 
 
 @lru_cache

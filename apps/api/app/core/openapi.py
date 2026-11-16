@@ -8,9 +8,14 @@ a tag:
 
 1. the endpoint's module is ``app.<domain>.…`` with ``<domain>`` one of the architecture §4.1
    domains (``app.decks.router`` gives ``decks``);
-2. otherwise (core, workflows, workers, tests, probes), the route's first tag (an ``Enum`` tag
-   uses its ``.value``), slugged to snake_case, but only if it is itself one of those domains;
-3. otherwise ``system``.
+2. a route in ``app.workflows.…`` (workflows own no domain) maps its first tag, slugged: a domain
+   name is used as is, and a backlog name from architecture §4.1 (``auth`` and ``accounts`` are
+   ``identity``, and so on) maps to its domain, so ``POST /auth/register`` is
+   ``identity_register``;
+3. otherwise (core, workers, tests, probes, and workflow routes whose tag maps to nothing), the
+   route's first tag (an ``Enum`` tag uses its ``.value``), slugged to snake_case, but only if it
+   is itself one of those domains;
+4. otherwise ``system``.
 
 FastAPI calls the generator with an effective route context for routes added through
 ``include_router`` (0.162+), not always a real ``APIRoute``. The code here only relies on the
@@ -42,6 +47,16 @@ DOMAINS = frozenset(
         "leagues",
     }
 )
+BACKLOG_ALIASES = {
+    "auth": "identity",
+    "accounts": "identity",
+    "prices": "cards",
+    "purchases": "collection",
+    "dashboard": "stats",
+    "activity": "stats",
+    "meta": "stats",
+}
+"""Backlog names that architecture 4.1 maps to a domain (``players`` is ambiguous: left out)."""
 _MODULE_RE = re.compile(r"^app\.(?P<domain>[a-z_][a-z0-9_]*)(?:\.|$)")
 _DUPLICATE_WARNING = "Duplicate Operation ID"
 
@@ -54,16 +69,24 @@ def _slug(value: str) -> str:
     return re.sub(r"\W+", "_", value.strip().lower()).strip("_")
 
 
+def _first_tag_slug(route: APIRoute) -> str:
+    """The route's first tag as snake_case (an ``Enum`` tag uses its ``.value``), else ``""``."""
+    if not route.tags:
+        return ""
+    first = route.tags[0]
+    return _slug(str(first.value if isinstance(first, Enum) else first))
+
+
 def route_domain(route: APIRoute) -> str:
-    """Return the domain a route belongs to (module package, else first tag, else ``system``)."""
+    """Return the domain a route belongs to (module package, workflow tag, tag, else ``system``)."""
     match = _MODULE_RE.match(getattr(route.endpoint, "__module__", "") or "")
     if match and match["domain"] in DOMAINS:
         return match["domain"]
-    if route.tags:
-        first = route.tags[0]
-        tag = _slug(str(first.value if isinstance(first, Enum) else first))
-        if tag in DOMAINS:
-            return tag
+    tag = _first_tag_slug(route)
+    if match and match["domain"] == "workflows" and tag in BACKLOG_ALIASES:
+        return BACKLOG_ALIASES[tag]
+    if tag in DOMAINS:
+        return tag
     return SYSTEM_DOMAIN
 
 

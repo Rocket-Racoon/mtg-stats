@@ -4,6 +4,7 @@ import { BackHandler, StyleSheet } from 'react-native';
 import { SessionProvider } from '../session/SessionProvider';
 import { RootNavigator } from '../app/_layout';
 import appJson from '../../app.json';
+import { signInViaStore } from './sign-in-via-store';
 
 jest.setTimeout(60000);
 
@@ -11,14 +12,8 @@ const APP_DIR = './src/app';
 const mount = (initialUrl: string) => lib.renderRouter(APP_DIR, { initialUrl });
 
 async function signIn() {
-  await lib.fireEvent.press(await lib.screen.findByLabelText('Continue (placeholder)'));
+  await signInViaStore();
   await lib.screen.findByLabelText('Play');
-}
-
-/** Signs in with a protected link pending: the link's screen opens instead of the tabs. */
-async function signInToPendingLink() {
-  await lib.fireEvent.press(await lib.screen.findByLabelText('Continue (placeholder)'));
-  await lib.screen.findByTestId('join-screen');
 }
 
 type BackHandlerFn = () => boolean | null | undefined;
@@ -107,11 +102,10 @@ describe('hardware back across tabs (firstRoute)', () => {
     expect(exitApp).toHaveBeenCalledTimes(1);
   });
 
-  it('drops the deep-link listener once the join screen opened via the pending link is left', async () => {
-    await mount('/join/ABC123');
-    await signInToPendingLink(); // join is protected: the pending link opens it after sign-in
+  it('drops the deep-link listener once that screen is left (cold-start reset, then back)', async () => {
+    await mount('/reset/ABC123');
     await lib.fireEvent.press(await lib.screen.findByLabelText('Back to app'));
-    await lib.waitFor(() => expect(lib.screen.queryByTestId('join-screen')).toBeNull());
+    await signInViaStore();
     await lib.screen.findByLabelText('Play');
     await pressHardwareBack();
     expect(exitApp).toHaveBeenCalledTimes(1);
@@ -125,7 +119,7 @@ describe('opening the app already signed in', () => {
         appDir: APP_DIR,
         overrides: {
           _layout: () => (
-            <SessionProvider initialStatus="signed_in">
+            <SessionProvider initialStatus="signed-in">
               <RootNavigator />
             </SessionProvider>
           ),
@@ -134,42 +128,7 @@ describe('opening the app already signed in', () => {
       { initialUrl: '/' },
     );
     expect(await lib.screen.findByLabelText('Play')).toBeTruthy();
-    expect(lib.screen.queryByLabelText('Continue (placeholder)')).toBeNull();
-  });
-});
-
-describe('cold start signed in on a join link (no history)', () => {
-  async function mountSignedInAt(url: string) {
-    await lib.renderRouter(
-      {
-        appDir: APP_DIR,
-        overrides: {
-          _layout: () => (
-            <SessionProvider initialStatus="signed_in">
-              <RootNavigator />
-            </SessionProvider>
-          ),
-        },
-      },
-      { initialUrl: url },
-    );
-    await lib.screen.findByTestId('join-screen');
-    expect(router.canGoBack()).toBe(false);
-  }
-
-  it('hardware back goes to the Play tab instead of exiting the app', async () => {
-    await mountSignedInAt('/join/ABC123');
-    await pressHardwareBack();
-    expect(await lib.screen.findByLabelText('Play')).toBeTruthy();
-    expect(lib.screen.queryByTestId('join-screen')).toBeNull();
-    expect(exitApp).not.toHaveBeenCalled();
-  });
-
-  it('Back to app goes to the Play tab', async () => {
-    await mountSignedInAt('/join/ABC123');
-    await lib.fireEvent.press(lib.screen.getByLabelText('Back to app'));
-    expect(await lib.screen.findByLabelText('Play')).toBeTruthy();
-    expect(lib.screen.queryByTestId('join-screen')).toBeNull();
+    expect(lib.screen.queryByLabelText('I have an invite')).toBeNull();
   });
 });
 
@@ -182,7 +141,7 @@ describe('app configuration', () => {
 describe('guards', () => {
   it('lands a signed-out user on sign-in when opening /decks', async () => {
     await mount('/decks');
-    expect(await lib.screen.findByLabelText('Continue (placeholder)')).toBeTruthy();
+    expect(await lib.screen.findByLabelText('I have an invite')).toBeTruthy();
     expect(lib.screen.queryByLabelText('Decks')).toBeNull();
   });
 
@@ -190,7 +149,7 @@ describe('guards', () => {
     await mount('/');
     await signIn();
     await lib.act(async () => router.replace('/sign-in'));
-    expect(lib.screen.queryByLabelText('Continue (placeholder)')).toBeNull();
+    expect(lib.screen.queryByLabelText('I have an invite')).toBeNull();
     expect(lib.screen.getByLabelText('Play')).toBeTruthy();
   });
 
@@ -199,10 +158,10 @@ describe('guards', () => {
     await signIn();
     await lib.fireEvent.press(lib.screen.getByLabelText('More'));
     await lib.fireEvent.press(await lib.screen.findByLabelText('Sign out'));
-    await lib.screen.findByLabelText('Continue (placeholder)');
+    await lib.screen.findByLabelText('I have an invite');
     await lib.act(async () => router.replace('/decks'));
     expect(lib.screen.queryByLabelText('Decks')).toBeNull();
-    expect(lib.screen.getByLabelText('Continue (placeholder)')).toBeTruthy();
+    expect(lib.screen.getByLabelText('I have an invite')).toBeTruthy();
   });
 });
 
@@ -259,21 +218,19 @@ describe('hardware back (Android)', () => {
     expect(lib.screen.getByRole('header', { name: 'Stats' })).toBeTruthy();
   });
 
-  it('hardware back on a join screen opened via the pending link returns to the tabs', async () => {
-    await mount('/join/ABC123');
-    await signInToPendingLink(); // join is protected: the pending link opens it after sign-in
-    await lib.screen.findByTestId('join-screen');
+  it('goes to the app root, not a dead end, on a cold-start reset screen', async () => {
+    await mount('/reset/ABC123');
+    await lib.screen.findByTestId('reset-screen');
     await pressHardwareBack();
-    expect(await lib.screen.findByLabelText('Play')).toBeTruthy();
-    expect(lib.screen.queryByTestId('join-screen')).toBeNull();
-    expect(exitApp).not.toHaveBeenCalled();
+    expect(await lib.screen.findByLabelText('I have an invite')).toBeTruthy();
+    expect(lib.screen.queryByTestId('reset-screen')).toBeNull();
   });
 
   it('goes to the app root on a cold-start invite screen', async () => {
     await mount('/invite/tok-1');
     await lib.screen.findByTestId('invite-screen');
     await pressHardwareBack();
-    expect(await lib.screen.findByLabelText('Continue (placeholder)')).toBeTruthy();
+    expect(await lib.screen.findByLabelText('I have an invite')).toBeTruthy();
     expect(lib.screen.queryByTestId('invite-screen')).toBeNull();
   });
 });
@@ -289,24 +246,23 @@ describe('deep links', () => {
     expect(lib.screen.getByLabelText('Play')).toBeTruthy();
   });
 
-  it('opens the invite screen while signed out and Back to app shows sign-in', async () => {
-    await mount('/invite/tok-signed-out');
-    expect(await lib.screen.findByTestId('invite-screen-value')).toHaveTextContent(
-      'tok-signed-out',
-    );
+  it('opens the reset screen while signed out and Back to app shows sign-in', async () => {
+    await mount('/reset/tok-signed-out');
+    expect(await lib.screen.findByTestId('reset-screen-value')).toHaveTextContent('tok-signed-out');
     await lib.fireEvent.press(lib.screen.getByLabelText('Back to app'));
-    expect(await lib.screen.findByLabelText('Continue (placeholder)')).toBeTruthy();
+    expect(await lib.screen.findByLabelText('I have an invite')).toBeTruthy();
   });
 
   it('renders a URL-encoded code decoded', async () => {
-    await mount('/join/AB%20C%2F1');
-    await signInToPendingLink(); // join is protected: the pending link opens it after sign-in
+    await mount('/');
+    await signIn();
+    await lib.act(async () => router.push('/join/AB%20C%2F1'));
     expect(await lib.screen.findByTestId('join-screen-value')).toHaveTextContent('AB C/1');
   });
 
   it('renders a token containing markup characters as plain text', async () => {
-    await mount('/invite/%3Cb%3Ex%3C%2Fb%3E');
-    expect(await lib.screen.findByTestId('invite-screen-value')).toHaveTextContent('<b>x</b>');
+    await mount('/reset/%3Cb%3Ex%3C%2Fb%3E');
+    expect(await lib.screen.findByTestId('reset-screen-value')).toHaveTextContent('<b>x</b>');
   });
 });
 

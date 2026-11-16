@@ -49,6 +49,7 @@ from app.identity.services.players import (
     normalize_email,
     set_password,
 )
+from app.identity.services.throttle import throttled_sign_in
 
 __all__ = [
     "AVATAR_COLORS",
@@ -88,6 +89,7 @@ __all__ = [
     "set_site_admin",
     "sign_in",
     "start_session",
+    "throttled_sign_in",
     "validate_password",
     "validate_username",
     "verify_password",

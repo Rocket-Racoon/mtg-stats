@@ -159,6 +159,10 @@ describe('the api job', () => {
     expect(jobBlock('env')).toMatch(/^ {6}PUBLIC_WEB_URL:\s*https?:\/\/\S+\s*$/m);
   });
 
+  it('sets JWT_SECRET (required by Settings, S-2.1.4) in the job env, at least 32 characters', () => {
+    expect(jobBlock('env')).toMatch(/^ {6}JWT_SECRET:\s*\S{32,}(\s+#.*)?$/m);
+  });
+
   it('gives both services a health check so steps wait for them', () => {
     const services = jobBlock('services');
     expect(block(services, 'postgres', 6).join('\n')).toContain('--health-cmd');

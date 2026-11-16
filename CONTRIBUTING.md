@@ -1,6 +1,6 @@
 # Contributing
 
-Setup, the git hooks and the verify gate are in the [README](README.md). This file covers how a change gets onto `main`.
+Setup and the git hooks are in the [README](README.md), and the verify gate is in [docs/getting-started.md](docs/getting-started.md#7-run-the-verify-gate). This file covers how a change gets onto `main`.
 
 ## The merge convention
 

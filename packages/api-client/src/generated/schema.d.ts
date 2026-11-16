@@ -139,8 +139,8 @@ export interface paths {
          * Register with an invite link
          * @description Create an account from an invite and sign the new user in.
          *
-         *     Limited to 30 requests per IP address per 15 minutes, shared with the invite preview (429
-         *     `rate_limited`, with `Retry-After`).
+         *     Limited to 30 requests per IP address per 15 minutes by default, shared with the invite
+         *     preview (429 `rate_limited`, with `Retry-After`).
          *
          *     The invite is checked first (410 `invite_no_longer_valid`), then the username (409
          *     `username_taken`, and the invite is not used up). Field errors are a 422.
@@ -258,7 +258,7 @@ export interface paths {
          * Preview an invite
          * @description Show the inviter's display name and the expiry of an invite. No authentication.
          *
-         *     Limited to 30 requests per IP address per 15 minutes, shared with registration (429
+         *     Limited to 30 requests per IP address per 15 minutes by default, shared with registration (429
          *     `rate_limited`, with `Retry-After`). The token is in the body so it never reaches a URL or an
          *     access log. A revoked, expired, used-up or unknown token is a 410 `invite_no_longer_valid`.
          */

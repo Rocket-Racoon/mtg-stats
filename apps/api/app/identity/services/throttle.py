@@ -1,7 +1,8 @@
-"""Sign-in throttling (S-2.1.10): failed attempts are counted per username and per IP.
+"""Sign-in throttling (S-2.1.10): attempts are counted per username and per IP.
 
-Counters live in Redis through ``core.rate_limit`` (fail open). The username goes into the key
-only as a SHA-256 of its lowercase form.
+Counters live in Redis through ``core.rate_limit`` (fail open). The attempt is counted atomically
+BEFORE the password is checked, so concurrent attempts cannot exceed the limit. The username goes
+into the key only as a SHA-256 of its lowercase form.
 """
 
 import hashlib
@@ -22,10 +23,11 @@ def _keys(username: str, ip: str) -> tuple[str, str]:
 async def throttled_sign_in(
     session: AsyncSession, *, username: str, password: str, ip: str
 ) -> SignInResult:
-    """Sign in, refusing early when the username or the IP has too many failures.
+    """Sign in, refusing early when the username or the IP has used up its attempts.
 
-    The check runs before any password work. A failure (``InvalidCredentialsError``) counts
-    against both counters; a success clears the username counter only.
+    The attempt is counted first, in one atomic step; a blocked attempt does no password work. A
+    failure (``InvalidCredentialsError``) keeps its count. A success deletes the username counter
+    and gives back the IP count. Any other exception gives both counts back.
 
     Raises:
         RateLimitedError: a counter reached its limit in the current window (429).
@@ -33,23 +35,21 @@ async def throttled_sign_in(
     """
     settings = get_settings()
     user_key, ip_key = _keys(username, ip)
-    windows = await rate_limit.peek([user_key, ip_key])
-    if windows is not None:
-        blocked = [
-            w
-            for w, limit in zip(
-                windows,
-                (settings.signin_max_failures_per_username, settings.signin_max_failures_per_ip),
-                strict=True,
-            )
-            if w.count >= limit
+    outcome = await rate_limit.acquire(
+        [
+            (user_key, settings.signin_max_failures_per_username),
+            (ip_key, settings.signin_max_failures_per_ip),
         ]
-        if blocked:
-            raise RateLimitedError(retry_after=max(w.retry_after for w in blocked))
+    )
+    if isinstance(outcome, rate_limit.Blocked):
+        raise RateLimitedError(retry_after=outcome.retry_after)
     try:
         result = await sign_in(session, username=username, password=password)
     except InvalidCredentialsError:
-        await rate_limit.hit([user_key, ip_key])
+        raise
+    except BaseException:
+        await rate_limit.give_back([user_key, ip_key])
         raise
     await rate_limit.reset(user_key)
+    await rate_limit.give_back([ip_key])
     return result

@@ -62,7 +62,7 @@ async def preview_invite(
 ) -> InvitePreviewOut:
     """Show the inviter's display name and the expiry of an invite. No authentication.
 
-    Limited to 30 requests per IP address per 15 minutes, shared with registration (429
+    Limited to 30 requests per IP address per 15 minutes by default, shared with registration (429
     `rate_limited`, with `Retry-After`). The token is in the body so it never reaches a URL or an
     access log. A revoked, expired, used-up or unknown token is a 410 `invite_no_longer_valid`.
     """

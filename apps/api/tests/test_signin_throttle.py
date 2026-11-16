@@ -1,12 +1,16 @@
 """Sign-in failure throttling (S-2.1.10 AC1, AC2, AC3 and the sign-in decisions)."""
 
 import asyncio
+from collections.abc import AsyncIterator
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 from fastapi import FastAPI
 
-from app.core.db import AppSession
+from app.core.db import AppSession, get_session
+from app.identity import repository
+from app.identity.services import auth as auth_module
 from tests.rate_limit_support import (
     client_from,
     keys_containing,
@@ -153,17 +157,17 @@ async def test_another_username_is_not_throttled_by_one_usernames_failures(
 
 
 async def test_sign_in_works_again_after_the_window_ends(
-    client: httpx.AsyncClient,
-    api_app: FastAPI,
-    app_schema: AppSession,
-    monkeypatch: pytest.MonkeyPatch,
+    client: httpx.AsyncClient, app_schema: AppSession, rate_limit_prefix: str
 ) -> None:
-    use_settings(api_app, monkeypatch, RATE_LIMIT_WINDOW_SECONDS="2")
     await make_member(app_schema)
     await _fail(client, 5)
-    _assert_throttled(await login(client), window=2)
+    _assert_throttled(await login(client))
+    # The window ends: expire the counters directly (a real 15-minute wait is not an option).
+    async with peek_redis() as redis:
+        for key in await keys_under(rate_limit_prefix):
+            await redis.pexpire(key, 200)
 
-    await asyncio.sleep(2.5)
+    await asyncio.sleep(0.4)
 
     assert (await login(client)).status_code == 200
 
@@ -337,3 +341,106 @@ async def test_the_limits_come_from_the_settings(
 
     await _fail(client, 1, "other")  # the IP is now at 3
     _assert_throttled(await login(client, "third-name", WRONG))
+
+
+# ------------------------------------------------------------------------------ amended counting
+
+
+async def test_a_throttled_attempt_does_not_increment_either_counter(
+    client: httpx.AsyncClient, app_schema: AppSession, rate_limit_prefix: str
+) -> None:
+    await make_member(app_schema)
+    await _fail(client, 5)
+    (user_key,) = await keys_containing(rate_limit_prefix, USER_KEY)
+    (ip_key,) = await keys_containing(rate_limit_prefix, IP_KEY)
+
+    for _ in range(3):
+        _assert_throttled(await login(client))
+
+    assert await value_of(user_key) == 5
+    assert await value_of(ip_key) == 5
+
+
+async def test_an_ip_throttled_attempt_does_not_increment_either_counter(
+    client: httpx.AsyncClient, app_schema: AppSession, rate_limit_prefix: str
+) -> None:
+    for index in range(20):
+        await _fail(client, 1, f"user{index}")
+    (ip_key,) = await keys_containing(rate_limit_prefix, IP_KEY)
+
+    _assert_throttled(await login(client, "fresh-name", WRONG))
+
+    assert await value_of(ip_key) == 20
+    assert await keys_containing(rate_limit_prefix, USER_KEY) != []
+    for key in await keys_containing(rate_limit_prefix, USER_KEY):
+        assert await value_of(key) == 1  # "fresh-name" never got a counter
+
+
+async def test_an_unexpected_error_does_not_leave_a_counted_attempt(
+    client: httpx.AsyncClient,
+    app_schema: AppSession,
+    rate_limit_prefix: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("database exploded")
+
+    monkeypatch.setattr(repository, "get_user_by_username", boom)
+
+    assert (await login(client, "ada", WRONG)).status_code == 500
+
+    for key in await keys_under(rate_limit_prefix):
+        assert await value_of(key) == 0
+
+
+# ------------------------------------------------------------------------------ concurrency
+
+
+@pytest.fixture
+def stub_lookup(api_app: FastAPI, monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Make every sign-in an unknown-user failure without touching the shared DB session.
+
+    The user lookup sleeps a little, which widens the window between a limiter check and the
+    count, so a peek-then-hit design lets every concurrent attempt through. Returns a list that
+    gets one entry per ``verify_password`` call (argon2 work).
+    """
+    verifies: list[int] = []
+
+    async def no_user(*args: object, **kwargs: object) -> None:
+        await asyncio.sleep(0.05)
+
+    def counting_verify(*args: object, **kwargs: object) -> bool:
+        verifies.append(1)
+        return False
+
+    async def no_session() -> AsyncIterator[AsyncMock]:
+        yield AsyncMock()  # unused by the stubbed lookup; one real session cannot run in parallel
+
+    monkeypatch.setattr(repository, "get_user_by_username", no_user)
+    monkeypatch.setattr(auth_module, "verify_password", counting_verify)
+    api_app.dependency_overrides[get_session] = no_session
+    return verifies
+
+
+async def test_concurrent_wrong_passwords_for_one_username_let_at_most_five_reach_argon2(
+    client: httpx.AsyncClient, stub_lookup: list[int], rate_limit_prefix: str
+) -> None:
+    responses = await asyncio.gather(*(login(client, "ada", WRONG) for _ in range(10)))
+
+    statuses = sorted(r.status_code for r in responses)
+    assert statuses == [401] * 5 + [429] * 5
+    assert len(stub_lookup) == 5
+    (user_key,) = await keys_containing(rate_limit_prefix, USER_KEY)
+    assert await value_of(user_key) == 5
+
+
+async def test_concurrent_attempts_from_one_ip_let_at_most_twenty_reach_argon2(
+    client: httpx.AsyncClient, stub_lookup: list[int], rate_limit_prefix: str
+) -> None:
+    responses = await asyncio.gather(*(login(client, f"user{i}", WRONG) for i in range(30)))
+
+    statuses = sorted(r.status_code for r in responses)
+    assert statuses == [401] * 20 + [429] * 10
+    assert len(stub_lookup) == 20
+    (ip_key,) = await keys_containing(rate_limit_prefix, IP_KEY)
+    assert await value_of(ip_key) == 20

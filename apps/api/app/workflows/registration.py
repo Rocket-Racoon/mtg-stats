@@ -94,8 +94,8 @@ async def register(
 ) -> TokenResponse:
     """Create an account from an invite and sign the new user in.
 
-    Limited to 30 requests per IP address per 15 minutes, shared with the invite preview (429
-    `rate_limited`, with `Retry-After`).
+    Limited to 30 requests per IP address per 15 minutes by default, shared with the invite
+    preview (429 `rate_limited`, with `Retry-After`).
 
     The invite is checked first (410 `invite_no_longer_valid`), then the username (409
     `username_taken`, and the invite is not used up). Field errors are a 422.

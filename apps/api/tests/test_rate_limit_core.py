@@ -1,6 +1,8 @@
 """The Redis fixed-window limiter in ``core``: fail open, TTL on first increment (S-2.1.10)."""
 
+import asyncio
 import logging
+import time
 
 import httpx
 import pytest
@@ -39,20 +41,33 @@ LOGGER = "app.core.rate_limit"
 WRONG = "wrong password!"
 
 
-@pytest.fixture(params=["connection_refused", "redis_timeout", "redis_connection_error"])
+@pytest.fixture(
+    params=["connection_refused", "redis_timeout", "redis_connection_error", "redis_hangs"]
+)
 async def redis_down(
     request: pytest.FixtureRequest,
     api_app: FastAPI,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> str:
-    """Make every limiter call fail in one of three ways; capture the limiter's logger."""
+    """Make every limiter call fail in one of four ways; capture the limiter's logger.
+
+    Every limit is 1 and the call timeout is short, so two or three requests are already past
+    each limit and nothing in these tests waits long.
+    """
     caplog.set_level(logging.DEBUG, logger=LOGGER)
     mode: str = request.param
-    if mode == "connection_refused":
-        use_settings(api_app, monkeypatch, REDIS_URL="redis://127.0.0.1:1/15")
-        await close_redis()
-    else:
+    use_settings(
+        api_app,
+        monkeypatch,
+        SIGNIN_MAX_FAILURES_PER_USERNAME="1",
+        SIGNIN_MAX_FAILURES_PER_IP="1",
+        PUBLIC_MAX_REQUESTS_PER_IP="1",
+        REDIS_CALL_TIMEOUT_SECONDS="0.1" if mode == "redis_hangs" else "0.5",
+        **({"REDIS_URL": "redis://127.0.0.1:1/15"} if mode == "connection_refused" else {}),
+    )
+    await close_redis()
+    if mode != "connection_refused":
         error: Exception = (
             RedisTimeoutError("timed out")
             if mode == "redis_timeout"
@@ -60,6 +75,8 @@ async def redis_down(
         )
 
         async def boom(*args: object, **kwargs: object) -> None:
+            if mode == "redis_hangs":
+                await asyncio.sleep(30)
             raise error
 
         monkeypatch.setattr(redis_client.Pipeline, "execute", boom)
@@ -78,7 +95,7 @@ async def test_login_fails_open_when_redis_is_down(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     await make_member(app_schema, "failopen")
-    for _ in range(7):  # past every sign-in limit
+    for _ in range(3):  # past every (lowered) sign-in limit
         assert (await login(client, "failopen", WRONG)).status_code == 401
 
     response = await login(client, "failopen", PASSWORD)
@@ -107,7 +124,7 @@ async def test_preview_fails_open_and_logs_one_warning_per_request(
 async def test_preview_is_never_limited_while_redis_is_down(
     redis_down: str, client: httpx.AsyncClient, app_schema: AppSession
 ) -> None:
-    for _ in range(32):
+    for _ in range(3):  # past the lowered public limit
         assert (await client.post(PREVIEW, json={"token": new_token()})).status_code not in (
             429,
             500,
@@ -143,3 +160,31 @@ async def test_a_working_redis_logs_no_limiter_warning(
 
     assert _warnings(caplog) == []
     assert len(await keys_under(rate_limit_prefix)) == 3  # user, ip, public
+
+
+async def test_a_hanging_redis_call_times_out_and_the_request_goes_through(
+    api_app: FastAPI,
+    client: httpx.AsyncClient,
+    app_schema: AppSession,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.DEBUG, logger=LOGGER)
+    use_settings(api_app, monkeypatch, REDIS_CALL_TIMEOUT_SECONDS="0.1")
+    await close_redis()
+
+    async def hang(*args: object, **kwargs: object) -> None:
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(redis_client.Pipeline, "execute", hang)
+    monkeypatch.setattr(redis_client.Redis, "execute_command", hang)
+    token = await make_token_invite(app_schema, await make_inviter(app_schema))
+
+    started = time.monotonic()
+    response = await client.post(PREVIEW, json={"token": token})
+
+    assert response.status_code == 200
+    assert time.monotonic() - started < 5
+    warnings = _warnings(caplog)
+    assert len(warnings) == 1
+    assert "TimeoutError" in warnings[0].getMessage()

@@ -1,13 +1,17 @@
 """Redis fixed-window rate limiter (S-2.1.10).
 
-Each counter is a Redis key that gets its TTL when first created (``INCR`` then ``EXPIRE ... NX``
-in one transaction), so a window starts at the first hit and ends ``RATE_LIMIT_WINDOW_SECONDS``
-later. The limiter fails open: any Redis error or timeout lets the request through and logs one
-warning (the exception type only: no key, username or address).
+Counting is one atomic Lua script (:func:`acquire`): check every limit, then increment, so
+concurrent requests cannot slip past a limit. A counter gets its TTL when first created, so a
+window starts at the first attempt and ends ``RATE_LIMIT_WINDOW_SECONDS`` later. The limiter fails
+open: any Redis error or timeout lets the request through and logs one warning (the exception type
+only: no key, username or address). It needs Lua scripting but no particular Redis version beyond
+that (no ``EXPIRE ... NX``).
 
 This module knows nothing of identity. Callers build the keys with :func:`key` and decide what a
-limit means. The client address is ``request.client.host``; behind a reverse proxy run uvicorn with
-``--proxy-headers --forwarded-allow-ips=<proxy ip>`` so that it is the real client.
+limit means. The client address is ``request.client.host``; behind a reverse proxy, uvicorn must be
+told which proxies to trust (``--forwarded-allow-ips`` / ``FORWARDED_ALLOW_IPS``), and the app never
+reads ``X-Forwarded-For`` itself. When ``request.client`` is ``None`` (a Unix socket) every client
+shares the ``"unknown"`` bucket.
 """
 
 import asyncio
@@ -25,15 +29,52 @@ from app.core.redis import get_redis
 
 logger = logging.getLogger("app.core.rate_limit")
 
-REDIS_CALL_TIMEOUT_SECONDS = 1.0
 UNKNOWN_CLIENT = "unknown"
+
+# KEYS = counters, ARGV[1] = window seconds, ARGV[i + 1] = max for KEYS[i].
+# Returns {1, retry_after} when blocked (nothing incremented), else {0, 0}.
+_ACQUIRE_LUA = """
+local window = tonumber(ARGV[1])
+local retry = 0
+local blocked = 0
+for i, name in ipairs(KEYS) do
+  local count = tonumber(redis.call('GET', name) or '0')
+  if count >= tonumber(ARGV[i + 1]) then
+    blocked = 1
+    local ttl = redis.call('TTL', name)
+    if ttl < 1 then ttl = window end
+    if ttl > retry then retry = ttl end
+  end
+end
+if blocked == 1 then return {1, retry} end
+for _, name in ipairs(KEYS) do
+  redis.call('INCR', name)
+  if redis.call('TTL', name) < 0 then redis.call('EXPIRE', name, window) end
+end
+return {0, 0}
+"""
+
+# Decrement each key that exists and is above 0; never creates a key.
+_GIVE_BACK_LUA = """
+for _, name in ipairs(KEYS) do
+  local count = tonumber(redis.call('GET', name) or '0')
+  if count > 0 then redis.call('DECR', name) end
+end
+return 0
+"""
 
 
 @dataclass(frozen=True)
-class Window:
-    """State of one counter: its count and the seconds left in its window (at least 1)."""
+class Allowed:
+    """The attempt may proceed. ``counted`` is False when Redis failed and it passed uncounted."""
 
-    count: int
+    counted: bool
+
+
+@dataclass(frozen=True)
+class Blocked:
+    """A limit is reached; nothing was incremented. ``retry_after`` is at least 1 second."""
+
     retry_after: int
 
 
@@ -47,55 +88,43 @@ def client_ip(request: Request) -> str:
     return request.client.host if request.client else UNKNOWN_CLIENT
 
 
-def _remaining(ttl: object, window: int) -> int:
-    """Remaining seconds from a Redis TTL reply; the window length when missing or negative."""
-    if not isinstance(ttl, int) or ttl < 0:
-        return window
-    return max(ttl, 1)
+async def acquire(limits: Sequence[tuple[str, int]]) -> Allowed | Blocked:
+    """Atomically count one attempt against every ``(key, max)``, or block.
 
-
-async def hit(keys: Sequence[str]) -> list[Window] | None:
-    """Increment every counter once; ``None`` when Redis failed (fail open)."""
-    window = get_settings().rate_limit_window_seconds
+    One Lua script reads every key; if any count is at or over its max it increments nothing and
+    returns :class:`Blocked` with the largest remaining TTL (the window when a TTL is missing).
+    Otherwise every key is incremented, and any key without a TTL gets the window. A Redis error or
+    timeout fails open: ``Allowed(counted=False)`` and one warning.
+    """
+    settings = get_settings()
     try:
-        async with asyncio.timeout(REDIS_CALL_TIMEOUT_SECONDS):
-            pipe = get_redis().pipeline(transaction=True)
-            for name in keys:
-                pipe.incr(name)
-                pipe.expire(name, window, nx=True)
-                pipe.ttl(name)
-            reply = await pipe.execute()
+        async with asyncio.timeout(settings.redis_call_timeout_seconds):
+            script = get_redis().register_script(_ACQUIRE_LUA)
+            reply = await script(
+                keys=[name for name, _ in limits],
+                args=[settings.rate_limit_window_seconds, *(limit for _, limit in limits)],
+            )
     except (RedisError, OSError, TimeoutError) as exc:
-        _warn("hit", exc)
-        return None
-    return [
-        Window(int(reply[i * 3]), _remaining(reply[i * 3 + 2], window)) for i in range(len(keys))
-    ]
+        _warn("acquire", exc)
+        return Allowed(counted=False)
+    if int(reply[0]) == 1:
+        return Blocked(retry_after=max(int(reply[1]), 1))
+    return Allowed(counted=True)
 
 
-async def peek(keys: Sequence[str]) -> list[Window] | None:
-    """Read every counter without changing it (a missing key is count 0); ``None`` on failure."""
-    window = get_settings().rate_limit_window_seconds
+async def give_back(keys: Sequence[str]) -> None:
+    """Decrement each existing counter, never below 0 and never creating one (best effort)."""
     try:
-        async with asyncio.timeout(REDIS_CALL_TIMEOUT_SECONDS):
-            pipe = get_redis().pipeline(transaction=False)
-            for name in keys:
-                pipe.get(name)
-                pipe.ttl(name)
-            reply = await pipe.execute()
+        async with asyncio.timeout(get_settings().redis_call_timeout_seconds):
+            await get_redis().register_script(_GIVE_BACK_LUA)(keys=list(keys))
     except (RedisError, OSError, TimeoutError) as exc:
-        _warn("peek", exc)
-        return None
-    return [
-        Window(int(reply[i * 2] or 0), _remaining(reply[i * 2 + 1], window))
-        for i in range(len(keys))
-    ]
+        _warn("give_back", exc)
 
 
 async def reset(name: str) -> None:
     """Delete one counter; a Redis failure is logged and ignored."""
     try:
-        async with asyncio.timeout(REDIS_CALL_TIMEOUT_SECONDS):
+        async with asyncio.timeout(get_settings().redis_call_timeout_seconds):
             await get_redis().delete(name)
     except (RedisError, OSError, TimeoutError) as exc:
         _warn("reset", exc)
@@ -106,13 +135,14 @@ def _warn(operation: str, exc: BaseException) -> None:
 
 
 async def enforce_public_limit(request: Request) -> None:
-    """Count this request against the per-IP public bucket; 429 once it exceeds the limit."""
-    settings = get_settings()
-    windows = await hit([key("public", "ip", client_ip(request))])
-    if windows is None:
-        return
-    if windows[0].count > settings.public_max_requests_per_ip:
-        raise RateLimitedError(retry_after=windows[0].retry_after)
+    """Count this request against the per-IP public bucket; 429 when the limit is reached.
+
+    Uses :func:`acquire`: calls 1 to N pass and call N + 1 gets 429 (a 429 does not increment).
+    """
+    limit = get_settings().public_max_requests_per_ip
+    outcome = await acquire([(key("public", "ip", client_ip(request)), limit)])
+    if isinstance(outcome, Blocked):
+        raise RateLimitedError(retry_after=outcome.retry_after)
 
 
 PublicRateLimitDep = Annotated[None, Depends(enforce_public_limit)]

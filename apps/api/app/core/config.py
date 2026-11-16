@@ -79,6 +79,9 @@ class Settings(BaseSettings):
     rate_limit_window_seconds: int = Field(
         default=900, ge=1, validation_alias="RATE_LIMIT_WINDOW_SECONDS"
     )
+    redis_call_timeout_seconds: float = Field(
+        default=1.0, gt=0, validation_alias="REDIS_CALL_TIMEOUT_SECONDS"
+    )
     rate_limit_key_prefix: str = Field(
         default="mtgstats:rl", min_length=1, validation_alias="RATE_LIMIT_KEY_PREFIX"
     )

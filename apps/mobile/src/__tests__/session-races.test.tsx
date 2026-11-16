@@ -88,6 +88,8 @@ describe('m5: a sign-in that is still in flight', () => {
     await app.fireEvent.press(submit());
     await app.lib.waitFor(() => expect(api.to(LOGIN)).toHaveLength(1));
     await app.lib.waitFor(() => expect(submit()).toBeDisabled());
+    // The busy label is what users and screen readers get (U+2026, not a replacement glyph).
+    expect(app.screen.getByLabelText('Signing in…')).toBeTruthy();
     await app.fireEvent.press(submit());
     await app.fireEvent(app.screen.getByLabelText(/password/i), 'submitEditing');
     expect(api.to(LOGIN)).toHaveLength(1);

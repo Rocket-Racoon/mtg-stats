@@ -88,7 +88,7 @@ export default function SignIn() {
         onSubmitEditing={submit}
       />
       <AppButton
-        label={mutation.isPending ? 'Signing in�' : 'Sign in'}
+        label={mutation.isPending ? 'Signing in…' : 'Sign in'}
         onPress={submit}
         disabled={blocked}
         busy={mutation.isPending}

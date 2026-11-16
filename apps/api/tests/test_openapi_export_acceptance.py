@@ -12,10 +12,11 @@ from typing import Any
 
 import pytest
 from fastapi import APIRouter, FastAPI
-from fastapi.routing import APIRoute
+from fastapi.routing import APIRoute, iter_route_contexts
 
 import app.main as app_main
 from app.core.openapi import (
+    DOMAINS,
     DuplicateOperationIdError,
     assert_unique_operation_ids,
     collect_operation_ids,
@@ -301,6 +302,26 @@ def test_untagged_core_and_non_domain_routes_get_system(module: str) -> None:
     assert probe.openapi()["paths"]["/x"]["get"]["operationId"] == "system_search"
 
 
+@pytest.mark.parametrize(
+    ("tag", "domain"),
+    [
+        ("auth", "identity"),
+        ("accounts", "identity"),
+        ("playgroups", "playgroups"),
+        ("invites", "system"),
+        ("no-such-thing", "system"),
+        ("", "system"),
+        ("   ", "system"),
+    ],
+)
+def test_workflow_route_maps_its_first_tag_to_a_domain(tag: str, domain: str) -> None:
+    probe = _new_app()
+    endpoint = _search_in_module_a()
+    endpoint.__module__ = "app.workflows.thing"
+    probe.add_api_route("/x", endpoint, methods=["GET"], tags=[tag])
+    assert probe.openapi()["paths"]["/x"]["get"]["operationId"] == f"{domain}_search"
+
+
 def test_every_operation_id_in_the_real_app_matches_the_format() -> None:
     ids = [
         op["operationId"]
@@ -317,10 +338,18 @@ def test_real_app_operation_id_prefixes_are_architecture_domains() -> None:
     allowed = {
         "system", "identity", "playgroups", "cards", "decks",
         "brackets", "games", "stats", "collection", "leagues",
-        "auth",  # workflow routes use their first tag (S-2.1.3)
     }  # fmt: skip
-    for op_id in collect_operation_ids(app_main.create_app()):
-        assert op_id.split("_", 1)[0] in allowed, op_id
+    app = app_main.create_app()
+    assert allowed == DOMAINS
+    seen = 0
+    for context in iter_route_contexts(app.routes):
+        if not isinstance(context.original_route, APIRoute):
+            continue
+        route: Any = context
+        assert route.unique_id == f"{route_domain(route)}_{route.name}", route.path
+        assert route.unique_id.split("_", 1)[0] in allowed, route.unique_id
+        seen += 1
+    assert seen
 
 
 # ------------------------------------------------------------- review fixes

@@ -48,4 +48,4 @@ async def test_the_password_is_hashed_in_a_thread_before_the_invite_is_locked(
     assert "lock_invite" in events
     assert events.index("to_thread:spy_hash") < events.index("lock_invite")
     assert events.index("hash_password") < events.index("lock_invite")
-    assert events.count("hash_password") == 1  # never hashed a second time inside the lock
+    assert events.count("hash_password") == 1  # one hash, computed before the lock

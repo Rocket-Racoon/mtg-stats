@@ -174,7 +174,7 @@ Literal-string dynamic imports (`importlib.import_module("…")`, including its 
 - `APIRouter` reached through a re-export or `getattr`, and routes added with `add_api_route` from a module that imports no router;
 - a router using `SessionDep` with its own `models`.
 
-Domain tests (`app/<domain>/tests/`) obey their domain's rules. They test the domain's own code; tests that need the whole app (`app.main`: middleware, lifespan, OpenAPI) are acceptance tests in `apps/api/tests/`. Cross-domain factories live in `apps/api/tests/factories.py`. `app/main.py` (the app factory, which mounts every router) and `app/scripts/` are outside these rules, except the registry rule. `cli/` follows `workers/`'s rule (domain `services` only, `app.core`, `app.workflows`) and nothing imports it. `workers/` may import `workflows/`, because the job registry registers workflow jobs. It extends S-1.4.6's boundary test; `docs/domain-template.md` describes the layout of one domain.
+Domain tests (`app/<domain>/tests/`) obey their domain's rules. They test the domain's own code; tests that need the whole app (`app.main`: middleware, lifespan, OpenAPI) are acceptance tests in `apps/api/tests/`. Cross-domain factories live in `apps/api/tests/factories.py`. `app/main.py` (the app factory, which mounts every router) and `app/scripts/` are outside these rules, except the registry rule and the rule that only `cli/` imports `cli/`. `cli/` follows `workers/`'s rule (domain `services` only, `app.core`, `app.workflows`) and nothing imports it. `workers/` may import `workflows/`, because the job registry registers workflow jobs. It extends S-1.4.6's boundary test; `docs/domain-template.md` describes the layout of one domain.
 
 ### 4.3 Breaking would-be cycles
 

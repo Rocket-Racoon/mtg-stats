@@ -13,6 +13,7 @@ from app.identity.services.passwords import (
 from app.identity.services.players import (
     InvalidAvatarColorError,
     InvalidDisplayNameError,
+    InvalidEmailError,
     PlayerInfo,
     UsernameTakenError,
     UserNotFoundError,
@@ -23,6 +24,7 @@ from app.identity.services.players import (
     get_player_for_user,
     get_players,
     normalize_display_name,
+    normalize_email,
     set_password,
 )
 
@@ -30,6 +32,7 @@ __all__ = [
     "AVATAR_COLORS",
     "InvalidAvatarColorError",
     "InvalidDisplayNameError",
+    "InvalidEmailError",
     "InvalidPasswordError",
     "InvalidUsernameError",
     "PlayerInfo",
@@ -43,6 +46,7 @@ __all__ = [
     "get_players",
     "hash_password",
     "normalize_display_name",
+    "normalize_email",
     "password_needs_rehash",
     "set_password",
     "validate_password",

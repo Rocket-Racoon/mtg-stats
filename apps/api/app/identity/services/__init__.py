@@ -1,7 +1,12 @@
 """Public interface of the ``identity`` domain; other code imports only from here."""
 
 from app.identity.models import AVATAR_COLORS
-from app.identity.services.auth import InvalidCredentialsError, SignInResult, sign_in
+from app.identity.services.auth import (
+    InvalidCredentialsError,
+    SignInResult,
+    sign_in,
+    warm_up_sign_in,
+)
 from app.identity.services.passwords import (
     InvalidPasswordError,
     InvalidUsernameError,
@@ -56,4 +61,5 @@ __all__ = [
     "validate_password",
     "validate_username",
     "verify_password",
+    "warm_up_sign_in",
 ]

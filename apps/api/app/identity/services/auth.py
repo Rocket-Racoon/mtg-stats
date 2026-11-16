@@ -42,6 +42,14 @@ def _dummy_hash() -> str:
     return _dummy_hash_for(s.argon2_time_cost, s.argon2_memory_cost, s.argon2_parallelism)
 
 
+def warm_up_sign_in() -> None:
+    """Build the cached dummy hash for the current argon2 settings (blocking; run off-loop).
+
+    Called at startup so the first unknown-username sign-in does not pay the extra hashing time.
+    """
+    _dummy_hash()
+
+
 async def sign_in(session: AsyncSession, *, username: str, password: str) -> SignInResult:
     """Check the credentials and issue an access and a refresh token.
 

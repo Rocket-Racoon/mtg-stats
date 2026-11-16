@@ -1,5 +1,6 @@
 """FastAPI app factory."""
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -14,6 +15,7 @@ from app.core.logging import configure_logging
 from app.core.openapi import generate_operation_id
 from app.core.redis import close_redis, get_redis
 from app.core.request_id import RequestIDMiddleware
+from app.identity import services as identity_services
 from app.identity.router import router as identity_router
 from app.system.router import router as system_router
 
@@ -29,6 +31,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """
     get_engine()
     get_redis()
+    await asyncio.to_thread(identity_services.warm_up_sign_in)
     try:
         yield
     finally:

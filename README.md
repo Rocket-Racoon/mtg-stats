@@ -29,8 +29,14 @@ After cloning, install dependencies and the git hooks (required):
 ```bash
 uv sync --project apps/api       # Python deps
 pnpm install                     # TypeScript deps
-cp .env.example .env             # root .env (PowerShell: Copy-Item .env.example .env); edit CHANGE_ME values if you like
+cp .env.example .env             # root .env (PowerShell: Copy-Item .env.example .env); then set JWT_SECRET (below)
 pnpm hooks:install               # = uv run --frozen --project apps/api pre-commit install
+```
+
+The API refuses to start while `JWT_SECRET` in `.env` is the `CHANGE_ME` placeholder (or shorter than 32 characters). Generate a value and paste it into `.env`:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
 The hooks run on staged files at every `git commit`: the secrets check, `detect-private-key`, `check-added-large-files` (500 KB), `end-of-file-fixer`, Ruff (check and format) on Python, and Prettier and ESLint on TypeScript. Run them on everything with `uv run --project apps/api pre-commit run --all-files`.

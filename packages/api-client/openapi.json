@@ -402,7 +402,6 @@
         },
         "summary": "Sign in",
         "tags": [
-          "identity",
           "auth"
         ]
       }

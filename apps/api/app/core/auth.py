@@ -10,7 +10,7 @@ lifetime). This module imports no domain.
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Literal
+from typing import Annotated, ClassVar, Literal
 from uuid import UUID
 
 import jwt
@@ -31,6 +31,9 @@ class InvalidTokenError(AuthenticationError):
 
     code = "invalid_token"
     default_message = "Invalid or expired token."
+    default_headers: ClassVar[dict[str, str] | None] = {
+        "WWW-Authenticate": 'Bearer error="invalid_token"'
+    }
 
 
 @dataclass(frozen=True)
@@ -40,6 +43,7 @@ class IssuedToken:
     token: str
     jti: str
     expires_at: datetime
+    expires_in: int  # lifetime in seconds, from the same settings as expires_at
 
 
 @dataclass(frozen=True)
@@ -86,7 +90,9 @@ def issue_token(
         "type": token_type,
     }
     token = jwt.encode(payload, settings.jwt_secret.get_secret_value(), algorithm=JWT_ALGORITHM)
-    return IssuedToken(token=token, jti=jti, expires_at=expires_at)
+    return IssuedToken(
+        token=token, jti=jti, expires_at=expires_at, expires_in=int(lifetime.total_seconds())
+    )
 
 
 def decode_token(
@@ -109,8 +115,11 @@ def decode_token(
         jti = payload["jti"]
         if payload["type"] != expected_type or not isinstance(jti, str) or not jti:
             raise InvalidTokenError
+        subject = UUID(payload["sub"])
+        if str(subject) != payload["sub"]:
+            raise InvalidTokenError
         return TokenClaims(
-            sub=UUID(payload["sub"]),
+            sub=subject,
             jti=jti,
             iat=datetime.fromtimestamp(payload["iat"], UTC),
             exp=datetime.fromtimestamp(payload["exp"], UTC),
@@ -143,7 +152,7 @@ async def current_user(
         InvalidTokenError: the token is invalid, expired or not an access token.
     """
     if credentials is None or not credentials.credentials:
-        raise AuthenticationError("Authentication required.")
+        raise AuthenticationError
     claims = decode_token(credentials.credentials, expected_type="access")
     return CurrentUser(id=claims.sub, token_id=claims.jti)
 

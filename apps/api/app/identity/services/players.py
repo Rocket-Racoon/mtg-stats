@@ -198,11 +198,14 @@ async def create_user_with_player(
     email: str = "",
     is_site_admin: bool = False,
     avatar_color: str | None = None,
+    password_hash: str | None = None,
 ) -> PlayerInfo:
     """Create a user and its one player in the caller's session. Flushes; the caller commits.
 
     Validates the username, password and display name (in that order) before writing, then hashes
-    the password. The password is never logged or put in an error.
+    the password, unless ``password_hash`` is given (a hash the caller computed off the event loop
+    from this same password; it is stored as is and nothing is hashed here). The password is never
+    logged or put in an error.
 
     Raises:
         InvalidUsernameError: if the username breaks the rules.
@@ -222,7 +225,7 @@ async def create_user_with_player(
     user = User(
         username=username,
         email=normalized_email,
-        password_hash=hash_password(password),
+        password_hash=password_hash if password_hash is not None else hash_password(password),
         is_site_admin=is_site_admin,
     )
     try:

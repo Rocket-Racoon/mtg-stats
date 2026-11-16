@@ -18,6 +18,7 @@ from uuid import UUID
 import jwt
 from fastapi import Depends, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
@@ -225,6 +226,33 @@ def set_refresh_cookie(response: Response, token: IssuedToken) -> None:
         secure=True,
         httponly=True,
         samesite="strict",
+    )
+
+
+class TokenResponse(BaseModel):
+    """Tokens issued by a successful sign-in or registration."""
+
+    access_token: str
+    refresh_token: str | None = Field(
+        default=None,
+        description="Only for mobile clients (X-Client: mobile, no Origin). Web clients get the "
+        "refresh token in the HttpOnly cookie instead and this key is absent.",
+    )
+    token_type: Literal["bearer"]
+    expires_in: int = Field(description="Access token lifetime in seconds.")
+
+
+def token_response(
+    access_token: IssuedToken, refresh_token: IssuedToken, mode: ClientMode, response: Response
+) -> TokenResponse:
+    """Build the body, and set the refresh cookie (web) or put the token in the body (mobile)."""
+    if mode == "web":
+        set_refresh_cookie(response, refresh_token)
+    return TokenResponse(
+        access_token=access_token.token,
+        refresh_token=refresh_token.token if mode == "mobile" else None,
+        token_type="bearer",  # noqa: S106  (a scheme name)
+        expires_in=access_token.expires_in,
     )
 
 

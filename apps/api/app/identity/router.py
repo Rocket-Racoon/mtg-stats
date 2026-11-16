@@ -13,14 +13,15 @@ from app.core.auth import (
     REFRESH_COOKIE_NAME,
     ClientMode,
     CurrentUserDep,
+    TokenResponse,
     clear_refresh_cookie,
     client_mode,
-    set_refresh_cookie,
+    token_response,
 )
 from app.core.db import SessionDep
 from app.core.errors import AuthenticationError
 from app.identity import services
-from app.identity.schemas import LoginRequest, RefreshRequest, TokenResponse
+from app.identity.schemas import LoginRequest, RefreshRequest
 
 router = APIRouter()
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
@@ -29,15 +30,7 @@ auth_router = APIRouter(prefix="/auth", tags=["auth"])
 def _token_response(
     result: services.SignInResult, mode: ClientMode, response: Response
 ) -> TokenResponse:
-    """Build the body, and set the refresh cookie (web) or put the token in the body (mobile)."""
-    if mode == "web":
-        set_refresh_cookie(response, result.refresh_token)
-    return TokenResponse(
-        access_token=result.access_token.token,
-        refresh_token=result.refresh_token.token if mode == "mobile" else None,
-        token_type="bearer",  # noqa: S106  (a scheme name)
-        expires_in=result.access_token.expires_in,
-    )
+    return token_response(result.access_token, result.refresh_token, mode, response)
 
 
 def _presented_token(request: Request, mode: ClientMode, body: RefreshRequest | None) -> str | None:

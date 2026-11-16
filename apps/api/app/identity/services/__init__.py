@@ -12,6 +12,7 @@ from app.identity.services.auth import (
     revoke_all_refresh_tokens,
     revoke_refresh_token,
     sign_in,
+    start_session,
     warm_up_sign_in,
 )
 from app.identity.services.jobs import cleanup_refresh_tokens_job
@@ -74,6 +75,7 @@ __all__ = [
     "revoke_refresh_token",
     "set_password",
     "sign_in",
+    "start_session",
     "validate_password",
     "validate_username",
     "verify_password",

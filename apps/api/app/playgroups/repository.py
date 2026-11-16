@@ -28,6 +28,17 @@ async def get_invite_by_hash(
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
+async def get_invite_for_update(session: AsyncSession, invite_id: UUID) -> Invite | None:
+    """Return the invite with this id, locked with ``SELECT ... FOR UPDATE``, or None."""
+    stmt = (
+        select(Invite)
+        .where(Invite.id == invite_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
 async def get_invite_of(session: AsyncSession, invite_id: UUID, user_id: UUID) -> Invite | None:
     """Return this invite if ``user_id`` created it, else None."""
     result = await session.execute(

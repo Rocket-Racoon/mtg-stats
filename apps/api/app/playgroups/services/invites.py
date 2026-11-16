@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import DomainError, NotFoundError
 from app.core.links import public_link
 from app.core.paging import PageParams, created_at_desc, paginate
+from app.identity import services as identity_services
 from app.playgroups import repository
 from app.playgroups.models import Invite
 
@@ -164,3 +165,41 @@ async def validate_invite(session: AsyncSession, token: str) -> InviteInfo:
 async def lock_invite(session: AsyncSession, token: str) -> InviteInfo:
     """:func:`validate_invite` with ``SELECT ... FOR UPDATE``, for the registration workflow."""
     return await _find_valid(session, token, for_update=True)
+
+
+@dataclass(frozen=True)
+class InvitePreview:
+    """What a visitor may see about an invite before registering."""
+
+    inviter_display_name: str
+    expires_at: datetime
+
+
+async def preview_invite(session: AsyncSession, token: str) -> InvitePreview:
+    """Describe an active invite for the public preview: inviter's display name and expiry.
+
+    Raises:
+        InviteNoLongerValidError: revoked, expired, used up or unknown (410).
+    """
+    info = await validate_invite(session, token)
+    player = await identity_services.get_player_for_user(session, info.created_by)
+    return InvitePreview(
+        inviter_display_name=player.display_name if player is not None else "",
+        expires_at=info.expires_at,
+    )
+
+
+async def consume_invite(session: AsyncSession, invite_id: UUID) -> None:
+    """Count one use of an invite: ``use_count += 1``, flushed (membership comes with S-2.4.2).
+
+    Call it after :func:`lock_invite` in the same session. It locks the row again (a no-op for
+    the same transaction) and re-checks the status, so it never takes a use past ``max_uses``.
+
+    Raises:
+        InviteNoLongerValidError: the invite is gone, or is no longer active.
+    """
+    invite = await repository.get_invite_for_update(session, invite_id)
+    if invite is None or invite_status(invite) != "active":
+        raise InviteNoLongerValidError
+    invite.use_count += 1
+    await session.flush()

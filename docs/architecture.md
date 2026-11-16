@@ -228,7 +228,7 @@ Each row is a need from the backlog that would otherwise require an upward call.
 - **Errors** (S-1.4.5): every error (422, 401, 403, 404, 409, 429, 500) returns
   `{"error": {"code": "<snake_case>", "message": "<text>", "details": <object|null>, "request_id": "<id>"}}`.
   - `code` is stable (`forbidden`, `section_hidden`, `game_closed` …), and clients switch on it, never on `message`.
-  - `invite_no_longer_valid` (410) is returned for a revoked, expired, used-up or unknown invite (S-2.1.2). Invite routes are `POST /invites`, `GET /invites` and `POST /invites/{id}/revoke`, owned by `playgroups`.
+  - `invite_no_longer_valid` (410) is returned for a revoked, expired, used-up or unknown invite (S-2.1.2). Invite routes are `POST /invites`, `GET /invites`, `POST /invites/{id}/revoke` and the public `POST /invites/preview` (the token is in the body, never in a URL), owned by `playgroups`. `POST /auth/register` is served by the registration workflow.
   - Validation errors go in `details`.
   - **`DomainError.persist_changes`**: normally a raised error rolls the request's session back. A subclass that sets `persist_changes = True` makes `get_session` commit what was flushed, then re-raise, so a rejected request can keep its side effect (for example revoking a token family on reuse). Raise such an error only from a request whose only writes are that intended side effect, and never inside a composite workflow, because the commit would also persist the workflow's other writes.
   - `request_id` also appears in the logs and the response headers. An unknown `/api/...` path returns this JSON 404 rather than the web app.

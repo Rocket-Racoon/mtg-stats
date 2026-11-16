@@ -11,4 +11,5 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: '/stats', label: 'Stats' },
   { to: '/collection', label: 'Collection' },
   { to: '/leagues', label: 'Leagues' },
+  { to: '/account', label: 'Account' },
 ];

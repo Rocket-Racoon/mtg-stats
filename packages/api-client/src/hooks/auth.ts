@@ -4,6 +4,7 @@ import type { components } from '../generated/schema';
 import { queryKey } from '../query-keys';
 
 type LoginRequest = components['schemas']['LoginRequest'];
+type ChangePasswordRequest = components['schemas']['ChangePasswordRequest'];
 type RegisterRequest = components['schemas']['RegisterRequest'];
 export type TokenResponse = components['schemas']['TokenResponse'];
 export type InvitePreview = components['schemas']['InvitePreviewOut'];
@@ -33,6 +34,21 @@ export function useRegister() {
     meta: { errorToast: false },
     mutationFn: (body: RegisterRequest): Promise<TokenResponse> =>
       client.POST('/api/v1/auth/register', { body }),
+  });
+}
+
+/**
+ * `POST /api/v1/auth/change-password` (S-2.1.8): resolves to the new session's tokens. The other
+ * sessions are revoked server-side; the caller stores the new access token. A wrong current
+ * password is a 400 `invalid_current_password`, a bad new one a 422, and the shared sign-in
+ * throttle a 429. Shows its errors inline, so the toast is off.
+ */
+export function useChangePassword() {
+  const client = useApiClient();
+  return useMutation({
+    meta: { errorToast: false },
+    mutationFn: (body: ChangePasswordRequest): Promise<TokenResponse> =>
+      client.POST('/api/v1/auth/change-password', { body }),
   });
 }
 

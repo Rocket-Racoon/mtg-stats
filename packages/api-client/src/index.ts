@@ -33,5 +33,11 @@ export type { CursorPageConfig, Page } from './pagination';
 export { ApiClientProvider, useApiClient } from './client-context';
 export type { ApiClientProviderProps } from './client-context';
 export { systemKeys, useHealthLive, useHealthReady } from './hooks/system';
-export { authKeys, useInvitePreview, useRegister, useSignIn } from './hooks/auth';
+export {
+  authKeys,
+  useChangePassword,
+  useInvitePreview,
+  useRegister,
+  useSignIn,
+} from './hooks/auth';
 export type { InvitePreview, TokenResponse } from './hooks/auth';

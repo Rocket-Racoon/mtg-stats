@@ -110,7 +110,10 @@ async def is_active_site_admin(session: AsyncSession, user_id: UUID) -> bool:
 
 
 async def lock_site_admin_change_rows(session: AsyncSession, user_id: UUID) -> list[User]:
-    """Lock the target user and every active site admin ``FOR UPDATE``, in id order.
+    """Lock the target user and every active site admin ``FOR NO KEY UPDATE``, in id order.
+
+    ``FOR NO KEY UPDATE`` conflicts with itself, so two role changes still exclude each other, but
+    it does not block a refresh-token insert (a ``FOR KEY SHARE`` FK check) by a signing-in admin.
 
     One statement with a fixed ``ORDER BY id`` so concurrent callers lock in the same order. A
     row changed by a transaction we waited on is re-read (``populate_existing``).
@@ -119,7 +122,7 @@ async def lock_site_admin_change_rows(session: AsyncSession, user_id: UUID) -> l
         select(User)
         .where(or_(User.id == user_id, and_(User.is_site_admin, User.is_active)))
         .order_by(User.id)
-        .with_for_update()
+        .with_for_update(key_share=True)
         .execution_options(populate_existing=True)
     )
     return list(result.scalars())

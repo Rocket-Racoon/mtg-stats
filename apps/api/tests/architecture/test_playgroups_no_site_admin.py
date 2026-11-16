@@ -63,6 +63,35 @@ def _names_in(node: ast.AST, forbidden: frozenset[str]) -> list[tuple[int, str]]
     return found
 
 
+def _router_guard_misuse(tree: ast.Module) -> list[tuple[int, str]]:
+    """``require_site_admin`` used in ``router.py`` other than as the argument of ``Depends(...)``.
+
+    A call such as ``await require_site_admin(user, session)`` in a route body would make the
+    route's own logic decide on the role, so every reference that is not a direct ``Depends``
+    argument is reported (imports are not references).
+    """
+    allowed: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and _called_name(node.func) == "Depends":
+            allowed.update(id(arg) for arg in node.args)
+            allowed.update(id(kw.value) for kw in node.keywords if kw.arg == "dependency")
+    return [
+        (node.lineno, "require_site_admin")
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Name | ast.Attribute)
+        and _called_name(node) == "require_site_admin"
+        and id(node) not in allowed
+    ]
+
+
+def _called_name(node: ast.expr) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return None
+
+
 def _strip_docstrings(tree: ast.Module) -> None:
     """Remove docstrings so prose that mentions a name is never mistaken for a reference."""
     for node in ast.walk(tree):
@@ -81,7 +110,8 @@ def violations(root: Path) -> list[str]:
     """``path:line name`` for every reference under ``root``.
 
     Tests folders are skipped. ``router.py`` at the top of ``root`` may use ``SiteAdminDep`` and
-    ``require_site_admin`` (checked by route below) but never ``is_site_admin``.
+    ``require_site_admin`` as a ``Depends(...)`` argument only (checked by route below), never
+    ``is_site_admin``.
     """
     problems: list[str] = []
     for path in sorted(root.rglob("*.py")):
@@ -92,6 +122,8 @@ def violations(root: Path) -> list[str]:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         _strip_docstrings(tree)
         hits = _names_in(tree, forbidden)
+        if relative.as_posix() == "router.py":
+            hits += _router_guard_misuse(tree)
         problems.extend(f"{relative.as_posix()}:{line} {name}" for line, name in hits)
     return problems
 
@@ -253,3 +285,30 @@ def test_the_scanner_allows_site_admin_dep_in_router_py_but_never_the_flag(tmp_p
 def test_the_scanner_flags_the_dependency_in_any_logic_module(tmp_path: Path, module: str) -> None:
     _write(tmp_path, module, "from app.core.auth import SiteAdminDep\n")
     assert len(violations(tmp_path)) == 1
+
+
+def test_router_py_may_not_call_require_site_admin_in_a_route_body(tmp_path: Path) -> None:
+    source = (
+        "from app.core.auth import require_site_admin\n"
+        "\n"
+        "async def route(user, session):\n"
+        "    await require_site_admin(user, session)\n"
+    )
+    _write(tmp_path, "router.py", source)
+    assert violations(tmp_path) == ["router.py:4 require_site_admin"]
+
+
+def test_router_py_may_use_require_site_admin_as_a_depends_argument(tmp_path: Path) -> None:
+    source = (
+        "from fastapi import Depends\n"
+        "from app.core.auth import require_site_admin\n"
+        "\n"
+        "async def route(admin=Depends(require_site_admin)): ...\n"
+    )
+    _write(tmp_path, "router.py", source)
+    assert violations(tmp_path) == []
+
+
+def test_router_py_may_not_pass_require_site_admin_around_outside_depends(tmp_path: Path) -> None:
+    _write(tmp_path, "router.py", "guard = require_site_admin\n")
+    assert violations(tmp_path) == ["router.py:1 require_site_admin"]

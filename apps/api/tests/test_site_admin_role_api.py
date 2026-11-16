@@ -18,19 +18,31 @@ HTTP_METHODS = {"get", "put", "post", "patch", "delete", "options", "head", "tra
 VERBS = {"grant", "revoke", "promote", "demote", "set", "assign", "make", "remove", "add"}
 TARGETS = {"admin", "admins", "role", "roles", "siteadmin", "siteadmins"}
 SPEC_FLAG = "is_site_admin"
+ADMIN_AREA = "/api/v1/admin"
+ROLE_AREAS = ("/api/v1/playgroups", "/api/v1/leagues")
+"""Paths where member roles (owner, admin, ...) are legitimate; the verb check is skipped there."""
 
 
-def names_the_role_change(text: str) -> bool:
+def names_the_role_change(text: str, *, roles_allowed: bool = False) -> bool:
     """True when ``text`` combines a change verb with admin/role, or names a "site admin".
+
+    A leading ``/api/v1/admin`` segment is dropped first (it is the admin area, not a role target).
+    With ``roles_allowed`` (playgroups and leagues, where member roles exist) only the "site admin"
+    naming is checked.
 
     ``GET /admin/card-sync/runs`` is a legitimate site-admin route (it has no verb), and
     ``/invites/{id}/revoke`` revokes an invite (no admin/role target), so neither is flagged.
     """
-    tokens = [t for t in re.split(r"[^a-z0-9]+", text.lower()) if t]
+    lowered = text.lower()
+    if lowered.startswith(ADMIN_AREA):
+        lowered = lowered.removeprefix(ADMIN_AREA)
+    tokens = [t for t in re.split(r"[^a-z0-9]+", lowered) if t]
     if "siteadmin" in tokens or any(
         a == "site" and b in {"admin", "admins"} for a, b in itertools.pairwise(tokens)
     ):
         return True
+    if roles_allowed:
+        return False
     return bool(VERBS & set(tokens)) and bool(TARGETS & set(tokens))
 
 
@@ -73,15 +85,16 @@ def role_changing_operations(spec: dict[str, Any]) -> list[str]:
             if method not in HTTP_METHODS:
                 continue
             label = f"{method.upper()} {path}"
+            roles_allowed = path.startswith(ROLE_AREAS)
             for what, text in (
                 ("path", path),
                 ("operationId", operation.get("operationId", "")),
                 ("summary", operation.get("summary", "")),
             ):
-                if names_the_role_change(text):
+                if names_the_role_change(text, roles_allowed=roles_allowed):
                     problems.append(f"{label}: {what} {text!r} names the role")
             for parameter in [*item.get("parameters", []), *operation.get("parameters", [])]:
-                if parameter.get("name", "").lower().replace("-", "_") == SPEC_FLAG:
+                if SPEC_FLAG in parameter.get("name", "").lower().replace("-", "_"):
                     problems.append(f"{label}: parameter {parameter['name']!r}")
             for media in operation.get("requestBody", {}).get("content", {}).values():
                 if SPEC_FLAG in _property_names(spec, media.get("schema", {})):
@@ -145,7 +158,7 @@ def _doc(paths: dict[str, Any], schemas: dict[str, Any] | None = None) -> dict[s
     [
         "/api/v1/admin/site-admins/{id}",
         "/api/v1/users/{id}/site_admin",
-        "/api/v1/admin/grant",
+        "/api/v1/admin/grant-admin",
         "/api/v1/users/{id}/set-role",
         "/api/v1/users/{id}/make_admin",
     ],
@@ -217,3 +230,71 @@ def test_the_checker_does_not_flag_legitimate_admin_or_revoke_routes(path: str) 
         }
     )
     assert role_changing_operations(doc) == []
+
+
+def test_a_playgroup_member_role_route_is_not_flagged() -> None:
+    doc = _doc(
+        {
+            "/api/v1/playgroups/{playgroup_id}/members/{player_id}": {
+                "patch": {
+                    "operationId": "playgroups_set_member_role",
+                    "summary": "Make a member an admin",
+                }
+            }
+        }
+    )
+    assert role_changing_operations(doc) == []
+
+
+def test_a_league_role_route_is_not_flagged() -> None:
+    doc = _doc(
+        {
+            "/api/v1/leagues/{league_id}/admins": {
+                "post": {"operationId": "leagues_add_admin", "summary": "Add a league admin"}
+            }
+        }
+    )
+    assert role_changing_operations(doc) == []
+
+
+def test_an_admin_area_route_with_an_add_verb_is_not_flagged() -> None:
+    doc = _doc(
+        {
+            "/api/v1/admin/card-sync/add": {
+                "post": {"operationId": "cards_add_sync", "summary": "Queue a sync"}
+            }
+        }
+    )
+    assert role_changing_operations(doc) == []
+
+
+def test_a_playgroup_route_with_an_is_site_admin_body_field_is_flagged() -> None:
+    schemas = {"Body": {"type": "object", "properties": {"is_site_admin": {"type": "boolean"}}}}
+    body = {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Body"}}}}
+    doc = _doc(
+        {
+            "/api/v1/playgroups/{playgroup_id}/members": {
+                "post": {"operationId": "playgroups_add_member", "requestBody": body}
+            }
+        },
+        schemas,
+    )
+    assert role_changing_operations(doc)
+
+
+def test_a_playgroup_route_naming_the_site_admin_is_still_flagged() -> None:
+    doc = _doc({"/api/v1/playgroups/{id}/site-admin": {"put": {"operationId": "playgroups_x"}}})
+    assert role_changing_operations(doc)
+
+
+@pytest.mark.parametrize("name", ["X-Is-Site-Admin", "x_is_site_admin", "is-site-admin"])
+def test_a_header_parameter_carrying_the_flag_is_flagged_in_any_spelling(name: str) -> None:
+    doc = _doc(
+        {"/u": {"get": {"operationId": "x_y", "parameters": [{"name": name, "in": "header"}]}}}
+    )
+    assert role_changing_operations(doc)
+
+
+def test_the_admin_area_prefix_does_not_hide_a_real_role_change() -> None:
+    doc = _doc({"/api/v1/admin/users/{id}/grant-admin": {"post": {"operationId": "x_y"}}})
+    assert role_changing_operations(doc)

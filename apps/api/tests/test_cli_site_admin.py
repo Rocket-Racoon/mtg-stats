@@ -379,6 +379,31 @@ async def test_revoking_the_only_active_admin_is_refused_even_with_inactive_admi
     assert await flags(session, "root") == (True, True)
 
 
+async def test_revoking_an_inactive_admin_is_allowed_even_when_no_active_admin_exists(
+    session: AppSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An inactive admin never counts, so revoking one cannot change the active count."""
+    await make_user(session, "sleeper1", admin=True, active=False)
+    await make_user(session, "sleeper2", admin=True, active=False)
+    caplog.set_level(logging.INFO)
+    result = await invoke(session, revoke("sleeper1"))
+    assert result.code == 0
+    assert result.err == ""
+    assert await flags(session, "sleeper1") == (False, False)
+    assert await flags(session, "sleeper2") == (True, False)
+    fields = parse(change_records(caplog)[0])
+    assert (fields["old"], fields["new"]) == ("True", "False")
+
+
+async def test_revoking_the_only_inactive_admin_is_allowed_with_no_active_admin(
+    session: AppSession,
+) -> None:
+    await make_user(session, "sleeper", admin=True, active=False)
+    result = await invoke(session, revoke("sleeper"))
+    assert result.code == 0
+    assert await flags(session, "sleeper") == (False, False)
+
+
 async def test_with_two_active_admins_the_first_revoke_works_and_the_second_is_refused(
     session: AppSession,
 ) -> None:

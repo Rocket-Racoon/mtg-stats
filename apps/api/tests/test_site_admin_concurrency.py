@@ -68,10 +68,14 @@ async def _seed(*admins: tuple[str, bool, bool]) -> None:
 
 
 async def _revoke_and_commit(username: str) -> SiteAdminChange:
+    return await _set_and_commit(username, False)
+
+
+async def _set_and_commit(username: str, value: bool) -> SiteAdminChange:
     """What the CLI does: one session, ``set_site_admin``, commit; roll back on any error."""
     async with db.get_sessionmaker()() as session:
         try:
-            change = await set_site_admin(session, username=username, value=False)
+            change = await set_site_admin(session, username=username, value=value)
             await session.commit()
         except BaseException:
             await session.rollback()
@@ -204,6 +208,48 @@ async def test_an_inactive_admin_does_not_count_so_two_revokes_still_leave_one_a
     assert sum(isinstance(r, SiteAdminChange) for r in results) == 1
     assert sum(isinstance(r, LastSiteAdminError) for r in results) == 1
     assert len(await _active_admins(live)) == 1
+
+
+async def test_a_grant_and_a_revoke_at_the_same_time_never_leave_zero_active_admins(
+    live: Live,
+) -> None:
+    await _seed(("alpha", True, True), ("bravo", False, True))
+
+    for _ in range(5):
+        async with live.engine.begin() as conn:
+            await conn.execute(text("UPDATE users SET is_site_admin = (username = 'alpha')"))
+
+        results = await asyncio.wait_for(
+            asyncio.gather(
+                _set_and_commit("bravo", True),
+                _set_and_commit("alpha", False),
+                return_exceptions=True,
+            ),
+            WAIT_SECONDS,
+        )
+
+        grant, revoke = results
+        assert isinstance(grant, SiteAdminChange)  # a grant never fails
+        active = await _active_admins(live)
+        assert active, "the role must never reach zero active admins"
+        if isinstance(revoke, SiteAdminChange):
+            assert active == ["bravo"]  # the grant ran first, so the revoke was allowed
+        else:
+            assert isinstance(revoke, LastSiteAdminError)
+            assert active == ["alpha", "bravo"]  # the revoke ran first and was refused
+
+
+async def test_revoking_one_of_several_inactive_admins_is_allowed_with_no_active_admin(
+    live: Live,
+) -> None:
+    await _seed(("sleeper1", True, False), ("sleeper2", True, False))
+
+    change = await _revoke_and_commit("sleeper1")
+
+    assert (change.old, change.new) == (True, False)
+    async with live.engine.connect() as conn:
+        result = await conn.execute(text("SELECT username FROM users WHERE is_site_admin"))
+        assert [r[0] for r in result] == ["sleeper2"]
 
 
 async def test_the_throwaway_database_is_used_never_the_shared_one(live: Live) -> None:

@@ -1,7 +1,14 @@
 """Public interface of the ``identity`` domain; other code imports only from here."""
 
 from app.identity.models import AVATAR_COLORS
-from app.identity.services.admin import is_site_admin
+from app.identity.services.admin import (
+    LastSiteAdminError,
+    MeInfo,
+    SiteAdminChange,
+    get_me,
+    is_site_admin,
+    set_site_admin,
+)
 from app.identity.services.auth import (
     InvalidCredentialsError,
     RefreshTokenReuseError,
@@ -51,9 +58,12 @@ __all__ = [
     "InvalidEmailError",
     "InvalidPasswordError",
     "InvalidUsernameError",
+    "LastSiteAdminError",
+    "MeInfo",
     "PlayerInfo",
     "RefreshTokenReuseError",
     "SignInResult",
+    "SiteAdminChange",
     "UserNotFoundError",
     "UsernameTakenError",
     "cleanup_refresh_tokens",
@@ -61,6 +71,7 @@ __all__ = [
     "create_guest_player",
     "create_user_with_player",
     "default_avatar_color",
+    "get_me",
     "get_player",
     "get_player_for_user",
     "get_players",
@@ -74,6 +85,7 @@ __all__ = [
     "revoke_all_refresh_tokens",
     "revoke_refresh_token",
     "set_password",
+    "set_site_admin",
     "sign_in",
     "start_session",
     "validate_password",

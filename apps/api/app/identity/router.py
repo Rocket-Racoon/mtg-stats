@@ -13,6 +13,7 @@ from app.core.auth import (
     REFRESH_COOKIE_NAME,
     ClientMode,
     CurrentUserDep,
+    InvalidTokenError,
     TokenResponse,
     clear_refresh_cookie,
     client_mode,
@@ -21,7 +22,7 @@ from app.core.auth import (
 from app.core.db import SessionDep
 from app.core.errors import AuthenticationError
 from app.identity import services
-from app.identity.schemas import LoginRequest, RefreshRequest
+from app.identity.schemas import LoginRequest, MeResponse, RefreshRequest
 
 router = APIRouter()
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
@@ -127,6 +128,24 @@ async def logout_all(
         clear_refresh_cookie(response)
     response.status_code = 204
     return response
+
+
+@auth_router.get("/me", summary="Current user")
+async def me(user: CurrentUserDep, session: SessionDep) -> MeResponse:
+    """Return the signed-in user, read from the database on every request.
+
+    `is_site_admin` is only for showing or hiding the admin entry in the UI. A deleted or
+    inactive user gets 401 `invalid_token`.
+    """
+    info = await services.get_me(session, user.id)
+    if info is None:
+        raise InvalidTokenError
+    return MeResponse(
+        id=info.id,
+        username=info.username,
+        display_name=info.display_name,
+        is_site_admin=info.is_site_admin,
+    )
 
 
 router.include_router(auth_router)

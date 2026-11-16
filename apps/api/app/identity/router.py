@@ -21,6 +21,7 @@ from app.core.auth import (
 )
 from app.core.db import SessionDep
 from app.core.errors import AuthenticationError
+from app.core.rate_limit import client_ip
 from app.identity import services
 from app.identity.schemas import LoginRequest, MeResponse, RefreshRequest
 
@@ -55,7 +56,9 @@ async def login(
     the response body; every other request is a web client and gets it in the `mtgstats_refresh`
     cookie (`HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/api/v1/auth`) instead.
     """
-    result = await services.sign_in(session, username=body.username, password=body.password)
+    result = await services.throttled_sign_in(
+        session, username=body.username, password=body.password, ip=client_ip(request)
+    )
     return token_response(result.access_token, result.refresh_token, client_mode(request), response)
 
 

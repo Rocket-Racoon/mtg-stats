@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.core.auth import TokenResponse, client_mode, token_response
 from app.core.db import AppSession, SessionDep
+from app.core.rate_limit import PublicRateLimitDep
 from app.identity import services as identity
 from app.playgroups import services as playgroups
 
@@ -85,9 +86,16 @@ async def run_registration(session: AppSession, body: RegisterRequest) -> identi
     response_model_exclude_none=True,
 )
 async def register(
-    body: RegisterRequest, request: Request, response: Response, session: SessionDep
+    body: RegisterRequest,
+    request: Request,
+    response: Response,
+    session: SessionDep,
+    _rate_limit: PublicRateLimitDep,
 ) -> TokenResponse:
     """Create an account from an invite and sign the new user in.
+
+    Limited to 30 requests per IP address per 15 minutes, shared with the invite preview (429
+    `rate_limited`, with `Retry-After`).
 
     The invite is checked first (410 `invite_no_longer_valid`), then the username (409
     `username_taken`, and the invite is not used up). Field errors are a 422.

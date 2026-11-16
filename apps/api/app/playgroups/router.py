@@ -9,6 +9,7 @@ from app.core.auth import CurrentUserDep, SiteAdminDep
 from app.core.db import SessionDep
 from app.core.errors import NotFoundError
 from app.core.paging import PageParamsDep
+from app.core.rate_limit import PublicRateLimitDep
 from app.playgroups import services
 from app.playgroups.schemas import (
     InviteCreate,
@@ -56,11 +57,14 @@ async def create_invite(
 
 
 @router.post("/preview", summary="Preview an invite")
-async def preview_invite(body: InvitePreviewRequest, session: SessionDep) -> InvitePreviewOut:
+async def preview_invite(
+    body: InvitePreviewRequest, session: SessionDep, _rate_limit: PublicRateLimitDep
+) -> InvitePreviewOut:
     """Show the inviter's display name and the expiry of an invite. No authentication.
 
-    The token is in the body so it never reaches a URL or an access log. A revoked, expired,
-    used-up or unknown token is a 410 `invite_no_longer_valid`.
+    Limited to 30 requests per IP address per 15 minutes, shared with registration (429
+    `rate_limited`, with `Retry-After`). The token is in the body so it never reaches a URL or an
+    access log. A revoked, expired, used-up or unknown token is a 410 `invite_no_longer_valid`.
     """
     preview = await services.preview_invite(session, body.token)
     return InvitePreviewOut(

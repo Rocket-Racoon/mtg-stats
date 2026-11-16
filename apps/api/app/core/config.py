@@ -67,6 +67,22 @@ class Settings(BaseSettings):
         default=30, ge=1, le=365, validation_alias="REFRESH_TOKEN_TTL_DAYS"
     )
 
+    signin_max_failures_per_username: int = Field(
+        default=5, ge=1, validation_alias="SIGNIN_MAX_FAILURES_PER_USERNAME"
+    )
+    signin_max_failures_per_ip: int = Field(
+        default=20, ge=1, validation_alias="SIGNIN_MAX_FAILURES_PER_IP"
+    )
+    public_max_requests_per_ip: int = Field(
+        default=30, ge=1, validation_alias="PUBLIC_MAX_REQUESTS_PER_IP"
+    )
+    rate_limit_window_seconds: int = Field(
+        default=900, ge=1, validation_alias="RATE_LIMIT_WINDOW_SECONDS"
+    )
+    rate_limit_key_prefix: str = Field(
+        default="mtgstats:rl", min_length=1, validation_alias="RATE_LIMIT_KEY_PREFIX"
+    )
+
     @field_validator("database_url")
     @classmethod
     def _check_database_url(cls, value: str) -> str:

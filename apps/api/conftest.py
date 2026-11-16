@@ -230,3 +230,38 @@ async def app_schema(db_session: AppSession) -> AppSession:
     connection = await db_session.connection()
     await connection.run_sync(metadata.create_all)
     return db_session
+
+
+@pytest.fixture(autouse=True)
+async def rate_limit_prefix(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[str]:
+    """Give every test its own rate-limit key prefix on the shared test Redis (S-2.1.10).
+
+    Counters never leak between tests (or from an earlier run), and only keys under this test's
+    prefix are deleted afterwards (SCAN MATCH, never FLUSHDB). The lazy Redis client is reset
+    around the test because it is bound to the test's event loop. Cleanup is best effort: it is
+    skipped silently when Redis is unreachable.
+    """
+    from redis.asyncio import Redis  # noqa: PLC0415
+
+    from app.core.config import get_settings  # noqa: PLC0415
+    from app.core.redis import close_redis  # noqa: PLC0415
+
+    prefix = f"mtgstats:rl:test-{uuid.uuid4().hex}"
+    redis_url = os.environ["REDIS_URL"]  # a test may point REDIS_URL elsewhere; clean the real one
+    monkeypatch.setenv("RATE_LIMIT_KEY_PREFIX", prefix)
+    get_settings.cache_clear()
+    await close_redis()
+    try:
+        yield prefix
+    finally:
+        await close_redis()
+        cleaner: Redis = Redis.from_url(redis_url, socket_connect_timeout=1.0)
+        try:
+            keys = [key async for key in cleaner.scan_iter(match=f"{prefix}*", count=500)]
+            if keys:
+                await cleaner.delete(*keys)
+        except Exception:  # noqa: S110  (Redis down: nothing to clean)
+            pass
+        finally:
+            await cleaner.aclose()
+        get_settings.cache_clear()

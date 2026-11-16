@@ -55,7 +55,7 @@ class RegisterRequest(BaseModel):
         return identity.normalize_email(value)
 
 
-async def register(session: AppSession, body: RegisterRequest) -> identity.SignInResult:
+async def run_registration(session: AppSession, body: RegisterRequest) -> identity.SignInResult:
     """Run the registration steps in the caller's session; never commits.
 
     Raises:
@@ -73,7 +73,8 @@ async def register(session: AppSession, body: RegisterRequest) -> identity.SignI
         password_hash=password_hash,
     )
     await playgroups.consume_invite(session, invite.id)
-    assert player.user_id is not None  # a registered player always has a user  # noqa: S101
+    if player.user_id is None:  # a registered player always has a user
+        raise RuntimeError("create_user_with_player returned a player without a user")
     return await identity.start_session(session, user_id=player.user_id)
 
 
@@ -83,7 +84,7 @@ async def register(session: AppSession, body: RegisterRequest) -> identity.SignI
     status_code=201,
     response_model_exclude_none=True,
 )
-async def register_route(
+async def register(
     body: RegisterRequest, request: Request, response: Response, session: SessionDep
 ) -> TokenResponse:
     """Create an account from an invite and sign the new user in.
@@ -95,5 +96,5 @@ async def register_route(
     refresh token in the response body; every other request is a web client and gets it in the
     `mtgstats_refresh` cookie (`HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/api/v1/auth`).
     """
-    result = await register(session, body)
+    result = await run_registration(session, body)
     return token_response(result.access_token, result.refresh_token, client_mode(request), response)

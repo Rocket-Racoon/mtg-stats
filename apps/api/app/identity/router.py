@@ -27,12 +27,6 @@ router = APIRouter()
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-def _token_response(
-    result: services.SignInResult, mode: ClientMode, response: Response
-) -> TokenResponse:
-    return token_response(result.access_token, result.refresh_token, mode, response)
-
-
 def _presented_token(request: Request, mode: ClientMode, body: RefreshRequest | None) -> str | None:
     """The refresh token from the cookie (web) or the body (mobile); never the other."""
     if mode == "web":
@@ -61,7 +55,7 @@ async def login(
     cookie (`HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/api/v1/auth`) instead.
     """
     result = await services.sign_in(session, username=body.username, password=body.password)
-    return _token_response(result, client_mode(request), response)
+    return token_response(result.access_token, result.refresh_token, client_mode(request), response)
 
 
 @auth_router.post(
@@ -98,7 +92,7 @@ async def refresh(
             # dependency's persist_changes rule alone decides whether the 401 commits.
             exc.headers = {**(exc.headers or {}), "Set-Cookie": _clearing_cookie_header()}
         raise
-    return _token_response(result, mode, response)
+    return token_response(result.access_token, result.refresh_token, mode, response)
 
 
 @auth_router.post("/logout", summary="Sign out", status_code=204)

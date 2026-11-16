@@ -5,6 +5,7 @@ from sqlalchemy import text
 
 from app.core.db import AppSession
 from app.identity.services import (
+    InvalidPasswordError,
     create_user_with_player,
     hash_password,
     verify_password,
@@ -76,3 +77,33 @@ async def test_a_none_hash_behaves_like_no_hash(app_schema: AppSession) -> None:
         app_schema, username="ada", password=PASSWORD, display_name="Ada", password_hash=None
     )
     assert verify_password(await _stored_hash(app_schema, "ada"), PASSWORD)
+
+
+async def test_a_given_hash_does_not_skip_password_validation(app_schema: AppSession) -> None:
+    with pytest.raises(InvalidPasswordError):
+        await create_user_with_player(
+            app_schema,
+            username="ada",
+            password="a" * 11,
+            display_name="Ada",
+            password_hash=hash_password(PASSWORD),
+        )
+
+    count = await app_schema.execute(text("SELECT count(*) FROM users WHERE username = 'ada'"))
+    assert count.scalar_one() == 0
+
+
+async def test_a_non_argon2_hash_is_rejected_and_creates_nothing(app_schema: AppSession) -> None:
+    with pytest.raises(ValueError):  # noqa: PT011
+        await create_user_with_player(
+            app_schema,
+            username="ada",
+            password=PASSWORD,
+            display_name="Ada",
+            password_hash="plaintext",
+        )
+
+    users = await app_schema.execute(text("SELECT count(*) FROM users WHERE username = 'ada'"))
+    players = await app_schema.execute(text("SELECT count(*) FROM players"))
+    assert users.scalar_one() == 0
+    assert players.scalar_one() == 0

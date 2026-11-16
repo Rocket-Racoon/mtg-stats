@@ -317,6 +317,7 @@ def test_real_app_operation_id_prefixes_are_architecture_domains() -> None:
     allowed = {
         "system", "identity", "playgroups", "cards", "decks",
         "brackets", "games", "stats", "collection", "leagues",
+        "auth",  # workflow routes use their first tag (S-2.1.3)
     }  # fmt: skip
     for op_id in collect_operation_ids(app_main.create_app()):
         assert op_id.split("_", 1)[0] in allowed, op_id

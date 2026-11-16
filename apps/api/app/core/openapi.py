@@ -8,9 +8,11 @@ a tag:
 
 1. the endpoint's module is ``app.<domain>.…`` with ``<domain>`` one of the architecture §4.1
    domains (``app.decks.router`` gives ``decks``);
-2. otherwise (core, workflows, workers, tests, probes), the route's first tag (an ``Enum`` tag
+2. a route in ``app.workflows.…`` (workflows own no domain) uses its first tag, slugged, as the
+   prefix, so ``POST /auth/register`` is ``auth_register``;
+3. otherwise (core, workflows, workers, tests, probes), the route's first tag (an ``Enum`` tag
    uses its ``.value``), slugged to snake_case, but only if it is itself one of those domains;
-3. otherwise ``system``.
+4. otherwise ``system``.
 
 FastAPI calls the generator with an effective route context for routes added through
 ``include_router`` (0.162+), not always a real ``APIRoute``. The code here only relies on the
@@ -59,6 +61,11 @@ def route_domain(route: APIRoute) -> str:
     match = _MODULE_RE.match(getattr(route.endpoint, "__module__", "") or "")
     if match and match["domain"] in DOMAINS:
         return match["domain"]
+    if match and match["domain"] == "workflows" and route.tags:
+        first = route.tags[0]
+        slug = _slug(str(first.value if isinstance(first, Enum) else first))
+        if slug:
+            return slug
     if route.tags:
         first = route.tags[0]
         tag = _slug(str(first.value if isinstance(first, Enum) else first))

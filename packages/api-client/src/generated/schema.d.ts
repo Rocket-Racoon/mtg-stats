@@ -123,7 +123,7 @@ export interface paths {
          *     refresh token in the response body; every other request is a web client and gets it in the
          *     `mtgstats_refresh` cookie (`HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/api/v1/auth`).
          */
-        post: operations["system_register_route"];
+        post: operations["auth_register"];
         delete?: never;
         options?: never;
         head?: never;
@@ -989,7 +989,7 @@ export interface operations {
             };
         };
     };
-    system_register_route: {
+    auth_register: {
         parameters: {
             query?: never;
             header?: never;

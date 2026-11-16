@@ -203,9 +203,10 @@ async def create_user_with_player(
     """Create a user and its one player in the caller's session. Flushes; the caller commits.
 
     Validates the username, password and display name (in that order) before writing, then hashes
-    the password, unless ``password_hash`` is given (a hash the caller computed off the event loop
-    from this same password; it is stored as is and nothing is hashed here). The password is never
-    logged or put in an error.
+    the password, unless ``password_hash`` is given. It must be ``hash_password(password)``, made
+    by the caller off the event loop; it is stored as is, nothing is hashed here, and a value not
+    starting with ``$argon2id$`` raises ``ValueError``. The password is never logged or put in an
+    error.
 
     Raises:
         InvalidUsernameError: if the username breaks the rules.
@@ -216,6 +217,8 @@ async def create_user_with_player(
     """
     validate_username(username)
     validate_password(password)
+    if password_hash is not None and not password_hash.startswith("$argon2id$"):
+        raise ValueError("password_hash must be an argon2id hash from hash_password")
     name = normalize_display_name(display_name)
     normalized_email = normalize_email(email)
     player_id = uuid7()

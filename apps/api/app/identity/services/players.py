@@ -13,6 +13,7 @@ from app.core.errors import DomainError
 from app.core.ids import uuid7
 from app.identity import repository
 from app.identity.models import AVATAR_COLORS, DISPLAY_NAME_MAX_LENGTH, Player, User
+from app.identity.services.auth import revoke_all_refresh_tokens
 from app.identity.services.passwords import hash_password, validate_password, validate_username
 
 EMAIL_MAX_LENGTH = 320
@@ -245,7 +246,9 @@ async def create_user_with_player(
 
 
 async def set_password(session: AsyncSession, *, username: str, password: str) -> None:
-    """Replace a user's password hash and stamp ``password_changed_at``. Flushes; never commits.
+    """Replace a user's password hash and stamp ``password_changed_at``.
+
+    Also revokes all of the user's refresh tokens. Flushes; never commits.
 
     Raises:
         InvalidPasswordError: if the password breaks the rules.
@@ -257,5 +260,5 @@ async def set_password(session: AsyncSession, *, username: str, password: str) -
         raise UserNotFoundError
     user.password_hash = hash_password(password)
     user.password_changed_at = datetime.now(UTC)
-    # S-2.1.5 (#64) adds the refresh-token table; revoke all of this user's tokens here then.
+    await revoke_all_refresh_tokens(session, user_id=user.id)
     await session.flush()

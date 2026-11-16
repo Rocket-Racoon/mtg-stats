@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async
 from sqlalchemy.pool import NullPool
 
 from app.core.db import AppSession, get_session
+from app.core.errors import DomainError
 from tests.db_policy import must_fail_when_db_unreachable, resolve_test_database_url
 from tests.jobs import JobQueue, delete_queue_keys
 from tests.sample_models import SampleBase
@@ -110,8 +111,9 @@ async def sample_schema(db_session: AppSession) -> AppSession:
 async def api_app(db_session: AppSession) -> AsyncIterator[FastAPI]:
     """An app whose ``get_session`` yields the rolled-back ``db_session`` (nothing really commits).
 
-    Mirrors the real dependency: commit on success (a savepoint release here), rollback on error,
-    and never closes the shared session. Add the routes under test to the returned app.
+    Mirrors the real dependency: commit on success (a savepoint release here), rollback on error
+    (but commit when the error is a ``DomainError`` with ``persist_changes``), and never closes the
+    shared session. Add the routes under test to the returned app.
     """
     from app.main import create_app  # noqa: PLC0415
 
@@ -121,8 +123,11 @@ async def api_app(db_session: AppSession) -> AsyncIterator[FastAPI]:
         try:
             yield db_session
             await db_session.commit()
-        except BaseException:
-            await db_session.rollback()
+        except BaseException as exc:
+            if isinstance(exc, DomainError) and exc.persist_changes:
+                await db_session.commit()
+            else:
+                await db_session.rollback()
             raise
 
     app.dependency_overrides[get_session] = override

@@ -438,6 +438,27 @@ async def test_set_password_replaces_the_hash_old_password_stops_working(
     assert verify_password(user.password_hash, PASSWORD) is False
 
 
+async def test_set_password_command_revokes_all_of_the_users_refresh_tokens(
+    session: AppSession,
+) -> None:
+    from app.identity.services import sign_in  # noqa: PLC0415
+    from tests.refresh_support import rows  # noqa: PLC0415
+
+    await seed_member(session, "ada", PASSWORD)
+    await sign_in(session, username="ada", password=PASSWORD)
+    await session.commit()
+    assert all(r.revoked_at is None for r in await rows(session))
+
+    result = await invoke(
+        session, ["set-password", "--username", "ada"], NEW_PASSPHRASE, NEW_PASSPHRASE
+    )
+
+    assert result.code == 0
+    stored = await rows(session)
+    assert len(stored) == 1
+    assert stored[0].revoked_at is not None
+
+
 async def test_set_password_prints_the_success_line(session: AppSession) -> None:
     await seed_member(session, "ada")
     result = await invoke(

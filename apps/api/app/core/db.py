@@ -49,6 +49,7 @@ from sqlalchemy.orm import (
 from sqlalchemy.types import TypeDecorator
 
 from app.core.config import get_settings
+from app.core.errors import DomainError
 from app.core.ids import uuid7
 
 logger = logging.getLogger(__name__)
@@ -351,12 +352,21 @@ def after_commit(session: AsyncSession, callback: AfterCommitCallback) -> None:
 async def get_session() -> AsyncIterator[AppSession]:
     """Request-scoped session: commit on success, roll back on error, always close.
 
+    The one exception: a :class:`~app.core.errors.DomainError` with ``persist_changes = True``
+    commits first, then is re-raised (the response is still the error).
+
     Declare it with :data:`SessionDep`, not a bare ``Depends(get_session)``.
     """
     async with get_sessionmaker()() as session:
         try:
             yield session
             await session.commit()
+        except DomainError as exc:
+            if exc.persist_changes:
+                await session.commit()
+            else:
+                await session.rollback()
+            raise
         except BaseException:
             await session.rollback()
             raise

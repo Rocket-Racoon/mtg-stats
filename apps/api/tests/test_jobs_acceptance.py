@@ -6,6 +6,7 @@ without Redis, import boundaries and test isolation.
 
 import asyncio
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -227,13 +228,14 @@ async def test_run_job_in_process_needs_no_redis(monkeypatch: pytest.MonkeyPatch
         get_settings.cache_clear()
 
 
-def test_registry_imports_only_system_services_and_core() -> None:
+def test_registry_imports_only_domain_services_and_core() -> None:
     registry = APP_ROOT / "workers" / "registry.py"
     targets = {target for _, target in imported_modules(APP_ROOT, registry)}
     internal = {t for t in targets if t == "app" or t.startswith("app.")}
     assert "app.system.services" in internal
     for target in internal:
-        assert target == "app.system.services" or target.startswith("app.core"), target
+        is_domain_services = re.fullmatch(r"app\.[a-z_]+\.services", target) is not None
+        assert is_domain_services or target.startswith("app.core"), target
 
 
 def test_worker_package_has_no_boundary_violations() -> None:

@@ -77,6 +77,10 @@ class DomainError(Exception):
     status_code: int = 400
     default_message: str = "The operation was rejected."
     default_headers: ClassVar[dict[str, str] | None] = None
+    persist_changes: ClassVar[bool] = False
+    """When true, the request session commits what the service flushed before this error is
+    re-raised, so a rejected request can still persist its side effect (for example revoking a
+    refresh-token family on reuse). Leave it false for every ordinary rejection."""
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         """Reject a ``code`` that is not snake_case."""

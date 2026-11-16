@@ -86,6 +86,7 @@ def _describe(fields: Any) -> str:
 
 
 SCHEDULES: Mapping[str, Schedule] = {
+    "identity.cleanup_refresh_tokens": Schedule(hour=4, minute=15),
     "system.heartbeat": Schedule(minute=set(range(0, 60, 5))),
 }
 

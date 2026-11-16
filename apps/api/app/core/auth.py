@@ -14,7 +14,7 @@ from typing import Annotated, ClassVar, Literal
 from uuid import UUID
 
 import jwt
-from fastapi import Depends
+from fastapi import Depends, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.config import Settings, get_settings
@@ -24,6 +24,11 @@ JWT_ALGORITHM = "HS256"
 REQUIRED_CLAIMS = ("sub", "exp", "iat", "jti", "type")
 
 TokenType = Literal["access", "refresh"]
+ClientMode = Literal["web", "mobile"]
+
+REFRESH_COOKIE_NAME = "mtgstats_refresh"
+REFRESH_COOKIE_PATH = "/api/v1/auth"
+CLIENT_HEADER = "X-Client"
 
 
 class InvalidTokenError(AuthenticationError):
@@ -158,3 +163,42 @@ async def current_user(
 
 
 CurrentUserDep = Annotated[CurrentUser, Depends(current_user)]
+
+
+def client_mode(request: Request) -> ClientMode:
+    """Return ``mobile`` only for ``X-Client: mobile`` without an ``Origin`` header, else ``web``.
+
+    Browsers always send ``Origin`` on a POST and page script cannot remove it, so script running
+    in a browser (XSS included) can never select the mobile mode that returns the refresh token in
+    the response body.
+    """
+    header = request.headers.get(CLIENT_HEADER, "").strip().lower()
+    if header == "mobile" and "origin" not in request.headers:
+        return "mobile"
+    return "web"
+
+
+def set_refresh_cookie(response: Response, token: IssuedToken) -> None:
+    """Set the refresh token as an HttpOnly, Secure, SameSite=Strict cookie on the auth path."""
+    response.set_cookie(
+        REFRESH_COOKIE_NAME,
+        token.token,
+        max_age=token.expires_in,
+        path=REFRESH_COOKIE_PATH,
+        secure=True,
+        httponly=True,
+        samesite="strict",
+    )
+
+
+def clear_refresh_cookie(response: Response) -> None:
+    """Expire the refresh cookie (same name, path and attributes, ``Max-Age=0``)."""
+    response.set_cookie(
+        REFRESH_COOKIE_NAME,
+        "",
+        max_age=0,
+        path=REFRESH_COOKIE_PATH,
+        secure=True,
+        httponly=True,
+        samesite="strict",
+    )

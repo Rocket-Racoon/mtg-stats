@@ -54,6 +54,21 @@ def warm_up_sign_in() -> None:
     _dummy_hash()
 
 
+async def start_session(session: AsyncSession, *, user_id: UUID) -> SignInResult:
+    """Issue an access token and a new refresh-token family for ``user_id``.
+
+    Flushes; never commits. Used by sign-in and by registration, which signs the new user in.
+    """
+    result = SignInResult(
+        user_id=user_id,
+        access_token=issue_token(user_id, "access"),
+        refresh_token=issue_token(user_id, "refresh"),
+    )
+    _store_refresh_token(session, result.refresh_token, user_id, family_id=uuid7())
+    await session.flush()
+    return result
+
+
 async def sign_in(session: AsyncSession, *, username: str, password: str) -> SignInResult:
     """Check the credentials and issue an access and a refresh token.
 
@@ -75,14 +90,7 @@ async def sign_in(session: AsyncSession, *, username: str, password: str) -> Sig
     if await asyncio.to_thread(password_needs_rehash, user.password_hash):
         user.password_hash = await asyncio.to_thread(hash_password, password)
         await session.flush()
-    result = SignInResult(
-        user_id=user.id,
-        access_token=issue_token(user.id, "access"),
-        refresh_token=issue_token(user.id, "refresh"),
-    )
-    _store_refresh_token(session, result.refresh_token, user.id, family_id=uuid7())
-    await session.flush()
-    return result
+    return await start_session(session, user_id=user.id)
 
 
 CLEANUP_GRACE = timedelta(days=7)

@@ -68,8 +68,15 @@ def _router_guard_misuse(tree: ast.Module) -> list[tuple[int, str]]:
 
     A call such as ``await require_site_admin(user, session)`` in a route body would make the
     route's own logic decide on the role, so every reference that is not a direct ``Depends``
-    argument is reported (imports are not references).
+    argument is reported (imports are not references). Names imported ``as`` an alias count too.
     """
+    guards = {"require_site_admin"} | {
+        alias.asname
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom | ast.Import)
+        for alias in node.names
+        if alias.asname and alias.name.rsplit(".", 1)[-1] == "require_site_admin"
+    }
     allowed: set[int] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and _called_name(node.func) == "Depends":
@@ -79,7 +86,7 @@ def _router_guard_misuse(tree: ast.Module) -> list[tuple[int, str]]:
         (node.lineno, "require_site_admin")
         for node in ast.walk(tree)
         if isinstance(node, ast.Name | ast.Attribute)
-        and _called_name(node) == "require_site_admin"
+        and _called_name(node) in guards
         and id(node) not in allowed
     ]
 
@@ -312,3 +319,31 @@ def test_router_py_may_use_require_site_admin_as_a_depends_argument(tmp_path: Pa
 def test_router_py_may_not_pass_require_site_admin_around_outside_depends(tmp_path: Path) -> None:
     _write(tmp_path, "router.py", "guard = require_site_admin\n")
     assert violations(tmp_path) == ["router.py:1 require_site_admin"]
+
+
+def test_router_py_may_not_call_an_import_alias_of_require_site_admin(tmp_path: Path) -> None:
+    source = (
+        "from app.core.auth import require_site_admin as guard"
+        + chr(10)
+        + "async def route(u, s):"
+        + chr(10)
+        + "    await guard(u, s)"
+        + chr(10)
+    )
+    _write(tmp_path, "router.py", source)
+    assert violations(tmp_path) == ["router.py:3 require_site_admin"]
+
+
+def test_router_py_may_use_an_import_alias_of_require_site_admin_inside_depends(
+    tmp_path: Path,
+) -> None:
+    source = (
+        "from fastapi import Depends"
+        + chr(10)
+        + "from app.core.auth import require_site_admin as guard"
+        + chr(10)
+        + "async def route(admin=Depends(guard)): ..."
+        + chr(10)
+    )
+    _write(tmp_path, "router.py", source)
+    assert violations(tmp_path) == []

@@ -239,17 +239,19 @@ async def test_a_grant_and_a_revoke_at_the_same_time_never_leave_zero_active_adm
             assert active == ["alpha", "bravo"]  # the revoke ran first and was refused
 
 
-async def test_revoking_one_of_several_inactive_admins_is_allowed_with_no_active_admin(
+async def test_revoking_an_inactive_admin_is_refused_when_no_active_admin_exists(
     live: Live,
 ) -> None:
     await _seed(("sleeper1", True, False), ("sleeper2", True, False))
 
-    change = await _revoke_and_commit("sleeper1")
+    with pytest.raises(LastSiteAdminError):
+        await _revoke_and_commit("sleeper1")
 
-    assert (change.old, change.new) == (True, False)
     async with live.engine.connect() as conn:
-        result = await conn.execute(text("SELECT username FROM users WHERE is_site_admin"))
-        assert [r[0] for r in result] == ["sleeper2"]
+        result = await conn.execute(
+            text("SELECT username FROM users WHERE is_site_admin ORDER BY username")
+        )
+        assert [r[0] for r in result] == ["sleeper1", "sleeper2"]
 
 
 async def test_the_throwaway_database_is_used_never_the_shared_one(live: Live) -> None:

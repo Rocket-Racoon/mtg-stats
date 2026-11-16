@@ -50,9 +50,9 @@ async def set_site_admin(session: AsyncSession, *, username: str, value: bool) -
 
     The target and all active site admins are locked ``FOR NO KEY UPDATE`` first, so two concurrent
     revokes cannot both pass the check. Flushes; never commits. Setting the current value is a
-    no-op that still returns the (equal) old and new values. Revoking an inactive admin is always
-    allowed, as it never changes the active-admin count; only revoking an active admin who is the
-    last active one is refused.
+    no-op that still returns the (equal) old and new values. Revoking any admin, active or
+    inactive, is refused when it would leave zero active admins; revoking an inactive admin is
+    allowed while an active one remains.
 
     Raises:
         UserNotFoundError: if no user has this username (case-insensitive).
@@ -66,7 +66,7 @@ async def set_site_admin(session: AsyncSession, *, username: str, value: bool) -
     if user is None:
         raise UserNotFoundError
     old = user.is_site_admin
-    if old and not value and user.is_active:
+    if old and not value:
         others = [r for r in rows if r.id != user.id and r.is_site_admin and r.is_active]
         if not others:
             raise LastSiteAdminError

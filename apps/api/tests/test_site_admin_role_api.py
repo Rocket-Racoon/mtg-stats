@@ -34,7 +34,7 @@ def names_the_role_change(text: str, *, roles_allowed: bool = False) -> bool:
     ``/invites/{id}/revoke`` revokes an invite (no admin/role target), so neither is flagged.
     """
     lowered = text.lower()
-    if lowered.startswith(ADMIN_AREA):
+    if lowered == ADMIN_AREA or lowered.startswith(ADMIN_AREA + "/"):
         lowered = lowered.removeprefix(ADMIN_AREA)
     tokens = [t for t in re.split(r"[^a-z0-9]+", lowered) if t]
     if "siteadmin" in tokens or any(
@@ -298,3 +298,9 @@ def test_a_header_parameter_carrying_the_flag_is_flagged_in_any_spelling(name: s
 def test_the_admin_area_prefix_does_not_hide_a_real_role_change() -> None:
     doc = _doc({"/api/v1/admin/users/{id}/grant-admin": {"post": {"operationId": "x_y"}}})
     assert role_changing_operations(doc)
+
+
+def test_the_admin_prefix_strip_respects_the_segment_boundary() -> None:
+    assert names_the_role_change("/api/v1/admin-grant")
+    assert not names_the_role_change("/api/v1/admin/grant")
+    assert not names_the_role_change("/api/v1/admin")

@@ -73,6 +73,31 @@ def test_issued_token_reports_its_jti_and_expiry() -> None:
     assert claims["iat"] == int(now.timestamp())
 
 
+def test_issued_access_token_reports_expires_in_seconds() -> None:
+    issued = issue_token(USER, ACCESS)
+    assert issued.expires_in == 15 * 60
+    claims = _decode_raw(issued.token)
+    assert issued.expires_in == claims["exp"] - claims["iat"]
+
+
+def test_issued_refresh_token_reports_expires_in_seconds() -> None:
+    issued = issue_token(USER, REFRESH)
+    assert issued.expires_in == 30 * 24 * 3600
+    claims = _decode_raw(issued.token)
+    assert issued.expires_in == claims["exp"] - claims["iat"]
+
+
+def test_expires_in_follows_the_ttl_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ACCESS_TOKEN_TTL_MINUTES", "5")
+    monkeypatch.setenv("REFRESH_TOKEN_TTL_DAYS", "7")
+    get_settings.cache_clear()
+    try:
+        assert issue_token(USER, ACCESS).expires_in == 300
+        assert issue_token(USER, REFRESH).expires_in == 7 * 24 * 3600
+    finally:
+        get_settings.cache_clear()
+
+
 def test_jti_is_unique_per_token() -> None:
     assert len({issue_token(USER, ACCESS).jti for _ in range(20)}) == 20
 
@@ -173,6 +198,23 @@ def test_decode_rejects_a_non_uuid_subject() -> None:
         decode_token(encode(claims), expected_type=ACCESS)
 
 
+@pytest.mark.parametrize(
+    "form",
+    [
+        f"urn:uuid:{USER}",
+        "{" + str(USER) + "}",
+        str(USER).upper(),
+        str(USER).replace("-", ""),
+        f" {USER}",
+    ],
+)
+def test_decode_rejects_a_non_canonical_subject(form: str) -> None:
+    claims = claims_for(USER)
+    claims["sub"] = form
+    with pytest.raises(InvalidTokenError):
+        decode_token(encode(claims), expected_type=ACCESS)
+
+
 @pytest.mark.parametrize("garbage", ["", "garbage", "a.b.c", "a.b", "....", "Bearer x"])
 def test_decode_rejects_garbage(garbage: str) -> None:
     with pytest.raises(InvalidTokenError):
@@ -209,6 +251,25 @@ def test_settings_reject_a_short_jwt_secret_without_echoing_it(
     assert len(short) == 31
     with pytest.raises(ValidationError) as caught:
         _load(monkeypatch, JWT_SECRET=short)
+    assert short not in str(caught.value)
+
+
+@pytest.mark.parametrize("app_env", ["dev", "test", "prod"])
+def test_settings_reject_the_change_me_placeholder_in_every_environment(
+    monkeypatch: pytest.MonkeyPatch, app_env: str
+) -> None:
+    with pytest.raises(ValidationError) as caught:
+        _load(monkeypatch, APP_ENV=app_env, JWT_SECRET="CHANGE_ME")
+    assert "JWT_SECRET" in str(caught.value)
+
+
+def test_short_secret_error_names_jwt_secret_and_never_echoes_the_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    short = "tooshort-but-unique-0123"
+    with pytest.raises(ValidationError) as caught:
+        _load(monkeypatch, JWT_SECRET=short)
+    assert "JWT_SECRET" in str(caught.value)
     assert short not in str(caught.value)
 
 

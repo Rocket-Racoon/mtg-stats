@@ -119,7 +119,7 @@ async def test_bad_token_is_rejected_with_401_invalid_token(
     error = response.json()["error"]
     assert error["code"] == "invalid_token"
     assert error["message"] == "Invalid or expired token."
-    assert response.headers["www-authenticate"] == "Bearer"
+    assert response.headers["www-authenticate"] == 'Bearer error="invalid_token"'
 
 
 async def test_missing_authorization_header_is_401_unauthenticated(
@@ -127,7 +127,9 @@ async def test_missing_authorization_header_is_401_unauthenticated(
 ) -> None:
     response = await anon_client.get(PROTECTED)
     assert response.status_code == 401
-    assert response.json()["error"]["code"] == "unauthenticated"
+    error = response.json()["error"]
+    assert error["code"] == "unauthenticated"
+    assert error["message"] == "Authentication is required."
     assert response.headers["www-authenticate"] == "Bearer"
 
 
@@ -137,8 +139,29 @@ async def test_non_bearer_or_empty_authorization_is_401(
 ) -> None:
     response = await anon_client.get(PROTECTED, headers={"Authorization": header})
     assert response.status_code == 401
-    assert response.json()["error"]["code"] in {"unauthenticated", "invalid_token"}
+    error = response.json()["error"]
+    assert error["code"] == "unauthenticated"
+    assert error["message"] == "Authentication is required."
     assert response.headers["www-authenticate"] == "Bearer"
+
+
+@pytest.mark.parametrize(
+    "form",
+    [
+        f"urn:uuid:{USER}",
+        "{" + str(USER) + "}",
+        str(USER).upper(),
+        str(USER).replace("-", ""),
+    ],
+)
+async def test_non_canonical_subject_is_rejected_with_invalid_token(
+    anon_client: httpx.AsyncClient, form: str
+) -> None:
+    token = encode({**claims_for(USER), "sub": form})
+    response = await anon_client.get(PROTECTED, headers=_bearer(token))
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "invalid_token"
+    assert response.headers["www-authenticate"] == 'Bearer error="invalid_token"'
 
 
 async def test_basic_scheme_with_a_valid_token_is_unauthenticated(
@@ -212,6 +235,8 @@ def test_openapi_documents_the_login_request_and_response() -> None:
     ok = _resolve(spec, operation["responses"]["200"]["content"]["application/json"]["schema"])
     assert {"access_token", "refresh_token", "token_type", "expires_in"} <= set(ok["properties"])
     assert "401" in operation["responses"]
+    assert operation["tags"] == ["auth"]
+    assert operation["operationId"] == "identity_login"
 
 
 def test_openapi_declares_a_bearer_security_scheme() -> None:

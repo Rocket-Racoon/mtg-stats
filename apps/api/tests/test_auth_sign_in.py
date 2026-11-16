@@ -1,6 +1,7 @@
 """Sign in with access and refresh tokens (S-2.1.4 AC1, AC2, AC3, AC5 sign-in part)."""
 
-from collections.abc import Callable, Iterator
+import inspect
+from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import AbstractContextManager
 from typing import Any
 
@@ -8,14 +9,15 @@ import httpx
 import jwt
 import pytest
 from argon2 import PasswordHasher, Type
-from fastapi import FastAPI
 from sqlalchemy import select, update
 
 from app.core.config import get_settings
-from app.core.db import AppSession
+from app.core.db import AppSession, get_session
 from app.identity import services
 from app.identity.models import User
+from app.identity.services import auth as auth_module
 from app.identity.services import create_user_with_player, hash_password, password_needs_rehash
+from app.main import create_app
 from tests.auth_support import secret
 from tests.statement_counter import StatementCounter
 
@@ -127,16 +129,12 @@ async def test_refresh_token_has_type_refresh_and_lives_30_days(
 
 
 async def test_token_lifetimes_follow_the_settings(
-    client: httpx.AsyncClient,
-    api_app: FastAPI,
-    app_schema: AppSession,
-    monkeypatch: pytest.MonkeyPatch,
+    client: httpx.AsyncClient, app_schema: AppSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     await _member(app_schema)
     monkeypatch.setenv("ACCESS_TOKEN_TTL_MINUTES", "5")
     monkeypatch.setenv("REFRESH_TOKEN_TTL_DAYS", "2")
     get_settings.cache_clear()
-    api_app.state.settings = get_settings()  # the app was built before the env change
     try:
         body = (await _login(client)).json()
     finally:
@@ -145,6 +143,32 @@ async def test_token_lifetimes_follow_the_settings(
     assert body["expires_in"] == 300
     assert access["exp"] - access["iat"] == 5 * 60
     assert refresh["exp"] - refresh["iat"] == 2 * 24 * 3600
+
+
+async def test_login_expires_in_matches_the_real_access_token_with_explicit_app_settings(
+    app_schema: AppSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # An app built with settings that differ from the environment: the body must report the
+    # lifetime the token really has, not a value read from app.state.settings.
+    await _member(app_schema)
+    monkeypatch.setenv("ACCESS_TOKEN_TTL_MINUTES", "7")
+    get_settings.cache_clear()
+    try:
+        explicit = get_settings().model_copy(update={"access_token_ttl_minutes": 3})
+        app = create_app(explicit)
+
+        async def _session() -> AsyncIterator[AppSession]:
+            yield app_schema
+
+        app.dependency_overrides[get_session] = _session
+        transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as http_client:
+            body = (await _login(http_client)).json()
+    finally:
+        get_settings.cache_clear()
+    claims = _decode(body["access_token"])
+    assert body["expires_in"] == claims["exp"] - claims["iat"]
+    assert body["expires_in"] == 7 * 60
 
 
 async def test_each_login_issues_new_unique_jtis(
@@ -386,6 +410,63 @@ async def test_reactivated_user_can_sign_in_again(
     assert (await _login(client)).status_code == 401
     await _set(app_schema, user, is_active=True)
     assert (await _login(client)).status_code == 200
+
+
+# ------------------------------------------------------------------------------ warm-up
+
+
+@pytest.fixture
+def hash_calls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Record every ``PasswordHasher.hash`` call (the real call still runs)."""
+    seen: list[str] = []
+    original = PasswordHasher.hash
+
+    def spy(self: PasswordHasher, password: str | bytes, *, salt: bytes | None = None) -> str:
+        seen.append("hash")
+        return original(self, password, salt=salt)
+
+    monkeypatch.setattr(PasswordHasher, "hash", spy)
+    return seen
+
+
+async def _warm_up() -> None:
+    result: Any = services.warm_up_sign_in()
+    if inspect.isawaitable(result):
+        await result
+
+
+async def test_first_unknown_username_sign_in_after_warm_up_hashes_nothing(
+    client: httpx.AsyncClient,
+    app_schema: AppSession,
+    verify_calls: list[str],
+    hash_calls: list[str],
+) -> None:
+    await _member(app_schema)
+    auth_module._dummy_hash_for.cache_clear()
+    await _warm_up()
+    hash_calls.clear()
+    verify_calls.clear()
+
+    response = await _login(client, "nobody", PASSWORD)
+
+    assert response.status_code == 401
+    assert len(verify_calls) == 1
+    assert hash_calls == []
+
+
+async def test_app_lifespan_calls_the_sign_in_warm_up(monkeypatch: pytest.MonkeyPatch) -> None:
+    called: list[str] = []
+    original = services.warm_up_sign_in
+
+    def spy() -> Any:
+        called.append("warm")
+        return original()
+
+    monkeypatch.setattr(services, "warm_up_sign_in", spy)
+    monkeypatch.setattr("app.main.warm_up_sign_in", spy, raising=False)
+    app = create_app()
+    async with app.router.lifespan_context(app):
+        assert called == ["warm"]
 
 
 def test_hash_password_uses_current_parameters() -> None:

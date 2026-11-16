@@ -76,9 +76,9 @@ class RefreshToken(IdMixin, Base):
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     family_id: Mapped[UUID] = mapped_column(index=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
-    expires_at: Mapped[datetime] = mapped_column(UtcDateTime)
+    expires_at: Mapped[datetime] = mapped_column(UtcDateTime, index=True)
     revoked_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
     replaced_by: Mapped[UUID | None] = mapped_column(
-        ForeignKey("refresh_tokens.id", ondelete="SET NULL"), default=None
+        ForeignKey("refresh_tokens.id", ondelete="SET NULL"), default=None, index=True
     )
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_utcnow)

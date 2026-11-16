@@ -93,6 +93,9 @@ class RefreshTokenReuseError(InvalidTokenError):
 
     Same code and message as :class:`InvalidTokenError`. ``persist_changes`` makes the request
     session commit the revocation although the response is a 401.
+
+    Warning: because the session commits instead of rolling back, raise this only from a request
+    whose only writes are the intended revocation, never inside a composite workflow.
     """
 
     persist_changes = True

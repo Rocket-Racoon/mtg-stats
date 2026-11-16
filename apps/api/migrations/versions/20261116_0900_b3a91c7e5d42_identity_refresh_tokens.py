@@ -46,12 +46,20 @@ def upgrade() -> None:
         sa.UniqueConstraint("token_hash", name=op.f("uq_refresh_tokens_token_hash")),
     )
     op.create_index(
+        op.f("ix_refresh_tokens_expires_at"), "refresh_tokens", ["expires_at"], unique=False
+    )
+    op.create_index(
         op.f("ix_refresh_tokens_family_id"), "refresh_tokens", ["family_id"], unique=False
+    )
+    op.create_index(
+        op.f("ix_refresh_tokens_replaced_by"), "refresh_tokens", ["replaced_by"], unique=False
     )
     op.create_index(op.f("ix_refresh_tokens_user_id"), "refresh_tokens", ["user_id"], unique=False)
 
 
 def downgrade() -> None:
+    op.drop_index(op.f("ix_refresh_tokens_replaced_by"), table_name="refresh_tokens")
+    op.drop_index(op.f("ix_refresh_tokens_expires_at"), table_name="refresh_tokens")
     op.drop_index(op.f("ix_refresh_tokens_user_id"), table_name="refresh_tokens")
     op.drop_index(op.f("ix_refresh_tokens_family_id"), table_name="refresh_tokens")
     op.drop_table("refresh_tokens")

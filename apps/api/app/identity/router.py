@@ -18,7 +18,7 @@ from app.core.auth import (
     set_refresh_cookie,
 )
 from app.core.db import SessionDep
-from app.core.errors import AuthenticationError, error_response
+from app.core.errors import AuthenticationError
 from app.identity import services
 from app.identity.schemas import LoginRequest, RefreshRequest, TokenResponse
 
@@ -45,6 +45,13 @@ def _presented_token(request: Request, mode: ClientMode, body: RefreshRequest | 
     if mode == "web":
         return request.cookies.get(REFRESH_COOKIE_NAME) or None
     return (body.refresh_token if body else None) or None
+
+
+def _clearing_cookie_header() -> str:
+    """The ``Set-Cookie`` value that expires the refresh cookie (via ``clear_refresh_cookie``)."""
+    scratch = Response()
+    clear_refresh_cookie(scratch)
+    return scratch.headers["set-cookie"]
 
 
 @auth_router.post("/login", summary="Sign in", response_model_exclude_none=True)
@@ -93,13 +100,11 @@ async def refresh(
             raise AuthenticationError
         result = await services.refresh_session(session, refresh_token=token)
     except AuthenticationError as exc:
-        if mode == "mobile":
-            raise
-        # Answer here so the 401 can clear the cookie; returning normally lets the session
-        # dependency commit, which is how a family revocation survives the 401.
-        failure = error_response(exc.status_code, exc.code, exc.message, exc.details, exc.headers)
-        clear_refresh_cookie(failure)
-        return failure
+        if mode == "web":
+            # Re-raise with the clearing cookie so the 401 envelope carries it; the session
+            # dependency's persist_changes rule alone decides whether the 401 commits.
+            exc.headers = {**(exc.headers or {}), "Set-Cookie": _clearing_cookie_header()}
+        raise
     return _token_response(result, mode, response)
 
 
@@ -116,19 +121,23 @@ async def logout(
     token = _presented_token(request, mode, body)
     if token is not None:
         await services.revoke_refresh_token(session, refresh_token=token)
-    clear_refresh_cookie(response)
+    if mode == "web":
+        clear_refresh_cookie(response)
     response.status_code = 204
     return response
 
 
 @auth_router.post("/logout-all", summary="Sign out everywhere", status_code=204)
-async def logout_all(user: CurrentUserDep, response: Response, session: SessionDep) -> Response:
+async def logout_all(
+    user: CurrentUserDep, request: Request, response: Response, session: SessionDep
+) -> Response:
     """Revoke all of the caller's refresh tokens (every device) and clear the cookie.
 
     Requires a valid access token. Access tokens already issued stay valid until they expire.
     """
     await services.revoke_all_refresh_tokens(session, user_id=user.id)
-    clear_refresh_cookie(response)
+    if client_mode(request) == "web":
+        clear_refresh_cookie(response)
     response.status_code = 204
     return response
 

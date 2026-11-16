@@ -1,6 +1,12 @@
 import { useState, type ReactNode } from 'react';
 import { MutationCache, type QueryClient } from '@tanstack/react-query';
-import { QueryClientProvider, createQueryClient } from '@mtg-stats/api-client';
+import {
+  ApiClientProvider,
+  QueryClientProvider,
+  createQueryClient,
+  type ApiClient,
+} from '@mtg-stats/api-client';
+import { api } from '../api';
 import { errorMessage } from '../errors/message';
 import { ErrorBoundary } from '../errors/ErrorBoundary';
 import { Toaster } from '../ui/Toaster';
@@ -23,15 +29,19 @@ interface AppProvidersProps {
   children: ReactNode;
   /** Tests inject their own client. */
   queryClient?: QueryClient;
+  /** Tests inject their own API client. */
+  apiClient?: ApiClient;
 }
 
-export function AppProviders({ children, queryClient }: AppProvidersProps) {
+export function AppProviders({ children, queryClient, apiClient }: AppProvidersProps) {
   const [created] = useState(createAppQueryClient);
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient ?? created}>
-        {children}
-        <Toaster />
+        <ApiClientProvider client={apiClient ?? api}>
+          {children}
+          <Toaster />
+        </ApiClientProvider>
       </QueryClientProvider>
     </ErrorBoundary>
   );

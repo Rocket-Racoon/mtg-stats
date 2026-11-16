@@ -2,6 +2,8 @@ export const PACKAGE_NAME = '@mtg-stats/api-client';
 
 export { createApiClient } from './client';
 export type { ApiClient, ApiClientOptions, ApiMethod } from './client';
+export { REFRESH_PATH } from './auth';
+export type { AuthTokens, TokenStore } from './auth';
 export { apiOrigin } from './origin';
 export { ApiError, NETWORK_ERROR, UNEXPECTED_RESPONSE } from './errors';
 export type { ApiErrorDetails, ApiErrorInit } from './errors';

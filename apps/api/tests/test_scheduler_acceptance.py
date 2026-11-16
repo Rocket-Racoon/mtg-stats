@@ -149,10 +149,12 @@ async def test_real_worker_in_dev_logs_every_schedule_with_its_next_run_at_start
         (line,) = [ln for ln in stderr.splitlines() if f"scheduled job {name} " in ln]
         next_run = _next_run_of(line)
         assert next_run > before
-        assert next_run <= before + timedelta(minutes=5, seconds=30)
         if name == HEARTBEAT:
+            assert next_run <= before + timedelta(minutes=5, seconds=30)
             assert next_run.minute % 5 == 0
             assert next_run.second == 0
+        else:  # the daily jobs (S-2.1.5 adds identity.cleanup_refresh_tokens)
+            assert next_run <= before + timedelta(days=1, seconds=30)
 
 
 # --- AC3: disabled -----------------------------------------------------------------------------
@@ -216,8 +218,7 @@ async def test_real_worker_with_scheduler_disabled_logs_the_reason_and_still_run
 
 def _runs_in_window(start: datetime, minutes: int = 10) -> list[datetime]:
     """Occurrences arq itself computes in ``(start, start + minutes]``."""
-    job = build_cron_jobs(_settings("dev"))[0]
-    assert job.name == HEARTBEAT
+    (job,) = [j for j in build_cron_jobs(_settings("dev")) if j.name == HEARTBEAT]
     end = start + timedelta(minutes=minutes)
     out: list[datetime] = []
     job.calculate_next(start)
@@ -261,7 +262,7 @@ async def test_worker_ticking_across_ten_minutes_runs_the_heartbeat_twice(
     worker = create_worker(
         WorkerSettings,
         functions=build_functions(),
-        cron_jobs=build_cron_jobs(_settings("dev")),
+        cron_jobs=[j for j in build_cron_jobs(_settings("dev")) if j.name == HEARTBEAT],
         queue_name=job_queue.name,
         handle_signals=False,
         timezone=UTC,
@@ -318,7 +319,7 @@ async def test_two_live_workers_run_every_scheduled_second_exactly_once(
     async def tick(ctx: dict[str, Any]) -> None:
         runs.append(ctx["job_id"])
 
-    (real,) = build_cron_jobs(_settings("dev"))
+    (real,) = [j for j in build_cron_jobs(_settings("dev")) if j.name == HEARTBEAT]
     job = dataclasses.replace(
         real, name=name, coroutine=tick, minute=None, second=set(range(60)), next_run=None
     )

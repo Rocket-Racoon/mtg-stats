@@ -110,8 +110,9 @@ async def sample_schema(db_session: AppSession) -> AppSession:
 async def api_app(db_session: AppSession) -> AsyncIterator[FastAPI]:
     """An app whose ``get_session`` yields the rolled-back ``db_session`` (nothing really commits).
 
-    Mirrors the real dependency: commit on success (a savepoint release here), rollback on error,
-    and never closes the shared session. Add the routes under test to the returned app.
+    Mirrors the real dependency: commit on success (a savepoint release here), rollback on error
+    (but commit when the error is a ``DomainError`` with ``persist_changes``), and never closes the
+    shared session. Add the routes under test to the returned app.
     """
     from app.main import create_app  # noqa: PLC0415
 
@@ -121,8 +122,11 @@ async def api_app(db_session: AppSession) -> AsyncIterator[FastAPI]:
         try:
             yield db_session
             await db_session.commit()
-        except BaseException:
-            await db_session.rollback()
+        except BaseException as exc:
+            if getattr(exc, "persist_changes", False):
+                await db_session.commit()
+            else:
+                await db_session.rollback()
             raise
 
     app.dependency_overrides[get_session] = override

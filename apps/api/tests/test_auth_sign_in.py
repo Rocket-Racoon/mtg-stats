@@ -58,7 +58,13 @@ async def _stored_hash(session: AppSession, user: User) -> str:
 async def _login(
     client: httpx.AsyncClient, username: str = "ada", password: str = PASSWORD
 ) -> httpx.Response:
-    return await client.post(LOGIN, json={"username": username, "password": password})
+    # Mobile mode (S-2.1.5): the refresh token is in the body, which these tests inspect. Web mode
+    # (cookie, no body token) is covered by tests/test_auth_refresh_cookie.py.
+    return await client.post(
+        LOGIN,
+        json={"username": username, "password": password},
+        headers={"X-Client": "mobile"},
+    )
 
 
 def _decode(token: str) -> dict[str, Any]:

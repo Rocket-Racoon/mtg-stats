@@ -17,7 +17,8 @@ Rules (architecture §4.2 "Enforcement"), with ``A`` the domain a module belongs
   ``workflows`` ``core`` and domain ``services``; ``workers`` also ``workflows``. So ``app.main``,
   ``app.scripts`` and unknown ``app.x`` fail from all four.
 * A package or module directly under ``app/`` must be one of the ten domains, ``core``,
-  ``workflows``, ``workers``, ``scripts``, ``main.py``, ``model_registry.py`` or ``__init__.py``
+  ``workflows``, ``workers``, ``scripts``, ``cli``, ``main.py``, ``model_registry.py`` or
+  ``__init__.py``
   (``__pycache__`` and hidden entries starting with ``.`` are ignored).
 * Nothing under ``app/`` imports ``app.model_registry``, ``app/main.py`` included (only
   ``migrations/env.py`` and ``apps/api/tests/`` may). ``main.py`` and ``scripts/`` are exempt
@@ -39,6 +40,11 @@ Rules (architecture §4.2 "Enforcement"), with ``A`` the domain a module belongs
   imports, and ``__import__`` with ``fromlist`` or ``level``; ``APIRouter`` reached through a
   re-export or ``getattr``, and ``add_api_route`` from a module that imports no router; a router
   using ``SessionDep`` with its own ``models``.
+* ``app.cli`` (the operator command line, S-2.1.1) may import its own package, ``app.core``,
+  ``app.<domain>.services`` of any domain (no closure: it is an entry point, like a workflow)
+  and ``app.workflows``; never a domain's models, repository or other submodule, ``app.workers``,
+  ``app.main``, ``app.scripts``, ``app.model_registry`` or an unknown ``app.x``. Nothing else
+  under ``app/`` (``main.py`` and ``scripts/`` included) imports ``app.cli``.
 * The declared graph itself has no cycle, and equals the one documented in architecture §4.2.
 """
 
@@ -71,7 +77,7 @@ DEPENDENCIES: Mapping[str, frozenset[str]] = {
     "leagues": frozenset({"stats", "games"}),
 }
 DOMAINS = frozenset(DEPENDENCIES)
-NON_DOMAIN_PACKAGES = frozenset({"core", "workflows", "workers", "scripts"})
+NON_DOMAIN_PACKAGES = frozenset({"core", "workflows", "workers", "scripts", "cli"})
 TOP_LEVEL_FILES = frozenset({"main.py", "model_registry.py", "__init__.py"})
 SCRIPT_LIKE = frozenset({"main", "scripts"})
 REGISTRY = "app.model_registry"
@@ -334,7 +340,17 @@ def router_modules(app_root: Path, domains: frozenset[str]) -> set[str]:
     return routers
 
 
-def _reasons(
+def _cli_reasons(top: str, target: str, domains: frozenset[str]) -> list[str]:
+    """Why ``app.cli`` may not import ``target``: itself, core, workflows, domain services only."""
+    if top in domains:
+        if target != f"app.{top}.services":
+            return [f"cli may import only app.{top}.services"]
+    elif top not in {"core", "cli", "workflows"}:
+        return [f"cli may import only itself, core, workflows and services, not app.{top}"]
+    return []
+
+
+def _reasons(  # noqa: PLR0911 - one early return per rule keeps the table readable
     owner: str | None,
     top: str | None,
     target: str,
@@ -357,6 +373,8 @@ def _reasons(
                 return [f"only app.{top}.services is public; got a deeper import"]
         elif top not in {owner, "core"}:
             return [f"a domain may import only itself, core and domain services, not app.{top}"]
+    elif owner == "cli":
+        return _cli_reasons(top, target, domains)
     elif owner in {"workflows", "workers"}:
         if top in domains:
             if target != f"app.{top}.services":
@@ -388,6 +406,8 @@ def check_imports(
                 reasons.append(
                     "only migrations/env.py and tests under apps/api/tests may import it"
                 )
+            if _top(target) == "cli" and owner != "cli":
+                reasons.append("only app.cli itself may import app.cli (it is an entry point)")
             if owner not in SCRIPT_LIKE:
                 reasons.extend(_reasons(owner, _top(target), target, domains, closure))
             if router:
@@ -1374,3 +1394,92 @@ def test_another_domain_importing_identity_models_fails_but_identity_services_is
         assert _violations(tmp_path / "ok", {"playgroups/ok.py": ok}) == []
     repo = _violations(tmp_path / "repo", {"playgroups/r.py": "import app.identity.repository"})
     assert [v.imported for v in repo] == ["app.identity.repository"]
+
+
+# --------------------------------------------------------------------------- app.cli (S-2.1.1)
+
+
+def test_cli_may_import_itself_core_workflows_and_any_domain_services(tmp_path: Path) -> None:
+    files = {
+        "cli/__init__.py": "",
+        "cli/commands.py": "",
+        "workflows/__init__.py": "",
+        "cli/__main__.py": (
+            "from app.cli import commands\n"
+            "import app.cli.commands\n"
+            "from . import commands as c2\n"
+            "import app.core.db\n"
+            "from app.workflows import w0\n"
+            "from app.identity import services\n"
+            "from app.games import services as g\n"
+            "import app.leagues.services\n"
+        ),
+        "leagues/services/__init__.py": "",
+    }
+    found = [v for v in _violations(tmp_path, files) if v.path.parts[1] == "cli"]
+    assert found == []
+
+
+def test_cli_importing_domain_models_repository_or_service_submodules_fails(
+    tmp_path: Path,
+) -> None:
+    body = (
+        "import app.identity.models\n"
+        "from app.identity.repository import q\n"
+        "from app.identity.services import users\n"
+        "import app.decks.services.helpers\n"
+    )
+    assert _only(tmp_path, "cli/a.py", body) == [
+        (1, "app.identity.models"),
+        (2, "app.identity.repository"),
+        (3, "app.identity.services.users"),
+        (4, "app.decks.services.helpers"),
+    ]
+
+
+def test_cli_importing_workers_main_scripts_registry_or_unknown_fails(tmp_path: Path) -> None:
+    files = {
+        "workers/__init__.py": "",
+        "workers/w.py": "",
+        "scripts/s.py": "",
+        "main.py": "",
+        "model_registry.py": "",
+        "cli/a.py": (
+            "import app.workers.w\n"
+            "import app.main\n"
+            "import app.scripts.s\n"
+            "import app.model_registry\n"
+            "import app.nope\n"
+        ),
+    }
+    found = [v for v in _violations(tmp_path, files) if v.path.name == "a.py"]
+    assert [v.imported for v in found] == [
+        "app.workers.w",
+        "app.main",
+        "app.scripts.s",
+        "app.model_registry",
+        "app.nope",
+    ]
+
+
+def test_every_other_part_of_app_importing_the_cli_fails(tmp_path: Path) -> None:
+    for owner_file in (
+        "main.py",
+        "scripts/s.py",
+        "core/a.py",
+        "workflows/a.py",
+        "workers/a.py",
+        "decks/services/a.py",
+        "identity/router.py",
+    ):
+        found = _only(tmp_path, owner_file, "import app.cli\nfrom app.cli import commands\n")
+        assert (1, "app.cli") in found, owner_file
+
+
+def test_cli_package_directly_under_app_is_a_known_package(tmp_path: Path) -> None:
+    assert _violations(tmp_path, {"cli/__init__.py": "", "cli/x.py": ""}) == []
+
+
+def test_real_cli_package_if_present_only_imports_allowed_targets() -> None:
+    violations = [v for v in check_imports(APP_ROOT) if v.path.parts[1:2] == ("cli",)]
+    assert violations == []

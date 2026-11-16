@@ -35,6 +35,10 @@ os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 os.environ["REDIS_URL"] = os.environ.get("TEST_REDIS_URL", "").strip() or DEFAULT_TEST_REDIS_URL
 # Forced for the same reason: link assertions must not depend on the shell.
 os.environ["PUBLIC_WEB_URL"] = TEST_PUBLIC_WEB_URL
+# Cheapest legal argon2id parameters (memory >= 8 x parallelism): fast hashing in tests.
+os.environ["ARGON2_TIME_COST"] = "1"
+os.environ["ARGON2_MEMORY_COST"] = "8"
+os.environ["ARGON2_PARALLELISM"] = "1"
 
 if sys.platform == "win32":
     # psycopg's async mode cannot run on the default Proactor loop.

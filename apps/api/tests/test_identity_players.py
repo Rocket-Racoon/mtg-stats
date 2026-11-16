@@ -19,6 +19,7 @@ from app.identity.services import (
     InvalidAvatarColorError,
     InvalidDisplayNameError,
     PlayerInfo,
+    UsernameTakenError,
     create_guest_player,
     create_user_with_player,
     default_avatar_color,
@@ -29,6 +30,7 @@ from app.identity.services import (
 from tests.factories import GuestPlayerFactory, PlayerFactory, UserFactory, create
 from tests.statement_counter import StatementCounter
 
+PASSWORD = "correct horse battery"
 UNIQUE_VIOLATION = "23505"
 CHECK_VIOLATION = "23514"
 
@@ -55,7 +57,7 @@ async def _count(session: AppSession, model: type[Player] | type[User]) -> int:
 
 async def _member(session: AppSession, username: str = "ada", name: str = "Ada") -> PlayerInfo:
     return await create_user_with_player(
-        session, username=username, password_hash="h", display_name=name
+        session, username=username, password=PASSWORD, display_name=name
     )
 
 
@@ -99,10 +101,10 @@ async def test_usernames_differing_only_in_case_are_rejected(db_session: AppSess
 
 async def test_service_rejects_usernames_differing_only_in_case(db_session: AppSession) -> None:
     await _member(db_session, username="Alice")
-    with pytest.raises(IntegrityError) as caught:
-        async with db_session.begin_nested():
-            await _member(db_session, username="alice", name="B")
-    assert _sqlstate(caught.value) == UNIQUE_VIOLATION
+    with pytest.raises(UsernameTakenError):
+        await _member(db_session, username="alice", name="B")
+    assert await _count(db_session, User) == 1
+    assert await _count(db_session, Player) == 1
 
 
 async def test_user_defaults_match_the_spec(db_session: AppSession) -> None:
@@ -111,7 +113,7 @@ async def test_user_defaults_match_the_spec(db_session: AppSession) -> None:
     assert user.email == ""
     assert user.is_site_admin is False
     assert user.is_active is True
-    assert user.password_hash == "h"
+    assert user.password_hash.startswith("$argon2id$")
     assert user.created_at.tzinfo is not None
     assert user.password_changed_at.tzinfo is not None
     assert isinstance(user.id, UUID)
@@ -122,7 +124,7 @@ async def test_create_user_with_player_passes_email_and_admin_flag(db_session: A
     await create_user_with_player(
         db_session,
         username="root",
-        password_hash="h",
+        password=PASSWORD,
         display_name="Root",
         email="r@example.com",
         is_site_admin=True,
@@ -263,7 +265,7 @@ async def test_service_rejects_unknown_avatar_colors(db_session: AppSession, col
         await create_guest_player(db_session, display_name="G", avatar_color=color)
     with pytest.raises(InvalidAvatarColorError):
         await create_user_with_player(
-            db_session, username="u", password_hash="h", display_name="G", avatar_color=color
+            db_session, username="uuu", password=PASSWORD, display_name="G", avatar_color=color
         )
     assert await _count(db_session, Player) == 0
 

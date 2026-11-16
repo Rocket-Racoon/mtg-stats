@@ -24,8 +24,10 @@ from sqlalchemy.pool import NullPool
 
 from app.core import db
 from app.core.auth import InvalidTokenError
+from app.identity import repository
 from app.identity.services import (
     InvalidCredentialsError,
+    InvalidCurrentPasswordError,
     SignInResult,
     change_password,
     create_user_with_player,
@@ -41,6 +43,7 @@ WAIT_SECONDS = 20.0
 USERNAME = "racer"
 OLD = "correct horse battery"  # secrets-check: allow
 NEW = "a brand new passphrase"  # secrets-check: allow
+OTHER_NEW = "another fresh passphrase"  # secrets-check: allow
 IP = "10.1.2.3"
 
 
@@ -86,11 +89,11 @@ async def _waiting_lock_count(engine: AsyncEngine) -> int:
         return int(result.scalar_one())
 
 
-async def _wait_until_blocked(engine: AsyncEngine) -> None:
+async def _wait_until_blocked(engine: AsyncEngine, waiters: int = 1) -> None:
     """Poll until some backend waits on an ungranted lock; fail after the timeout."""
     async with asyncio.timeout(WAIT_SECONDS):
         while True:
-            if await _waiting_lock_count(engine) > 0:
+            if await _waiting_lock_count(engine) >= waiters:
                 return
             await asyncio.sleep(0.05)
 
@@ -142,10 +145,10 @@ async def _refresh(token: str) -> SignInResult | BaseException:
         return result
 
 
-async def _sign_in(password: str) -> SignInResult | BaseException:
+async def _sign_in(password: str, username: str = USERNAME) -> SignInResult | BaseException:
     async with db.get_sessionmaker()() as session:
         try:
-            result = await sign_in(session, username=USERNAME, password=password)
+            result = await sign_in(session, username=username, password=password)
         except InvalidCredentialsError as exc:
             await session.rollback()
             return exc
@@ -153,10 +156,10 @@ async def _sign_in(password: str) -> SignInResult | BaseException:
         return result
 
 
-async def _change(user_id: UUID) -> SignInResult:
+async def _change(user_id: UUID, new: str = NEW) -> SignInResult:
     async with db.get_sessionmaker()() as session:
         result = await change_password(
-            session, user_id=user_id, current_password=OLD, new_password=NEW, ip=IP
+            session, user_id=user_id, current_password=OLD, new_password=new, ip=IP
         )
         await session.commit()
         return result
@@ -305,3 +308,84 @@ async def test_a_refresh_waits_for_an_open_set_password_and_leaves_no_live_token
 
     assert isinstance(outcome, InvalidTokenError)
     assert await _live_hashes(live, user_id) == set()
+
+
+# ------------------------------------------------------------------- no timing oracle on sign-in
+
+
+async def _assert_completes_without_waiting(
+    engine: AsyncEngine, task: "asyncio.Task[Any]"
+) -> SignInResult | BaseException:
+    """Poll the lock table while ``task`` runs: it must finish and never be an ungranted waiter."""
+    async with asyncio.timeout(WAIT_SECONDS):
+        while not task.done():
+            assert await _waiting_lock_count(engine) == 0
+            await asyncio.sleep(0.02)
+    return task.result()
+
+
+@pytest.mark.parametrize("username", [USERNAME, "nobody-here"])
+async def test_a_wrong_password_sign_in_never_waits_for_a_held_user_lock(
+    live: Live, username: str
+) -> None:
+    user_id, _ = await _seed()
+    holder = db.get_sessionmaker()()
+    task: asyncio.Task[SignInResult | BaseException] | None = None
+    try:
+        assert await repository.get_user_for_update(holder, user_id) is not None  # kept open
+        task = asyncio.create_task(_sign_in("wrong password!", username))
+
+        outcome = await _assert_completes_without_waiting(live.engine, task)
+    finally:
+        await holder.rollback()
+        await holder.close()
+        if task is not None and not task.done():
+            task.cancel()
+
+    assert isinstance(outcome, InvalidCredentialsError)
+
+
+# ------------------------------------------------------------------- two concurrent changes
+
+
+async def test_two_concurrent_changes_with_the_same_current_password_let_only_one_win(
+    live: Live,
+) -> None:
+    user_id, _ = await _seed()
+    holder = db.get_sessionmaker()()
+    passwords = (NEW, OTHER_NEW)
+    tasks: list[asyncio.Task[SignInResult]] = []
+    try:
+        assert await repository.get_user_for_update(holder, user_id) is not None
+        tasks = [asyncio.create_task(_change(user_id, new)) for new in passwords]
+        # Both verified the OLD password (it has not changed yet) and now queue on the user lock.
+        await _wait_until_blocked(live.engine, waiters=2)
+        await asyncio.sleep(0.3)
+        assert not any(task.done() for task in tasks)
+        await holder.rollback()
+        outcomes = await asyncio.wait_for(
+            asyncio.gather(*tasks, return_exceptions=True), WAIT_SECONDS
+        )
+    finally:
+        await holder.close()
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+
+    winners = [
+        (new, outcome)
+        for new, outcome in zip(passwords, outcomes, strict=True)
+        if isinstance(outcome, SignInResult)
+    ]
+    losers = [outcome for outcome in outcomes if not isinstance(outcome, SignInResult)]
+    assert len(winners) == 1
+    assert len(losers) == 1
+    assert isinstance(losers[0], InvalidCurrentPasswordError)
+    winning_password, winning_result = winners[0]
+    losing_password = OTHER_NEW if winning_password == NEW else NEW
+    assert await _live_hashes(live, user_id) == {
+        hash_refresh_token(winning_result.refresh_token.token)
+    }
+    assert isinstance(await _sign_in(winning_password), SignInResult)
+    assert isinstance(await _sign_in(losing_password), InvalidCredentialsError)
+    assert isinstance(await _sign_in(OLD), InvalidCredentialsError)

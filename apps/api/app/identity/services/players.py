@@ -1,5 +1,6 @@
 """Player and user creation and lookup. Everything here runs in the caller's session."""
 
+import asyncio
 import unicodedata
 from collections.abc import Collection
 from dataclasses import dataclass
@@ -264,4 +265,4 @@ async def set_password(session: AsyncSession, *, username: str, password: str) -
     user = await repository.get_user_by_username(session, username, for_update=True)
     if user is None:
         raise UserNotFoundError
-    await replace_password(session, user, password)
+    await replace_password(session, user, await asyncio.to_thread(hash_password, password))

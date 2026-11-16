@@ -205,8 +205,9 @@ describe('success', () => {
     await app.fireEvent.press(submit(app));
     const status = await app.screen.findByTestId('change-password-status');
     expect(status).toHaveTextContent('Password changed.');
+    expect(status.props.role).toBe('status');
+    expect(status.props.role).not.toBe('alert');
     expect(status.props.accessibilityRole).not.toBe('alert');
-    expect(status.props.accessibilityRole).toBe('status');
     expect(status.props.accessibilityLiveRegion).toBe('polite');
     expect(announce).toHaveBeenCalledTimes(1);
     expect(announce).toHaveBeenCalledWith('Password changed.');

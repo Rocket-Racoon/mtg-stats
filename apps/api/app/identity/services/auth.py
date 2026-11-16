@@ -90,13 +90,14 @@ async def start_session(session: AsyncSession, *, user_id: UUID) -> SignInResult
     return result
 
 
-async def replace_password(session: AsyncSession, user: User, new_password: str) -> None:
-    """Set a new password hash, stamp ``password_changed_at`` and revoke all refresh tokens.
+async def replace_password(session: AsyncSession, user: User, new_hash: str) -> None:
+    """Store a precomputed password hash, stamp ``password_changed_at``, revoke all refresh tokens.
 
-    The caller must already hold the user's exclusive lock (``get_user_for_update``) so no token
-    issuer can slip a new family past the revocation. Flushes; never commits.
+    The caller hashes off-loop BEFORE locking, and must already hold the user's exclusive lock
+    (``get_user_for_update``) so no token issuer can slip a new family past the revocation.
+    Flushes; never commits.
     """
-    user.password_hash = await asyncio.to_thread(hash_password, new_password)
+    user.password_hash = new_hash
     user.password_changed_at = datetime.now(UTC)
     await revoke_all_refresh_tokens(session, user_id=user.id)
     await session.flush()
@@ -106,27 +107,35 @@ async def sign_in(session: AsyncSession, *, username: str, password: str) -> Sig
     """Check the credentials and issue an access and a refresh token.
 
     Every failure raises :class:`InvalidCredentialsError` with the same message, and an unknown
-    username still runs one argon2 verification against a dummy hash. A successful sign-in with an
+    username still runs one argon2 verification against a dummy hash. Wrong passwords and unknown
+    usernames never take a row lock (no timing difference, no held connection). Only on a match is
+    the user locked ``FOR NO KEY UPDATE`` and re-read: if a concurrent password change replaced the
+    verified hash, or the user was deactivated, the sign-in fails. A successful sign-in with an
     outdated hash stores a new one (flushed, never committed; the caller's session commits).
 
     Raises:
         InvalidCredentialsError: unknown username, wrong password or inactive user.
     """
-    # Exclusive user lock first (before any token work): a concurrent password change waits, and
-    # this sign-in then verifies against the NEW hash. Exclusive rather than shared because the
-    # rehash below writes the row, and two shared holders upgrading would deadlock.
-    user = await repository.get_user_by_username(session, username, for_update=True)
+    user = await repository.get_user_by_username(session, username)
     if user is None:
         dummy = await asyncio.to_thread(_dummy_hash)
         await asyncio.to_thread(verify_password, dummy, password)
         raise InvalidCredentialsError
-    matches = await asyncio.to_thread(verify_password, user.password_hash, password)
+    verified_hash = user.password_hash
+    user_id = user.id
+    matches = await asyncio.to_thread(verify_password, verified_hash, password)
     if not matches or not user.is_active:
         raise InvalidCredentialsError
-    if await asyncio.to_thread(password_needs_rehash, user.password_hash):
-        user.password_hash = await asyncio.to_thread(hash_password, password)
+    new_hash: str | None = None
+    if await asyncio.to_thread(password_needs_rehash, verified_hash):
+        new_hash = await asyncio.to_thread(hash_password, password)  # before locking
+    locked = await repository.get_user_for_update(session, user_id)
+    if locked is None or not locked.is_active or locked.password_hash != verified_hash:
+        raise InvalidCredentialsError
+    if new_hash is not None:
+        locked.password_hash = new_hash
         await session.flush()
-    return await start_session(session, user_id=user.id)
+    return await start_session(session, user_id=locked.id)
 
 
 CLEANUP_GRACE = timedelta(days=7)

@@ -115,10 +115,18 @@ async def revoke_family(session: AsyncSession, family_id: UUID, now: datetime) -
 
 
 async def revoke_user_tokens(session: AsyncSession, user_id: UUID, now: datetime) -> int:
-    """Revoke every unrevoked token of a user; return how many."""
+    """Revoke every unrevoked, unexpired token of a user; return how many.
+
+    Expired rows are skipped (they cannot refresh anyway) so this UPDATE never overlaps the
+    cleanup job's DELETE, which only touches rows expired for over a week.
+    """
     result = await session.execute(
         update(RefreshToken)
-        .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
+        .where(
+            RefreshToken.user_id == user_id,
+            RefreshToken.revoked_at.is_(None),
+            RefreshToken.expires_at > now,
+        )
         .values(revoked_at=now)
         .execution_options(synchronize_session="fetch")
         .returning(RefreshToken.id)

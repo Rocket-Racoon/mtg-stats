@@ -150,11 +150,7 @@ export default function ChangePassword() {
         testID="change-password-submit"
       />
       {status ? (
-        <Text
-          accessibilityRole="status"
-          accessibilityLiveRegion="polite"
-          testID="change-password-status"
-        >
+        <Text role="status" accessibilityLiveRegion="polite" testID="change-password-status">
           {status}
         </Text>
       ) : null}

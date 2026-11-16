@@ -1,6 +1,7 @@
 """Change my password (S-2.1.8 AC1, AC2, AC3 and the decisions recorded on #67)."""
 
 import sys
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock
 from uuid import UUID
@@ -14,7 +15,9 @@ from app.core import rate_limit
 from app.core.db import AppSession
 from app.core.ids import uuid7
 from app.identity.models import User
+from app.identity.services import revoke_all_refresh_tokens
 from tests.auth_support import issue
+from tests.factories import create
 from tests.rate_limit_support import (
     keys_containing,
     keys_under,
@@ -26,6 +29,7 @@ from tests.refresh_support import (
     MOBILE,
     PASSWORD,
     Mode,
+    RefreshTokenFactory,
     bearer,
     deactivate,
     login_request,
@@ -584,6 +588,57 @@ async def test_when_redis_is_down_the_change_succeeds_and_makes_no_extra_redis_c
     assert response.status_code == 200
     reset.assert_not_called()
     give_back.assert_not_called()
+
+
+async def test_a_change_revokes_every_live_token_but_leaves_an_expired_one_untouched(
+    client: httpx.AsyncClient, app_schema: AppSession
+) -> None:
+    user = await make_user(app_schema)
+    sessions = [await sign_in(client, "mobile") for _ in range(2)]
+    expired = await create(
+        app_schema,
+        RefreshTokenFactory,
+        user_id=user.id,
+        expires_at=datetime.now(UTC) - timedelta(days=1),
+        revoked_at=None,
+    )
+    await app_schema.commit()
+    live_before = [r.id for r in await rows(app_schema, user_id=user.id) if r.id != expired.id]
+    assert len(live_before) == 2
+
+    assert (await change(client, sessions[0][0])).status_code == 200
+
+    after = {r.id: r for r in await rows(app_schema, user_id=user.id)}
+    assert after[expired.id].revoked_at is None
+    for token_id in live_before:
+        assert after[token_id].revoked_at is not None
+
+
+async def test_revoke_all_refresh_tokens_counts_only_live_unrevoked_tokens(
+    app_schema: AppSession,
+) -> None:
+    user = await make_user(app_schema)
+    now = datetime.now(UTC)
+    for _ in range(2):
+        await create(
+            app_schema, RefreshTokenFactory, user_id=user.id, expires_at=now + timedelta(days=1)
+        )
+    expired = await create(
+        app_schema, RefreshTokenFactory, user_id=user.id, expires_at=now - timedelta(seconds=1)
+    )
+    await create(
+        app_schema,
+        RefreshTokenFactory,
+        user_id=user.id,
+        expires_at=now + timedelta(days=1),
+        revoked_at=now,
+    )
+
+    revoked = await revoke_all_refresh_tokens(app_schema, user_id=user.id)
+
+    assert revoked == 2
+    after = {r.id: r for r in await rows(app_schema, user_id=user.id)}
+    assert after[expired.id].revoked_at is None
 
 
 # ------------------------------------------------------------------------------ robustness

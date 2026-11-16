@@ -2,6 +2,7 @@
 
 import sys
 from typing import Any
+from unittest.mock import AsyncMock
 from uuid import UUID
 
 import httpx
@@ -9,6 +10,7 @@ import pytest
 from fastapi import FastAPI
 from sqlalchemy import select
 
+from app.core import rate_limit
 from app.core.db import AppSession
 from app.core.ids import uuid7
 from app.identity.models import User
@@ -562,6 +564,26 @@ async def test_counter_keys_are_the_same_as_signin_keys_and_carry_a_ttl(
     async with peek_redis() as redis:
         for key in keys:
             assert 1 <= await redis.ttl(key) <= 900
+
+
+async def test_when_redis_is_down_the_change_succeeds_and_makes_no_extra_redis_calls(
+    client: httpx.AsyncClient, app_schema: AppSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await make_user(app_schema)
+    access, _ = await sign_in(client, "mobile")
+    reset = AsyncMock()
+    give_back = AsyncMock()
+    monkeypatch.setattr(
+        rate_limit, "acquire", AsyncMock(return_value=rate_limit.Allowed(counted=False))
+    )
+    monkeypatch.setattr(rate_limit, "reset", reset)
+    monkeypatch.setattr(rate_limit, "give_back", give_back)
+
+    response = await change(client, access)
+
+    assert response.status_code == 200
+    reset.assert_not_called()
+    give_back.assert_not_called()
 
 
 # ------------------------------------------------------------------------------ robustness

@@ -1,4 +1,4 @@
-import { AccessibilityInfo } from 'react-native';
+import { AccessibilityInfo, TextInput } from 'react-native';
 // S-2.1.8 (phase C, decision 7): the change-password screen on the More tab, through the real route
 // tree with a stubbed fetch and an in-memory expo-secure-store.
 import {
@@ -43,6 +43,21 @@ const submit = (app: App) => {
   const all = app.screen.getAllByRole('button', { name: /^change password$|^changing password/i });
   return all[all.length - 1]!;
 };
+
+/**
+ * Records `focus()` calls on the (jest-mocked) TextInput class and returns the testID of the
+ * input that was focused last, or null when none was focused since the spy was installed.
+ */
+function spyOnFocus() {
+  const spy = jest.spyOn(TextInput.prototype, 'focus').mockImplementation(() => undefined);
+  return {
+    spy,
+    lastFocused: (): string | null => {
+      const contexts = spy.mock.contexts as { props?: { testID?: string } }[];
+      return contexts.at(-1)?.props?.testID ?? null;
+    },
+  };
+}
 
 async function signedInAtMore() {
   const app = await mountApp('/');
@@ -180,6 +195,23 @@ describe('success', () => {
     expect(confirm(app).props.value).toBe('');
   });
 
+  it('shows the success status as a polite status, not an alert, announced exactly once', async () => {
+    const announce = jest
+      .spyOn(AccessibilityInfo, 'announceForAccessibility')
+      .mockImplementation(() => undefined);
+    stubApi({ [CHANGE]: () => tokens(ACCESS_2, REFRESH_2) });
+    const app = await openScreen();
+    await fill(app);
+    await app.fireEvent.press(submit(app));
+    const status = await app.screen.findByTestId('change-password-status');
+    expect(status).toHaveTextContent('Password changed.');
+    expect(status.props.accessibilityRole).not.toBe('alert');
+    expect(status.props.accessibilityRole).toBe('status');
+    expect(status.props.accessibilityLiveRegion).toBe('polite');
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith('Password changed.');
+  });
+
   it('clears the status on the next submit', async () => {
     stubApi({ [CHANGE]: () => tokens(ACCESS_2, REFRESH_2) });
     const app = await openScreen();
@@ -229,6 +261,48 @@ describe('errors', () => {
     expect(api.to(CHANGE)).toHaveLength(1);
     expect(app.screen).toHavePathname('/more/change-password');
     expect(sessionStore().getState().accessToken).toBe(ACCESS_1);
+  });
+
+  it('a 400 moves focus to the current-password field', async () => {
+    const message = 'Current password is incorrect.';
+    stubApi({
+      [CHANGE]: () =>
+        failure(
+          400,
+          'invalid_current_password',
+          message,
+          {},
+          {
+            fields: [{ loc: ['body', 'current_password'], path: 'body.current_password', message }],
+          },
+        ),
+    });
+    const app = await openScreen();
+    await fill(app);
+    const focus = spyOnFocus();
+    await app.fireEvent.press(submit(app));
+    await app.screen.findByText(message);
+    expect(focus.lastFocused()).toBe('change-password-current');
+  });
+
+  it('a 422 on the new password moves focus to the new-password field', async () => {
+    const message = 'Password is too common.';
+    stubApi({
+      [CHANGE]: () =>
+        failure(
+          422,
+          'validation_error',
+          'Invalid.',
+          {},
+          { fields: [{ loc: ['body', 'new_password'], path: 'body.new_password', message }] },
+        ),
+    });
+    const app = await openScreen();
+    await fill(app);
+    const focus = spyOnFocus();
+    await app.fireEvent.press(submit(app));
+    await app.screen.findByText(message);
+    expect(focus.lastFocused()).toBe('change-password-new');
   });
 
   it('a 422 is mapped to the new-password field', async () => {

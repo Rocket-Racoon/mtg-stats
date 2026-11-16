@@ -78,8 +78,11 @@ export default function ChangePassword() {
             const fieldErrors: Errors = {};
             if (mapped.current_password) fieldErrors.current = mapped.current_password;
             if (mapped.new_password) fieldErrors.next = mapped.new_password;
-            if (Object.keys(fieldErrors).length > 0) setErrors(fieldErrors);
-            else setFormError(SOMETHING_WENT_WRONG);
+            if (Object.keys(fieldErrors).length > 0) {
+              setErrors(fieldErrors);
+              if (fieldErrors.current) currentRef.current?.focus();
+              else nextRef.current?.focus();
+            } else setFormError(SOMETHING_WENT_WRONG);
           } else if (isOffline(error) || (error instanceof ApiError && error.status === 429)) {
             setFormError(formErrorMessage(error));
           } else {
@@ -148,7 +151,7 @@ export default function ChangePassword() {
       />
       {status ? (
         <Text
-          accessibilityRole="alert"
+          accessibilityRole="status"
           accessibilityLiveRegion="polite"
           testID="change-password-status"
         >

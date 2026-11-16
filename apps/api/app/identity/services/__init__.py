@@ -24,6 +24,7 @@ from app.identity.services.auth import (
     warm_up_sign_in,
 )
 from app.identity.services.jobs import cleanup_refresh_tokens_job
+from app.identity.services.password_change import change_password
 from app.identity.services.passwords import (
     InvalidPasswordError,
     InvalidUsernameError,
@@ -50,7 +51,7 @@ from app.identity.services.players import (
     normalize_email,
     set_password,
 )
-from app.identity.services.throttle import change_password, throttled_sign_in
+from app.identity.services.throttle import throttled_sign_in
 
 __all__ = [
     "AVATAR_COLORS",

@@ -20,7 +20,7 @@ from app.core.auth import (
     token_response,
 )
 from app.core.db import SessionDep
-from app.core.errors import AuthenticationError
+from app.core.errors import AuthenticationError, ErrorResponse
 from app.core.rate_limit import client_ip
 from app.identity import services
 from app.identity.schemas import ChangePasswordRequest, LoginRequest, MeResponse, RefreshRequest
@@ -65,6 +65,7 @@ async def login(
 @auth_router.post(
     "/change-password",
     summary="Change my password",
+    responses={400: {"model": ErrorResponse, "description": "`invalid_current_password`"}},
     response_model_exclude_none=True,
 )
 async def change_password(

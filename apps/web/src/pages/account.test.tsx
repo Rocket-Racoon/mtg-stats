@@ -2,7 +2,7 @@
 // AppRoot, with a stubbed fetch. AC1 (success rotates the session), AC2 (400 on the current
 // password), AC3 (422 on a bad new password).
 import { StrictMode } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -142,6 +142,15 @@ describe('decision 6: the /account route', () => {
     const links = screen.getAllByRole('link', { name: 'Account' });
     expect(links.length).toBeGreaterThanOrEqual(1);
     for (const link of links) expect(link).toHaveAttribute('href', '/account');
+  });
+
+  it('lists Account as the LAST item of the primary navigation', () => {
+    stubApi();
+    mount('/');
+    const links = within(screen.getByRole('navigation', { name: 'Primary' })).getAllByRole('link');
+    expect(links.at(-1)).toHaveTextContent('Account');
+    expect(links.at(-1)).toHaveAttribute('href', '/account');
+    expect(links.filter((link) => link.textContent === 'Account')).toHaveLength(1);
   });
 
   it('has a Change password section', async () => {
@@ -463,6 +472,17 @@ describe('AC3: server validation (422)', () => {
     expect(router.state.location.pathname).toBe('/account');
     expect(useSessionStore.getState().accessToken).toBe(OLD_ACCESS);
     expect(screen.getAllByText(MESSAGE)).toHaveLength(1);
+  });
+
+  it('moves focus to the new-password field after the server rejects it', async () => {
+    stubApi(() => invalid());
+    const user = userEvent.setup();
+    mount('/account');
+    await ready();
+    await fill(user);
+    await user.click(submit());
+    await screen.findByText(MESSAGE);
+    await waitFor(() => expect(newPassword()).toHaveFocus());
   });
 });
 

@@ -3,7 +3,7 @@
 from collections.abc import Collection
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.identity.models import Player, User
@@ -34,3 +34,11 @@ def add_user(session: AsyncSession, user: User) -> None:
 def add_player(session: AsyncSession, player: Player) -> None:
     """Add a player to the session."""
     session.add(player)
+
+
+async def get_user_by_username(session: AsyncSession, username: str) -> User | None:
+    """Return the user whose username matches case-insensitively, or None."""
+    result = await session.execute(
+        select(User).where(func.lower(User.username) == username.lower())
+    )
+    return result.scalar_one_or_none()

@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     cors_allowed_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=list, validation_alias="CORS_ALLOWED_ORIGINS"
     )
+    argon2_time_cost: int = Field(default=3, ge=1, validation_alias="ARGON2_TIME_COST")
+    argon2_memory_cost: int = Field(default=65536, ge=1, validation_alias="ARGON2_MEMORY_COST")
+    argon2_parallelism: int = Field(default=4, ge=1, validation_alias="ARGON2_PARALLELISM")
 
     @field_validator("database_url")
     @classmethod
@@ -81,6 +84,12 @@ class Settings(BaseSettings):
     @classmethod
     def _check_origins(cls, value: list[str]) -> list[str]:
         return [_normalise_origin(origin) for origin in value]
+
+    @model_validator(mode="after")
+    def _argon2_memory_minimum(self) -> Self:
+        if self.argon2_memory_cost < 8 * self.argon2_parallelism:
+            raise ValueError("ARGON2_MEMORY_COST must be at least 8 x ARGON2_PARALLELISM (KiB)")
+        return self
 
     @model_validator(mode="after")
     def _prod_requires_https_web_url(self) -> Self:

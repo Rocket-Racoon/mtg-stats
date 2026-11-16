@@ -1,10 +1,22 @@
 """Public interface of the ``identity`` domain; other code imports only from here."""
 
 from app.identity.models import AVATAR_COLORS
+from app.identity.services.passwords import (
+    InvalidPasswordError,
+    InvalidUsernameError,
+    hash_password,
+    password_needs_rehash,
+    validate_password,
+    validate_username,
+    verify_password,
+)
 from app.identity.services.players import (
     InvalidAvatarColorError,
     InvalidDisplayNameError,
+    InvalidEmailError,
     PlayerInfo,
+    UsernameTakenError,
+    UserNotFoundError,
     create_guest_player,
     create_user_with_player,
     default_avatar_color,
@@ -12,18 +24,32 @@ from app.identity.services.players import (
     get_player_for_user,
     get_players,
     normalize_display_name,
+    normalize_email,
+    set_password,
 )
 
 __all__ = [
     "AVATAR_COLORS",
     "InvalidAvatarColorError",
     "InvalidDisplayNameError",
+    "InvalidEmailError",
+    "InvalidPasswordError",
+    "InvalidUsernameError",
     "PlayerInfo",
+    "UserNotFoundError",
+    "UsernameTakenError",
     "create_guest_player",
     "create_user_with_player",
     "default_avatar_color",
     "get_player",
     "get_player_for_user",
     "get_players",
+    "hash_password",
     "normalize_display_name",
+    "normalize_email",
+    "password_needs_rehash",
+    "set_password",
+    "validate_password",
+    "validate_username",
+    "verify_password",
 ]

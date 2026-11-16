@@ -3,15 +3,20 @@
 import unicodedata
 from collections.abc import Collection
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import DomainError
 from app.core.ids import uuid7
 from app.identity import repository
 from app.identity.models import AVATAR_COLORS, DISPLAY_NAME_MAX_LENGTH, Player, User
+from app.identity.services.passwords import hash_password, validate_password, validate_username
+
+EMAIL_MAX_LENGTH = 320
+"""Length of the ``users.email`` column."""
 
 _FORBIDDEN_CATEGORIES = frozenset({"Cc", "Cs"})
 """Unicode categories a display name may not contain: control characters and lone surrogates."""
@@ -24,6 +29,30 @@ class InvalidDisplayNameError(DomainError, ValueError):
     code = "invalid_display_name"
     status_code = 422
     default_message = "Display name must be 1 to 32 characters, with no control characters."
+
+
+class InvalidEmailError(DomainError, ValueError):
+    """The email is longer than 320 characters or has a control character or lone surrogate."""
+
+    code = "invalid_email"
+    status_code = 422
+    default_message = "Email must be at most 320 characters."
+
+
+class UsernameTakenError(DomainError):
+    """A user with this username (compared case-insensitively) already exists."""
+
+    code = "username_taken"
+    status_code = 409
+    default_message = "Username already taken."
+
+
+class UserNotFoundError(DomainError):
+    """No user has this username."""
+
+    code = "user_not_found"
+    status_code = 404
+    default_message = "User not found."
 
 
 class InvalidAvatarColorError(DomainError, ValueError):
@@ -85,6 +114,33 @@ def normalize_display_name(value: str) -> str:
     return name
 
 
+def normalize_email(value: str) -> str:
+    """Trim an email and check it fits the column (320 characters, no control characters).
+
+    An empty email stays empty. Control characters and lone surrogates are rejected for the same
+    reason as in display names (Postgres can't store NUL, psycopg can't encode surrogates).
+
+    Raises:
+        InvalidEmailError: if the trimmed email is too long or has a forbidden character.
+    """
+    email = value.strip()
+    if len(email) > EMAIL_MAX_LENGTH or any(
+        unicodedata.category(char) in _FORBIDDEN_CATEGORIES for char in email
+    ):
+        raise InvalidEmailError(details={"max_length": EMAIL_MAX_LENGTH})
+    return email
+
+
+def _is_username_race(exc: IntegrityError) -> bool:
+    """True if the error is a unique violation on the case-insensitive username index."""
+    orig = exc.orig
+    diag = getattr(orig, "diag", None)
+    return (
+        getattr(orig, "sqlstate", None) == "23505"
+        and getattr(diag, "constraint_name", None) == "uq_users_username_lower"
+    )
+
+
 def _resolve_color(player_id: UUID, avatar_color: str | None) -> str:
     if avatar_color is None:
         return default_avatar_color(player_id)
@@ -136,24 +192,46 @@ async def create_user_with_player(
     session: AsyncSession,
     *,
     username: str,
-    password_hash: str,
+    password: str,
     display_name: str,
     email: str = "",
     is_site_admin: bool = False,
     avatar_color: str | None = None,
 ) -> PlayerInfo:
-    """Create a user and its one player in the caller's session. Flushes; the caller commits."""
+    """Create a user and its one player in the caller's session. Flushes; the caller commits.
+
+    Validates the username, password and display name (in that order) before writing, then hashes
+    the password. The password is never logged or put in an error.
+
+    Raises:
+        InvalidUsernameError: if the username breaks the rules.
+        InvalidPasswordError: if the password breaks the rules.
+        InvalidDisplayNameError: if the display name breaks the rules.
+        InvalidEmailError: if the email is too long or has a control character.
+        UsernameTakenError: if the username exists, by pre-check or by losing a race.
+    """
+    validate_username(username)
+    validate_password(password)
     name = normalize_display_name(display_name)
+    normalized_email = normalize_email(email)
     player_id = uuid7()
     color = _resolve_color(player_id, avatar_color)
+    if await repository.get_user_by_username(session, username) is not None:
+        raise UsernameTakenError
     user = User(
         username=username,
-        email=email,
-        password_hash=password_hash,
+        email=normalized_email,
+        password_hash=hash_password(password),
         is_site_admin=is_site_admin,
     )
-    repository.add_user(session, user)
-    await session.flush()
+    try:
+        async with session.begin_nested():
+            repository.add_user(session, user)
+            await session.flush()
+    except IntegrityError as exc:
+        if _is_username_race(exc):
+            raise UsernameTakenError from None
+        raise
     player = Player(
         id=player_id,
         user_id=user.id,
@@ -164,3 +242,20 @@ async def create_user_with_player(
     repository.add_player(session, player)
     await session.flush()
     return _to_info(player)
+
+
+async def set_password(session: AsyncSession, *, username: str, password: str) -> None:
+    """Replace a user's password hash and stamp ``password_changed_at``. Flushes; never commits.
+
+    Raises:
+        InvalidPasswordError: if the password breaks the rules.
+        UserNotFoundError: if no user has this username (case-insensitive).
+    """
+    validate_password(password)
+    user = await repository.get_user_by_username(session, username)
+    if user is None:
+        raise UserNotFoundError
+    user.password_hash = hash_password(password)
+    user.password_changed_at = datetime.now(UTC)
+    # S-2.1.5 (#64) adds the refresh-token table; revoke all of this user's tokens here then.
+    await session.flush()

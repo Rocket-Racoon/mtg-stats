@@ -5,7 +5,7 @@ How to add a domain package (S-1.4.6). The worked example is `apps/api/app/syste
 the layering is §3. `tests/architecture/test_domain_imports.py` enforces both.
 
 A domain `<name>` is one of `system`, `identity`, `playgroups`, `cards`, `decks`, `brackets`,
-`games`, `stats`, `collection`, `leagues`. `core`, `workflows`, `workers` and `scripts` are
+`games`, `stats`, `collection`, `leagues`. `core`, `workflows`, `workers`, `cli` and `scripts` are
 **not** domains and don't follow this layout.
 
 ## Files
@@ -52,9 +52,11 @@ app/<name>/
   allowlist is their own package, `app.core`, domain `services` and, for `workers/`, also
   `workflows/`; `app.main`, `app.scripts` and any other `app.x` are out. `workflows/` never
   imports `workers/`.
+- `cli/` (the operator entry point, `python -m app.cli`) follows the `workers/` rule: only domain
+  `services`, `app.core`, `app.workflows` and itself. Nothing imports it.
 - `core/` imports only itself: no domain, `workflows`, `workers`, `main`, `scripts` or other `app.x`.
 - A package or module directly under `app/` must be one of: the ten domains, `core`, `workflows`,
-  `workers`, `scripts`, `main.py`, `model_registry.py` or `__init__.py` (so no stray
+  `workers`, `cli`, `scripts`, `main.py`, `model_registry.py` or `__init__.py` (so no stray
   `app/helpers.py`; `__pycache__` and hidden entries are ignored).
 - If a story needs an upward call, §4.3 lists the five mechanisms. A new case needs a row there
   before any code.

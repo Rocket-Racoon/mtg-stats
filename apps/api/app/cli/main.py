@@ -1,4 +1,4 @@
-"""Argument parsing and the ``create-admin`` and ``set-password`` commands (S-2.1.1).
+"""Argument parsing and the operator commands (S-2.1.1, S-2.1.11).
 
 The password only ever comes from a hidden prompt: there is no option or environment variable
 for it, so it never reaches the shell history, ``argv`` or the logs.
@@ -23,6 +23,7 @@ from app.identity.services import (
     create_user_with_player,
     normalize_display_name,
     set_password,
+    set_site_admin,
     validate_password,
     validate_username,
 )
@@ -50,6 +51,12 @@ def _build_parser() -> argparse.ArgumentParser:
     create.add_argument("--email", default="")
     setpw = sub.add_parser("set-password", help="replace a user's password")
     setpw.add_argument("--username", required=True)
+    for name, text in (
+        ("grant-site-admin", "make a user a site administrator"),
+        ("revoke-site-admin", "remove a user's site administrator role"),
+    ):
+        role = sub.add_parser(name, help=text)
+        role.add_argument("--username", required=True)
     return parser
 
 
@@ -122,6 +129,28 @@ async def _set_password(
     print(f"Password updated for {username}.", file=out)
 
 
+async def _site_admin(
+    args: argparse.Namespace, factory: SessionFactory, out: TextIO, *, value: bool
+) -> None:
+    async with factory() as session:
+        try:
+            change = await set_site_admin(session, username=args.username, value=value)
+            await session.commit()
+        except BaseException:
+            await session.rollback()
+            raise
+    logger.info(
+        "identity.site_admin_changed username=%s user_id=%s old=%s new=%s at=%s",
+        change.username,
+        change.user_id,
+        change.old,
+        change.new,
+        change.at.isoformat(),
+    )
+    verb = "is now" if value else "is no longer"
+    print(f"{change.username} {verb} a site admin.", file=out)
+
+
 async def run(
     argv: Sequence[str],
     *,
@@ -144,6 +173,8 @@ async def run(
     try:
         if args.command == "create-admin":
             await _create_admin(args, factory, ask, out, interactive=_require_terminal(prompt))
+        elif args.command in ("grant-site-admin", "revoke-site-admin"):
+            await _site_admin(args, factory, out, value=args.command == "grant-site-admin")
         else:
             await _set_password(args, factory, ask, out, interactive=_require_terminal(prompt))
     except _NoTerminalError:

@@ -1,5 +1,7 @@
 """API shapes of the ``identity`` domain."""
 
+from uuid import UUID
+
 from pydantic import BaseModel, Field
 
 
@@ -18,3 +20,13 @@ class RefreshRequest(BaseModel):
         max_length=4096,
         description="Mobile clients only. Web clients send the cookie; a body token is ignored.",
     )
+
+
+class MeResponse(BaseModel):
+    """The signed-in user. ``is_site_admin`` is for showing or hiding UI only; the server
+    re-checks the role on every protected request."""
+
+    id: UUID
+    username: str
+    display_name: str
+    is_site_admin: bool

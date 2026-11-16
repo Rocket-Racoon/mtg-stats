@@ -1,11 +1,13 @@
 """Refresh-token storage, daily cleanup and password-change revocation (S-2.1.5 AC5 and more)."""
 
 import hashlib
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 from sqlalchemy import inspect, select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.core.config import get_settings
 from app.core.db import AppSession
@@ -17,6 +19,8 @@ from app.identity.services import (
     revoke_all_refresh_tokens,
     set_password,
 )
+from app.identity.services import jobs as jobs_module
+from app.identity.services.jobs import cleanup_refresh_tokens_job
 from app.workers.registry import JOBS
 from app.workers.schedule import SCHEDULES, build_cron_jobs
 from tests.factories import UserFactory, create
@@ -247,6 +251,40 @@ async def test_deleting_a_user_cascades_to_their_refresh_tokens(app_schema: AppS
 # ------------------------------------------------------------------------------ job
 
 
+async def test_the_cleanup_job_entry_point_deletes_old_rows_commits_and_logs_the_count(
+    app_schema: AppSession, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    user = await create(app_schema, UserFactory)
+    now = datetime.now(UTC)
+    old = await create(
+        app_schema, RefreshTokenFactory, user_id=user.id, expires_at=now - timedelta(days=8)
+    )
+    recent = await create(
+        app_schema, RefreshTokenFactory, user_id=user.id, expires_at=now - timedelta(days=6)
+    )
+    live = await create(
+        app_schema, RefreshTokenFactory, user_id=user.id, expires_at=now + timedelta(days=1)
+    )
+    old_id, recent_id, live_id = old.id, recent.id, live.id
+    connection = await app_schema.connection()
+    factory = async_sessionmaker(
+        connection,
+        class_=AppSession,
+        join_transaction_mode="create_savepoint",
+        expire_on_commit=False,
+    )
+    monkeypatch.setattr(jobs_module, "get_sessionmaker", lambda: factory)
+
+    with caplog.at_level(logging.INFO, logger=jobs_module.logger.name):
+        deleted = await cleanup_refresh_tokens_job({})
+
+    assert deleted == 1
+    remaining = await _row_ids(app_schema)
+    assert remaining == {recent_id, live_id}
+    assert old_id not in remaining
+    assert any("deleted 1 expired refresh token" in r.getMessage() for r in caplog.records)
+
+
 def test_the_cleanup_job_is_registered_under_its_canonical_name() -> None:
     assert JOB in JOBS
     assert JOBS[JOB].fn is services.cleanup_refresh_tokens_job
@@ -262,8 +300,8 @@ def test_the_cleanup_job_runs_once_a_day_on_the_utc_clock() -> None:
         assert len(value) == 1
         return int(next(iter(value)))
 
-    assert 0 <= one(schedule.hour) <= 23
-    assert 0 <= one(schedule.minute) <= 59
+    assert one(schedule.hour) == 4
+    assert one(schedule.minute) == 15
     assert schedule.day is None
     assert schedule.weekday is None
     assert schedule.month is None

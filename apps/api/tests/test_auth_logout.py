@@ -57,6 +57,18 @@ async def test_a_logged_out_token_can_no_longer_refresh(
     assert response.json()["error"]["code"] == "invalid_token"
 
 
+async def test_mobile_logout_and_logout_all_send_no_set_cookie(
+    client: httpx.AsyncClient, app_schema: AppSession
+) -> None:
+    await make_user(app_schema)
+    access, token = await sign_in(client, "mobile")
+    logout = await post_logout(client, "mobile", token)
+    logout_all = await client.post(LOGOUT_ALL, headers={**bearer(access), **MOBILE})
+    assert (logout.status_code, logout_all.status_code) == (204, 204)
+    assert logout.headers.get_list("set-cookie") == []
+    assert logout_all.headers.get_list("set-cookie") == []
+
+
 async def test_web_logout_clears_the_cookie(
     client: httpx.AsyncClient, app_schema: AppSession
 ) -> None:

@@ -67,6 +67,8 @@ def test_upgrade_creates_refresh_tokens_with_unique_hash_foreign_keys_and_indexe
     assert fks[(("replaced_by",), "refresh_tokens")].get("ondelete") == "SET NULL"
     assert any("(user_id)" in d for d in indexes)
     assert any("(family_id)" in d for d in indexes)
+    assert any("ix_refresh_tokens_expires_at" in d and "(expires_at)" in d for d in indexes)
+    assert any("ix_refresh_tokens_replaced_by" in d and "(replaced_by)" in d for d in indexes)
 
 
 def test_downgrade_removes_refresh_tokens_and_keeps_the_identity_tables(
@@ -83,6 +85,29 @@ def test_downgrade_removes_refresh_tokens_and_keeps_the_identity_tables(
             engine.dispose()
     assert "refresh_tokens" not in tables
     assert {"users", "players"} <= tables
+
+
+def test_the_cleanup_indexes_exist_after_upgrade_and_are_gone_after_downgrade(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    names = {"ix_refresh_tokens_expires_at", "ix_refresh_tokens_replaced_by"}
+    with temporary_database(monkeypatch) as url:
+        config = alembic_config()
+        command.upgrade(config, "head")
+        engine = create_engine(url)
+        try:
+            after_upgrade = {i["name"] for i in inspect(engine).get_indexes("refresh_tokens")}
+            command.downgrade(config, _parent())
+            remaining = {
+                row[0]
+                for row in engine.connect().execute(
+                    text("SELECT indexname FROM pg_indexes WHERE indexname LIKE 'ix_refresh_%'")
+                )
+            }
+        finally:
+            engine.dispose()
+    assert names <= after_upgrade
+    assert not names & remaining
 
 
 def test_the_migration_can_be_applied_again_after_a_downgrade(

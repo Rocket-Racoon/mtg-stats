@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async
 from sqlalchemy.pool import NullPool
 
 from app.core.db import AppSession, get_session
+from app.core.errors import DomainError
 from tests.db_policy import must_fail_when_db_unreachable, resolve_test_database_url
 from tests.jobs import JobQueue, delete_queue_keys
 from tests.sample_models import SampleBase
@@ -123,7 +124,7 @@ async def api_app(db_session: AppSession) -> AsyncIterator[FastAPI]:
             yield db_session
             await db_session.commit()
         except BaseException as exc:
-            if getattr(exc, "persist_changes", False):
+            if isinstance(exc, DomainError) and exc.persist_changes:
                 await db_session.commit()
             else:
                 await db_session.rollback()

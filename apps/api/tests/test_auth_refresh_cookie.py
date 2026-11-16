@@ -5,6 +5,8 @@ import pytest
 
 from app.core.config import get_settings
 from app.core.db import AppSession
+from tests.auth_support import REFRESH as REFRESH_TOKEN_TYPE
+from tests.auth_support import issue
 from tests.refresh_support import (
     COOKIE_NAME,
     COOKIE_PATH,
@@ -16,11 +18,13 @@ from tests.refresh_support import (
     cookie_attributes,
     cookie_header,
     cookie_value,
+    deactivate,
     decode,
     login_request,
     make_user,
     post_refresh,
     row_for,
+    rows,
     set_cookies,
     sign_in,
 )
@@ -91,7 +95,7 @@ async def test_web_refresh_sets_a_new_hardened_cookie_and_keeps_the_token_out_of
     assert new != old
     assert decode(new)["type"] == "refresh"
     assert new not in response.text
-    assert response.json().get("refresh_token") is None
+    assert "refresh_token" not in response.json()
     assert (await row_for(app_schema, new)).revoked_at is None
 
 
@@ -116,6 +120,63 @@ async def test_a_web_401_clears_the_cookie(
     reused = await post_refresh(client, "web", token)
     assert reused.status_code == 401
     assert_cookie_cleared(reused)
+
+
+def _assert_web_401_envelope(response: httpx.Response) -> None:
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == 'Bearer error="invalid_token"'
+    error = response.json()["error"]
+    assert error["code"] == "invalid_token"
+    assert error["request_id"]
+    assert_cookie_cleared(response)
+
+
+async def test_web_reuse_401_clears_the_cookie_keeps_the_envelope_and_persists_the_revocation(
+    client: httpx.AsyncClient, app_schema: AppSession
+) -> None:
+    await make_user(app_schema)
+    _, token = await sign_in(client, "web")
+    await post_refresh(client, "web", token)
+
+    response = await post_refresh(client, "web", token)
+
+    _assert_web_401_envelope(response)
+    assert all(r.revoked_at is not None for r in await rows(app_schema))
+
+
+async def test_web_inactive_user_401_clears_the_cookie_and_persists_the_revocation(
+    client: httpx.AsyncClient, app_schema: AppSession
+) -> None:
+    user = await make_user(app_schema)
+    _, token = await sign_in(client, "web")
+    await deactivate(app_schema, user)
+
+    response = await post_refresh(client, "web", token)
+
+    _assert_web_401_envelope(response)
+    assert (await row_for(app_schema, token)).revoked_at is not None
+
+
+async def test_web_invalid_token_401_clears_the_cookie_and_commits_nothing(
+    client: httpx.AsyncClient, app_schema: AppSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user = await make_user(app_schema)
+    _, real = await sign_in(client, "web")
+    commits: list[int] = []
+    original = app_schema.commit
+
+    async def spy() -> None:
+        commits.append(1)
+        await original()
+
+    monkeypatch.setattr(app_schema, "commit", spy)
+
+    response = await post_refresh(client, "web", issue(user.id, REFRESH_TOKEN_TYPE))
+
+    _assert_web_401_envelope(response)
+    assert commits == []
+    assert all(r.revoked_at is None for r in await rows(app_schema))
+    assert (await row_for(app_schema, real)).revoked_at is None
 
 
 @pytest.mark.parametrize("token", ["garbage", None])

@@ -254,6 +254,7 @@ async def rate_limit_prefix() -> AsyncIterator[str]:
     """
     from redis.asyncio import Redis  # noqa: PLC0415
     from redis.exceptions import ConnectionError as RedisConnectionError  # noqa: PLC0415
+    from redis.exceptions import TimeoutError as RedisTimeoutError  # noqa: PLC0415
 
     from app.core.config import get_settings  # noqa: PLC0415
     from app.core.redis import close_redis  # noqa: PLC0415
@@ -277,7 +278,7 @@ async def rate_limit_prefix() -> AsyncIterator[str]:
                             if keys:
                                 await cleaner.delete(*keys)
                             left = [k async for k in cleaner.scan_iter(f"{prefix}*", count=500)]
-                    except (RedisConnectionError, OSError, TimeoutError):
+                    except (RedisConnectionError, RedisTimeoutError, OSError, TimeoutError):
                         _REDIS_UNREACHABLE.append(True)
                     else:
                         if left:

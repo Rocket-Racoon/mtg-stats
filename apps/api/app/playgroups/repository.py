@@ -24,7 +24,7 @@ async def get_invite_by_hash(
     """Return the invite with this token hash, or None; optionally ``SELECT ... FOR UPDATE``."""
     stmt = select(Invite).where(Invite.token_hash == token_hash)
     if for_update:
-        stmt = stmt.with_for_update()
+        stmt = stmt.with_for_update().execution_options(populate_existing=True)
     return (await session.execute(stmt)).scalar_one_or_none()
 
 

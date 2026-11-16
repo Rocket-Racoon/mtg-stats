@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, ForeignKey, String
+from sqlalchemy import CheckConstraint, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base, IdMixin, UtcDateTime, _utcnow
@@ -18,10 +18,12 @@ class Invite(IdMixin, Base):
     __table_args__ = (
         CheckConstraint(f"max_uses BETWEEN 1 AND {INVITE_MAX_USES_LIMIT}", name="max_uses_range"),
         CheckConstraint("use_count >= 0 AND use_count <= max_uses", name="use_count_valid"),
+        # Serves the keyset list; its leading column also covers FK lookups and cascades.
+        Index("ix_invites_created_by_created_at_id", "created_by", "created_at", "id"),
     )
 
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
-    created_by: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_by: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     expires_at: Mapped[datetime] = mapped_column(UtcDateTime)
     max_uses: Mapped[int]
     use_count: Mapped[int] = mapped_column(default=0)

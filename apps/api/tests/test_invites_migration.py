@@ -23,20 +23,20 @@ INSERT_INVITE = text(
 
 
 def _invites_revision() -> str:
+    """This story's revision: the one child of the refresh-tokens revision."""
     script = ScriptDirectory.from_config(alembic_config())
     children = [r for r in script.walk_revisions() if r.down_revision == PARENT_REVISION]
     if len(children) != 1:
         pytest.fail(f"expected one revision after {PARENT_REVISION}, found {len(children)}")
-    assert script.get_heads() == [children[0].revision]
     return children[0].revision
 
 
 def test_upgrade_creates_invites_with_the_documented_columns_and_constraints(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _invites_revision()
+    revision = _invites_revision()
     with temporary_database(monkeypatch) as url:
-        command.upgrade(alembic_config(), "head")
+        command.upgrade(alembic_config(), revision)
         engine = create_engine(url)
         try:
             insp = inspect(engine)
@@ -72,15 +72,18 @@ def test_upgrade_creates_invites_with_the_documented_columns_and_constraints(
     assert columns["revoked_at"]["nullable"] is True
     assert ["token_hash"] in uniques or any("UNIQUE" in d and "(token_hash)" in d for d in indexes)
     assert fks[(("created_by",), "users")].get("ondelete") == "CASCADE"
-    assert any("(created_by)" in d for d in indexes)
+    composite = [d for d in indexes if "ix_invites_created_by_created_at_id" in d]
+    assert len(composite) == 1
+    assert "(created_by, created_at, id)" in composite[0]
     assert {"ck_invites_max_uses_range", "ck_invites_use_count_valid"} <= checks
 
 
 def test_the_check_constraints_reject_bad_rows_and_the_unique_hash_rejects_duplicates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    revision = _invites_revision()
     with temporary_database(monkeypatch) as url:
-        command.upgrade(alembic_config(), "head")
+        command.upgrade(alembic_config(), revision)
         engine = create_engine(url)
         try:
             with engine.begin() as conn:
@@ -111,8 +114,9 @@ def test_the_check_constraints_reject_bad_rows_and_the_unique_hash_rejects_dupli
 def test_deleting_the_creator_cascades_to_their_invites(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    revision = _invites_revision()
     with temporary_database(monkeypatch) as url:
-        command.upgrade(alembic_config(), "head")
+        command.upgrade(alembic_config(), revision)
         engine = create_engine(url)
         try:
             with engine.begin() as conn:
@@ -128,10 +132,10 @@ def test_deleting_the_creator_cascades_to_their_invites(
 def test_downgrade_removes_invites_and_keeps_the_earlier_tables(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _invites_revision()
+    revision = _invites_revision()
     with temporary_database(monkeypatch) as url:
         config = alembic_config()
-        command.upgrade(config, "head")
+        command.upgrade(config, revision)
         command.downgrade(config, PARENT_REVISION)
         engine = create_engine(url)
         try:
@@ -145,11 +149,12 @@ def test_downgrade_removes_invites_and_keeps_the_earlier_tables(
 def test_the_migration_can_be_applied_again_after_a_downgrade(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    revision = _invites_revision()
     with temporary_database(monkeypatch) as url:
         config = alembic_config()
-        command.upgrade(config, "head")
+        command.upgrade(config, revision)
         command.downgrade(config, PARENT_REVISION)
-        command.upgrade(config, "head")
+        command.upgrade(config, revision)
         engine = create_engine(url)
         try:
             tables = set(inspect(engine).get_table_names())

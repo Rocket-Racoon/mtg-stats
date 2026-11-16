@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import DomainError, NotFoundError
 from app.core.links import public_link
-from app.core.paging import PageParams, Sort, SortKey, paginate
+from app.core.paging import PageParams, created_at_desc, paginate
 from app.playgroups import repository
 from app.playgroups.models import Invite
 
@@ -119,9 +119,8 @@ async def create_invite(
 
 async def list_invites(session: AsyncSession, *, user_id: UUID, params: PageParams) -> InvitePage:
     """The caller's own invites, newest first, as a keyset page."""
-    sort = Sort((SortKey(Invite.created_at, descending=True), SortKey(Invite.id, descending=True)))
     rows, next_cursor = await paginate(
-        session, repository.invites_created_by(user_id), sort, params
+        session, repository.invites_created_by(user_id), created_at_desc(Invite), params
     )
     now = datetime.now(UTC)
     return InvitePage(items=[_info(row, now) for row in rows], next_cursor=next_cursor)

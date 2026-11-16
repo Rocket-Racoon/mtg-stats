@@ -13,7 +13,8 @@ from sqlalchemy import update
 from app.core.db import AppSession
 from app.playgroups.models import Invite
 from app.playgroups.services import InviteNoLongerValidError, lock_invite, validate_invite
-from tests.invite_support import create_via_api, make_account, token_from_url
+from app.playgroups.services.invites import invite_status
+from tests.invite_support import InviteFactory, create_via_api, make_account, token_from_url
 from tests.statement_counter import StatementCounter
 
 pytestmark = pytest.mark.usefixtures("app_schema")
@@ -160,3 +161,52 @@ async def test_revoking_through_the_route_makes_the_token_invalid(
 
     with pytest.raises(InviteNoLongerValidError):
         await validate_invite(app_schema, token)
+
+
+# ------------------------------------------------------------------------------ status rules
+
+T = datetime(2026, 11, 16, 12, 0, 0, tzinfo=UTC)
+
+
+def test_an_invite_expiring_exactly_at_now_is_expired() -> None:
+    invite = InviteFactory.build(expires_at=T)
+    assert invite_status(invite, now=T) == "expired"
+
+
+def test_an_invite_expiring_one_microsecond_after_now_is_active() -> None:
+    invite = InviteFactory.build(expires_at=T + timedelta(microseconds=1))
+    assert invite_status(invite, now=T) == "active"
+
+
+def test_status_precedence_is_revoked_then_used_then_expired() -> None:
+    past = T - timedelta(days=1)
+    revoked_used_expired = InviteFactory.build(revoked_at=past, use_count=1, expires_at=past)
+    revoked_expired = InviteFactory.build(revoked_at=past, expires_at=past)
+    used_expired = InviteFactory.build(use_count=1, expires_at=past)
+    assert invite_status(revoked_used_expired, now=T) == "revoked"
+    assert invite_status(revoked_expired, now=T) == "revoked"
+    assert invite_status(used_expired, now=T) == "used"
+
+
+# ------------------------------------------------------------------------------ lock freshness
+
+
+@pytest.mark.parametrize("change", ["revoked", "used_up"])
+async def test_lock_invite_sees_a_row_changed_underneath_a_session_that_already_loaded_it(
+    client: httpx.AsyncClient, app_schema: AppSession, change: str
+) -> None:
+    token, invite_id = await _invite(client, app_schema)
+    await validate_invite(app_schema, token)  # loads the Invite into the identity map
+    loaded = await app_schema.get(Invite, invite_id)  # strong ref: the identity map is weak
+    assert loaded is not None
+    values = {"revoked_at": datetime.now(UTC)} if change == "revoked" else {"use_count": 1}
+
+    await app_schema.execute(
+        update(Invite)
+        .where(Invite.id == invite_id)
+        .values(**values)
+        .execution_options(synchronize_session=False)
+    )
+
+    with pytest.raises(InviteNoLongerValidError):
+        await lock_invite(app_schema, token)

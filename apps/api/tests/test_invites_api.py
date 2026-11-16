@@ -288,6 +288,13 @@ async def test_each_state_is_reported_with_its_status(
     revoked_and_used = await make_invite(
         app_schema, user_id, revoked_at=now, use_count=1, created_at=now - 2 * day
     )
+    revoked_and_expired = await make_invite(
+        app_schema,
+        user_id,
+        revoked_at=now - day,
+        expires_at=now - day,
+        created_at=now - 2 * day + timedelta(hours=1),
+    )
     used_and_expired = await make_invite(
         app_schema, user_id, use_count=1, expires_at=now - day, created_at=now - day
     )
@@ -299,6 +306,7 @@ async def test_each_state_is_reported_with_its_status(
     assert items[str(expired)]["status"] == "expired"
     assert items[str(revoked)]["status"] == "revoked"
     assert items[str(revoked_and_used)]["status"] == "revoked"
+    assert items[str(revoked_and_expired)]["status"] == "revoked"
     assert items[str(used_and_expired)]["status"] == "used"
     assert items[str(revoked)]["revoked_at"] is not None
     assert items[str(active)]["revoked_at"] is None

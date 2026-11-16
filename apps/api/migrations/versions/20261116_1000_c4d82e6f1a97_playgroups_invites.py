@@ -43,9 +43,14 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id", name=op.f("pk_invites")),
         sa.UniqueConstraint("token_hash", name=op.f("uq_invites_token_hash")),
     )
-    op.create_index(op.f("ix_invites_created_by"), "invites", ["created_by"], unique=False)
+    op.create_index(
+        "ix_invites_created_by_created_at_id",
+        "invites",
+        ["created_by", "created_at", "id"],
+        unique=False,
+    )
 
 
 def downgrade() -> None:
-    op.drop_index(op.f("ix_invites_created_by"), table_name="invites")
+    op.drop_index("ix_invites_created_by_created_at_id", table_name="invites")
     op.drop_table("invites")

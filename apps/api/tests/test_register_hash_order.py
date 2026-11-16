@@ -43,7 +43,7 @@ async def test_the_password_is_hashed_in_a_thread_before_the_invite_is_locked(
     body = registration.RegisterRequest(
         invite_token=token, username="ordered", password=PASSWORD, display_name="Ordered"
     )
-    await registration.register(app_schema, body)
+    await registration.run_registration(app_schema, body)
 
     assert "lock_invite" in events
     assert events.index("to_thread:spy_hash") < events.index("lock_invite")

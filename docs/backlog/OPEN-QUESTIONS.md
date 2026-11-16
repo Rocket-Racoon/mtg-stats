@@ -18,6 +18,7 @@ Status: `open` · `answered` (with the decision recorded). Answers are also copi
 | A10, A13 | Approved: **expo-secure-store** and **react-native-svg** |
 | A11, A12, A14, A15 | Approved: **ijson**, **pg_trgm + unaccent**, **qrcode** (SVG drawn on the server), **redis-py** |
 | A16 | Mobile charts use **victory-native** (this adds @shopify/react-native-skia) |
+| — | Approved 2026-11-16 (S-1.7.3): **expo-splash-screen** (Expo SDK module) keeps the splash up while the session is `restoring`. |
 | B1 | Primary keys are **UUID v7** |
 | B3, C1 | Login is by **username**, and email is optional. Access tokens last 15 minutes and refresh tokens 30 days; on web the refresh token is kept in an HttpOnly cookie. |
 | C2, C3 | Anyone can create a playgroup and becomes its owner. Only the owner and admins can invite. Admins can reset passwords only for members who belong to no other playgroup; the owner handles admins. |

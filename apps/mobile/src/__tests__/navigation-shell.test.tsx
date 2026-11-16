@@ -17,6 +17,12 @@ async function signIn() {
   await screen.findByLabelText('Play');
 }
 
+/** Signs in with a protected link pending: the link's screen opens instead of the tabs. */
+async function signInToPendingLink() {
+  await lib.fireEvent.press(await lib.screen.findByLabelText('Continue (placeholder)'));
+  await lib.screen.findByTestId('join-screen');
+}
+
 describe('signed-out navigation', () => {
   it('shows the sign-in stack and no tabs at the root URL', async () => {
     await mount('/');
@@ -86,6 +92,7 @@ describe('deep links', () => {
   it('opens the Join placeholder with the code from mtgstats://join/<code>', async () => {
     await mount('/join/ABC123');
     const { screen } = lib;
+    await signInToPendingLink(); // join is protected: the link is kept and opened after sign-in
     expect(await screen.findByTestId('join-screen')).toBeTruthy();
     expect(screen.getByTestId('join-screen-value')).toHaveTextContent('ABC123');
   });
@@ -97,11 +104,12 @@ describe('deep links', () => {
     expect(screen.getByTestId('invite-screen-value')).toHaveTextContent('tok-9f2');
   });
 
-  it('on a cold start, Back to app leads to the root (sign-in when signed out)', async () => {
+  it('for a join link opened via the pending link after sign-in, Back to app leads to the tabs', async () => {
     await mount('/join/ABC123');
     const { screen, fireEvent } = lib;
+    await signInToPendingLink();
     await fireEvent.press(await screen.findByLabelText('Back to app'));
-    expect(await screen.findByLabelText('Continue (placeholder)')).toBeTruthy();
+    expect(await screen.findByLabelText('Play')).toBeTruthy();
     expect(screen.queryByTestId('join-screen')).toBeNull();
   });
 

@@ -1,7 +1,12 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 
-export type SessionStatus = 'signed-in' | 'signed-out';
+/** `restoring` is the cold-start window while the stored session is read; it never flashes sign-in. */
+export type SessionStatus = 'restoring' | 'signed_in' | 'signed_out';
 
+/**
+ * The session interface the route guards depend on. E-2's secure session store implements it
+ * (tokens stay in that store on expo-secure-store); nothing here touches a token.
+ */
 export type Session = {
   status: SessionStatus;
   signIn: () => void;
@@ -15,15 +20,15 @@ const SessionContext = createContext<Session | null>(null);
  * this provider but keep the `useSession()` shape so the route guards need no change.
  */
 export function SessionProvider({
-  initialStatus = 'signed-out',
+  initialStatus = 'signed_out',
   children,
 }: {
   initialStatus?: SessionStatus;
   children: ReactNode;
 }) {
   const [status, setStatus] = useState<SessionStatus>(initialStatus);
-  const signIn = useCallback(() => setStatus('signed-in'), []);
-  const signOut = useCallback(() => setStatus('signed-out'), []);
+  const signIn = useCallback(() => setStatus('signed_in'), []);
+  const signOut = useCallback(() => setStatus('signed_out'), []);
   const value = useMemo(() => ({ status, signIn, signOut }), [status, signIn, signOut]);
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

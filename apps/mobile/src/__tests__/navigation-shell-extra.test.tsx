@@ -15,6 +15,12 @@ async function signIn() {
   await lib.screen.findByLabelText('Play');
 }
 
+/** Signs in with a protected link pending: the link's screen opens instead of the tabs. */
+async function signInToPendingLink() {
+  await lib.fireEvent.press(await lib.screen.findByLabelText('Continue (placeholder)'));
+  await lib.screen.findByTestId('join-screen');
+}
+
 type BackHandlerFn = () => boolean | null | undefined;
 let backHandlers: BackHandlerFn[] = [];
 let exitApp: jest.SpyInstance;
@@ -101,11 +107,11 @@ describe('hardware back across tabs (firstRoute)', () => {
     expect(exitApp).toHaveBeenCalledTimes(1);
   });
 
-  it('drops the deep-link listener once that screen is left (cold-start join, then back)', async () => {
+  it('drops the deep-link listener once the join screen opened via the pending link is left', async () => {
     await mount('/join/ABC123');
+    await signInToPendingLink(); // join is protected: the pending link opens it after sign-in
     await lib.fireEvent.press(await lib.screen.findByLabelText('Back to app'));
-    await lib.screen.findByLabelText('Continue (placeholder)');
-    await lib.fireEvent.press(lib.screen.getByLabelText('Continue (placeholder)'));
+    await lib.waitFor(() => expect(lib.screen.queryByTestId('join-screen')).toBeNull());
     await lib.screen.findByLabelText('Play');
     await pressHardwareBack();
     expect(exitApp).toHaveBeenCalledTimes(1);
@@ -119,7 +125,7 @@ describe('opening the app already signed in', () => {
         appDir: APP_DIR,
         overrides: {
           _layout: () => (
-            <SessionProvider initialStatus="signed-in">
+            <SessionProvider initialStatus="signed_in">
               <RootNavigator />
             </SessionProvider>
           ),
@@ -129,6 +135,41 @@ describe('opening the app already signed in', () => {
     );
     expect(await lib.screen.findByLabelText('Play')).toBeTruthy();
     expect(lib.screen.queryByLabelText('Continue (placeholder)')).toBeNull();
+  });
+});
+
+describe('cold start signed in on a join link (no history)', () => {
+  async function mountSignedInAt(url: string) {
+    await lib.renderRouter(
+      {
+        appDir: APP_DIR,
+        overrides: {
+          _layout: () => (
+            <SessionProvider initialStatus="signed_in">
+              <RootNavigator />
+            </SessionProvider>
+          ),
+        },
+      },
+      { initialUrl: url },
+    );
+    await lib.screen.findByTestId('join-screen');
+    expect(router.canGoBack()).toBe(false);
+  }
+
+  it('hardware back goes to the Play tab instead of exiting the app', async () => {
+    await mountSignedInAt('/join/ABC123');
+    await pressHardwareBack();
+    expect(await lib.screen.findByLabelText('Play')).toBeTruthy();
+    expect(lib.screen.queryByTestId('join-screen')).toBeNull();
+    expect(exitApp).not.toHaveBeenCalled();
+  });
+
+  it('Back to app goes to the Play tab', async () => {
+    await mountSignedInAt('/join/ABC123');
+    await lib.fireEvent.press(lib.screen.getByLabelText('Back to app'));
+    expect(await lib.screen.findByLabelText('Play')).toBeTruthy();
+    expect(lib.screen.queryByTestId('join-screen')).toBeNull();
   });
 });
 
@@ -218,12 +259,14 @@ describe('hardware back (Android)', () => {
     expect(lib.screen.getByRole('header', { name: 'Stats' })).toBeTruthy();
   });
 
-  it('goes to the app root, not a dead end, on a cold-start join screen', async () => {
+  it('hardware back on a join screen opened via the pending link returns to the tabs', async () => {
     await mount('/join/ABC123');
+    await signInToPendingLink(); // join is protected: the pending link opens it after sign-in
     await lib.screen.findByTestId('join-screen');
     await pressHardwareBack();
-    expect(await lib.screen.findByLabelText('Continue (placeholder)')).toBeTruthy();
+    expect(await lib.screen.findByLabelText('Play')).toBeTruthy();
     expect(lib.screen.queryByTestId('join-screen')).toBeNull();
+    expect(exitApp).not.toHaveBeenCalled();
   });
 
   it('goes to the app root on a cold-start invite screen', async () => {
@@ -257,6 +300,7 @@ describe('deep links', () => {
 
   it('renders a URL-encoded code decoded', async () => {
     await mount('/join/AB%20C%2F1');
+    await signInToPendingLink(); // join is protected: the pending link opens it after sign-in
     expect(await lib.screen.findByTestId('join-screen-value')).toHaveTextContent('AB C/1');
   });
 

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import InvalidTokenError, IssuedToken, decode_token, issue_token
 from app.core.config import get_settings
-from app.core.errors import AuthenticationError
+from app.core.errors import AuthenticationError, DomainError
 from app.core.ids import uuid7
 from app.identity import repository
 from app.identity.models import RefreshToken
@@ -23,6 +23,27 @@ class InvalidCredentialsError(AuthenticationError):
 
     code = "invalid_credentials"
     default_message = "Incorrect username or password."
+
+
+class InvalidCurrentPasswordError(DomainError):
+    """The current password given to change-password is wrong (400, field error)."""
+
+    code = "invalid_current_password"
+    status_code = 400
+    default_message = "Current password is incorrect."
+
+    def __init__(self) -> None:
+        super().__init__(
+            details={
+                "fields": [
+                    {
+                        "loc": ["body", "current_password"],
+                        "path": "body.current_password",
+                        "message": self.default_message,
+                    }
+                ]
+            }
+        )
 
 
 @dataclass(frozen=True)

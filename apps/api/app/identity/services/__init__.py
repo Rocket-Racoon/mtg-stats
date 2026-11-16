@@ -11,6 +11,7 @@ from app.identity.services.admin import (
 )
 from app.identity.services.auth import (
     InvalidCredentialsError,
+    InvalidCurrentPasswordError,
     RefreshTokenReuseError,
     SignInResult,
     cleanup_refresh_tokens,
@@ -49,12 +50,13 @@ from app.identity.services.players import (
     normalize_email,
     set_password,
 )
-from app.identity.services.throttle import throttled_sign_in
+from app.identity.services.throttle import change_password, throttled_sign_in
 
 __all__ = [
     "AVATAR_COLORS",
     "InvalidAvatarColorError",
     "InvalidCredentialsError",
+    "InvalidCurrentPasswordError",
     "InvalidDisplayNameError",
     "InvalidEmailError",
     "InvalidPasswordError",
@@ -67,6 +69,7 @@ __all__ = [
     "SiteAdminChange",
     "UserNotFoundError",
     "UsernameTakenError",
+    "change_password",
     "cleanup_refresh_tokens",
     "cleanup_refresh_tokens_job",
     "create_guest_player",

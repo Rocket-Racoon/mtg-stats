@@ -31,10 +31,18 @@ _env_path: list[Path] = []
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[None]:
     """Start from an empty environment and never read a real ``.env``."""
-    for name in ("APP_ENV", "DATABASE_URL", "REDIS_URL", "CORS_ALLOWED_ORIGINS", "PUBLIC_WEB_URL"):
+    for name in (
+        "APP_ENV",
+        "DATABASE_URL",
+        "REDIS_URL",
+        "CORS_ALLOWED_ORIGINS",
+        "PUBLIC_WEB_URL",
+        "JWT_SECRET",
+    ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("REDIS_URL", REDIS_URL)
     monkeypatch.setenv("PUBLIC_WEB_URL", "https://app.example.com")
+    monkeypatch.setenv("JWT_SECRET", "x" * 40)
     env_path = tmp_path / ".env"
     _env_path.append(env_path)
     monkeypatch.setattr(config, "find_env_file", lambda: env_path if env_path.is_file() else None)

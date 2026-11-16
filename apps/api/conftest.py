@@ -25,6 +25,7 @@ from tests.statement_counter import StatementCounter
 pytest_plugins = ["pytester"]
 
 TEST_PUBLIC_WEB_URL = "http://localhost:5173"
+TEST_JWT_SECRET = "test-only-jwt-secret-0123456789-abcdefghij"  # noqa: S105  (test-only value)  # secrets-check: allow
 DEFAULT_TEST_REDIS_URL = "redis://127.0.0.1:6379/15"
 
 # `create_app()` reads the settings, which need a valid environment.
@@ -35,6 +36,8 @@ os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 os.environ["REDIS_URL"] = os.environ.get("TEST_REDIS_URL", "").strip() or DEFAULT_TEST_REDIS_URL
 # Forced for the same reason: link assertions must not depend on the shell.
 os.environ["PUBLIC_WEB_URL"] = TEST_PUBLIC_WEB_URL
+# Forced: tokens in tests are signed with a known secret, never one from the shell.
+os.environ["JWT_SECRET"] = TEST_JWT_SECRET
 # Cheapest legal argon2id parameters (memory >= 8 x parallelism): fast hashing in tests.
 os.environ["ARGON2_TIME_COST"] = "1"
 os.environ["ARGON2_MEMORY_COST"] = "8"

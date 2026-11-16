@@ -258,6 +258,34 @@ def test_env_example_declares_postgres_settings() -> None:
     assert re.search(r"^POSTGRES_PASSWORD=CHANGE_ME\s*$", text, re.M)
 
 
+def test_env_example_ships_the_jwt_secret_placeholder_not_a_usable_secret() -> None:
+    assert re.search(r"^JWT_SECRET=CHANGE_ME\s*$", read_text(ENV_EXAMPLE), re.M)
+
+
+SMOKE_SCRIPT = REPO_ROOT / "scripts" / "compose_smoke.sh"
+
+
+def test_compose_smoke_generates_a_jwt_secret_after_copying_env_example() -> None:
+    text = read_text(SMOKE_SCRIPT)
+    copy_at = text.index("cp .env.example .env")
+    generate_at = text.index("secrets.token_urlsafe(48)")
+    assert generate_at > copy_at
+    assert "JWT_SECRET" in text[copy_at:]
+    assert "CHANGE_ME" in text[copy_at:generate_at]
+
+
+def test_compose_smoke_never_prints_the_generated_jwt_secret() -> None:
+    lines = read_text(SMOKE_SCRIPT).splitlines()
+    for line in lines:
+        code = line.split("#", 1)[0]
+        if "JWT_SECRET" not in code:
+            continue
+        assert not re.search(r"\b(echo|printf)\b[^>|]*\$\{?JWT_SECRET\w*", code) or (">" in code), (
+            f"script may print the secret: {line.strip()}"
+        )
+    assert not re.search(r"^\s*(set -x|set -o xtrace)", "\n".join(lines), re.M)
+
+
 @pytest.mark.skipif(shutil.which("git") is None, reason="git unavailable")
 @pytest.mark.parametrize("path", [".env", "infra/.env"])
 def test_real_env_files_are_gitignored(path: str) -> None:

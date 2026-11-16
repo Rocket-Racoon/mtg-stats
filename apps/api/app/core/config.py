@@ -11,13 +11,20 @@ from pathlib import Path
 from typing import Annotated, Literal, Self
 from urllib.parse import urlsplit
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 WORKSPACE_MARKER = "pnpm-workspace.yaml"
 DEV_WEB_ORIGIN = "http://localhost:5173"
 DATABASE_URL_PREFIX = "postgresql+psycopg://"
 REDIS_URL_SCHEMES = ("redis://", "rediss://")
+JWT_SECRET_MIN_LENGTH = 32
+JWT_SECRET_PLACEHOLDER = "CHANGE_ME"  # noqa: S105  (the rejected placeholder, not a secret)
+JWT_SECRET_MESSAGE = (
+    f"JWT_SECRET must be at least {JWT_SECRET_MIN_LENGTH} characters and not the "
+    f"{JWT_SECRET_PLACEHOLDER} placeholder; generate one with: "
+    'python -c "import secrets; print(secrets.token_urlsafe(48))"'
+)
 
 AppEnv = Literal["dev", "test", "prod"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -52,6 +59,13 @@ class Settings(BaseSettings):
     argon2_time_cost: int = Field(default=3, ge=1, validation_alias="ARGON2_TIME_COST")
     argon2_memory_cost: int = Field(default=65536, ge=1, validation_alias="ARGON2_MEMORY_COST")
     argon2_parallelism: int = Field(default=4, ge=1, validation_alias="ARGON2_PARALLELISM")
+    jwt_secret: SecretStr = Field(validation_alias="JWT_SECRET")
+    access_token_ttl_minutes: int = Field(
+        default=15, ge=1, le=1440, validation_alias="ACCESS_TOKEN_TTL_MINUTES"
+    )
+    refresh_token_ttl_days: int = Field(
+        default=30, ge=1, le=365, validation_alias="REFRESH_TOKEN_TTL_DAYS"
+    )
 
     @field_validator("database_url")
     @classmethod
@@ -67,6 +81,14 @@ class Settings(BaseSettings):
     @classmethod
     def _check_public_web_url(cls, value: str) -> str:
         return _normalise_public_web_url(value)
+
+    @field_validator("jwt_secret")
+    @classmethod
+    def _check_jwt_secret(cls, value: SecretStr) -> SecretStr:
+        secret = value.get_secret_value()
+        if len(secret) < JWT_SECRET_MIN_LENGTH or secret == JWT_SECRET_PLACEHOLDER:
+            raise ValueError(JWT_SECRET_MESSAGE)
+        return value
 
     @field_validator("git_sha")
     @classmethod

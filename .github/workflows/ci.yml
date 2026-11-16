@@ -55,6 +55,8 @@ jobs:
       REDIS_URL: redis://127.0.0.1:6379/0
       # Required by Settings (S-1.6.7); migrations/env.py builds Settings for the alembic steps.
       PUBLIC_WEB_URL: http://localhost:5173
+      # Required by Settings (S-2.1.4); a throwaway value, migrations/env.py builds Settings.
+      JWT_SECRET: ci-throwaway-jwt-secret-not-used-anywhere-else # secrets-check: allow
     defaults:
       run:
         working-directory: apps/api

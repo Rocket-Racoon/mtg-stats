@@ -66,6 +66,14 @@ cleanup() {
 trap cleanup EXIT
 
 [ -f .env ] || cp .env.example .env
+# The API rejects the CHANGE_ME placeholder, so give a fresh .env a generated JWT secret (never printed).
+if ! grep -Eq '^JWT_SECRET=[^[:space:]]{32,}[[:space:]]*$' .env || grep -q '^JWT_SECRET=CHANGE_ME[[:space:]]*$' .env; then
+  JWT_SECRET_VALUE="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
+  grep -v '^JWT_SECRET=' .env > .env.tmp || true
+  printf 'JWT_SECRET=%s\n' "$JWT_SECRET_VALUE" >> .env.tmp
+  mv .env.tmp .env
+  unset JWT_SECRET_VALUE
+fi
 
 step "Build the image once"
 "${COMPOSE[@]}" down -v --remove-orphans

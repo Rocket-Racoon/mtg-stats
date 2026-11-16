@@ -111,18 +111,21 @@ describe('AC5: session restore before protected content renders', () => {
     expect(call.body).toBe('');
   });
 
-  it('never visits /sign-in while the session restores as signed in', async () => {
+  it('keeps the deep URL (no detour through /sign-in) when the restore succeeds', async () => {
     const refresh = deferredRefresh();
     stubFetch(() => refresh.pending);
+    const pushState = vi.spyOn(window.history, 'pushState');
+    const replaceState = vi.spyOn(window.history, 'replaceState');
     await boot('/games');
-    const visited: string[] = [window.location.pathname];
-    const onPop = () => visited.push(window.location.pathname);
-    window.addEventListener('popstate', onPop);
+    pushState.mockClear();
+    replaceState.mockClear();
     refresh.settle(refreshed());
     await screen.findByRole('heading', { level: 2, name: 'Games' });
-    window.removeEventListener('popstate', onPop);
+    const urls = [...pushState.mock.calls, ...replaceState.mock.calls].map((c) => String(c[2]));
+    expect(urls.some((u) => u.includes('/sign-in'))).toBe(false);
     expect(window.location.pathname).toBe('/games');
-    expect(visited.every((p) => p === '/games')).toBe(true);
+    pushState.mockRestore();
+    replaceState.mockRestore();
   });
 
   it('a rejected refresh redirects to sign-in with the page as next', async () => {
@@ -197,5 +200,75 @@ describe('AC5: the access token exists only in memory', () => {
     await screen.findByRole('heading', { level: 2, name: 'Decks' });
     expect(document.body.innerHTML).not.toContain(ACCESS);
     expect(document.cookie).not.toContain(ACCESS);
+  });
+});
+
+describe('review: the invite form cannot race the startup restore', () => {
+  const INVITE = 'inv-race-token'; // secrets-check: allow
+
+  function stubInviteApi(refresh: Promise<Response>) {
+    const calls: Call[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init);
+        const call: Call = {
+          path: new URL(request.url).pathname,
+          method: request.method,
+          credentials: request.credentials,
+          headers: request.headers,
+          body: await request.text(),
+        };
+        calls.push(call);
+        if (call.path === '/api/v1/auth/refresh') return refresh;
+        if (call.path === '/api/v1/invites/preview') {
+          return json({ inviter_display_name: 'Ada Lovelace', expires_at: '2030-01-01T00:00:00Z' });
+        }
+        if (call.path === '/api/v1/auth/register') return refreshed();
+        return json({ status: 'ok' });
+      }),
+    );
+    return { registers: () => calls.filter((c) => c.path === '/api/v1/auth/register') };
+  }
+
+  it('sends no register request while restoring, then registers and stays signed in', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event');
+    const refresh = deferredRefresh();
+    const api = stubInviteApi(refresh.pending);
+    const { useSessionStore } = await boot(`/invite/${INVITE}`);
+    const user = userEvent.setup();
+    expect(useSessionStore.getState().status).toBe('restoring');
+
+    // Let the preview land, then try to submit as fast as a user could.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const early = screen.queryByLabelText(/username/i);
+    if (early) {
+      await user.type(early, 'ada');
+      await user.type(screen.getByLabelText(/display name/i), 'Ada');
+      await user.type(screen.getByLabelText(/password/i), 'correct horse battery{Enter}');
+      const button = screen.queryByRole('button', {
+        name: /register|create account|sign up|join/i,
+      });
+      if (button) await user.click(button);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(api.registers()).toHaveLength(0);
+    expect(useSessionStore.getState().status).toBe('restoring');
+
+    // The restore settles as signed out; now registering works.
+    refresh.settle(failure(401, 'invalid_refresh'));
+    await waitFor(() => expect(useSessionStore.getState().status).toBe('signed_out'));
+    const username = await screen.findByLabelText(/username/i);
+    if ((username as HTMLInputElement).value === '') {
+      await user.type(username, 'ada');
+      await user.type(screen.getByLabelText(/display name/i), 'Ada');
+      await user.type(screen.getByLabelText(/password/i), 'correct horse battery');
+    }
+    await user.click(screen.getByRole('button', { name: /register|create account|sign up|join/i }));
+    await waitFor(() => expect(api.registers()).toHaveLength(1));
+    await waitFor(() => expect(useSessionStore.getState().status).toBe('signed_in'));
+    expect(useSessionStore.getState().accessToken).toBe(ACCESS);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(useSessionStore.getState().status).toBe('signed_in');
   });
 });

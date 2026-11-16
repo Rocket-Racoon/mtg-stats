@@ -2,8 +2,10 @@
 // AppRoot, signed out, with a stubbed fetch.
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { QueryClient } from '@tanstack/react-query';
 import { createMemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createAppQueryClient } from '../providers/AppProviders';
 import { AppRoot } from '../providers/AppRoot';
 import { routes } from '../routes';
 import { useSessionStore } from '../session/store';
@@ -79,9 +81,9 @@ function stubApi(handlers: { preview?: Handler; register?: Handler }) {
 
 type Router = ReturnType<typeof createMemoryRouter>;
 
-function mount(path = `/invite/${TOKEN}`): Router {
+function mount(path = `/invite/${TOKEN}`, queryClient?: QueryClient): Router {
   const router = createMemoryRouter(routes, { initialEntries: [path] });
-  render(<AppRoot router={router} />);
+  render(<AppRoot router={router} {...(queryClient ? { queryClient } : {})} />);
   return router;
 }
 
@@ -216,16 +218,14 @@ describe('AC3: an invalid invite', () => {
     });
     const user = userEvent.setup();
     mount();
-    expect(
-      await screen.findByText('Something went wrong. Try again.', {}, { timeout: 10_000 }),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('Something went wrong. Try again.')).toBeInTheDocument();
     expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument();
     const before = api.previews().length;
     offline = false;
     await user.click(screen.getByRole('button', { name: /retry/i }));
     expect(await screen.findByText(/Ada Lovelace/)).toBeInTheDocument();
     expect(api.previews().length).toBeGreaterThan(before);
-  }, 20_000);
+  });
 });
 
 describe('AC4: registering', () => {
@@ -463,5 +463,118 @@ describe('AC7: the registration form is keyboard-accessible', () => {
         (el) => el.closest('[role="alert"], [aria-live]') !== null && el.textContent !== '',
       ),
     ).toBe(true);
+  });
+});
+
+describe('S-2.1.6 review: code-point length', () => {
+  const EMOJI = '\u{1F600}';
+
+  it.each([
+    ['17 emoji', 17],
+    ['32 emoji', 32],
+  ])('accepts a display name of %s (counted in code points, not UTF-16 units)', async (_l, n) => {
+    const api = stubApi({});
+    const user = userEvent.setup();
+    mount();
+    await screen.findByText(/Ada Lovelace/);
+    await fillForm(user, { displayName: EMOJI.repeat(n) });
+    await user.click(createButton());
+    await waitFor(() => expect(api.registers()).toHaveLength(1));
+    expect((api.registers()[0]!.body as { display_name: string }).display_name).toBe(
+      EMOJI.repeat(n),
+    );
+  });
+
+  it('rejects a display name of 33 emoji before calling the API', async () => {
+    const api = stubApi({});
+    const user = userEvent.setup();
+    mount();
+    await screen.findByText(/Ada Lovelace/);
+    await fillForm(user, { displayName: EMOJI.repeat(33) });
+    await user.click(createButton());
+    await waitFor(() => expect(displayNameInput()).toHaveAttribute('aria-invalid', 'true'));
+    expect(displayNameInput()).toHaveFocus();
+    expect(api.registers()).toHaveLength(0);
+  });
+
+  it('accepts a password of 65 emoji (65 code points, 130 UTF-16 units)', async () => {
+    const api = stubApi({});
+    const user = userEvent.setup();
+    mount();
+    await screen.findByText(/Ada Lovelace/);
+    await fillForm(user, { password: EMOJI.repeat(65) });
+    await user.click(createButton());
+    await waitFor(() => expect(api.registers()).toHaveLength(1));
+  });
+});
+
+describe('S-2.1.6 review: a 410 at submit', () => {
+  it('moves focus to the heading or the message so the change is not silent', async () => {
+    stubApi({ register: gone });
+    const user = userEvent.setup();
+    mount();
+    await screen.findByText(/Ada Lovelace/);
+    await fillForm(user);
+    await user.click(createButton());
+    const message = await screen.findByText(GONE_MESSAGE);
+    await waitFor(() => {
+      const active = document.activeElement as HTMLElement;
+      expect(active).not.toBe(document.body);
+      const heading = screen.getByRole('heading', { level: 2 });
+      expect(active === heading || active.contains(message)).toBe(true);
+    });
+  });
+});
+
+describe('S-2.1.6 review: Retry pending state', () => {
+  it('shows a pending state while the retry runs and sends one request for repeated clicks', async () => {
+    let offline = true;
+    let release: (response: Response) => void = () => undefined;
+    const api = stubApi({
+      preview: () => {
+        if (offline) throw new TypeError('Failed to fetch');
+        return new Promise<Response>((resolve) => {
+          release = resolve;
+        });
+      },
+    });
+    const user = userEvent.setup();
+    mount();
+    await screen.findByText('Something went wrong. Try again.');
+    const before = api.previews().length;
+    offline = false;
+    await user.click(screen.getByRole('button', { name: /retry/i }));
+    await waitFor(() => expect(api.previews().length).toBe(before + 1));
+    await waitFor(() => {
+      const button = screen.queryByRole('button', { name: /retry|retrying/i });
+      const pending =
+        button === null ||
+        (button as HTMLButtonElement).disabled ||
+        button.getAttribute('aria-disabled') === 'true' ||
+        button.getAttribute('aria-busy') === 'true' ||
+        !/^retry$/i.test(button.textContent ?? '');
+      expect(pending).toBe(true);
+    });
+    const again = screen.queryByRole('button', { name: /retry|retrying/i });
+    if (again) await user.click(again);
+    expect(api.previews().length).toBe(before + 1);
+    release(preview());
+    expect(await screen.findByText(/Ada Lovelace/)).toBeInTheDocument();
+  });
+});
+
+describe('S-2.1.6 review: the preview query key', () => {
+  it('is cached under the playgroups domain', async () => {
+    stubApi({});
+    const qc = createAppQueryClient();
+    mount(undefined, qc);
+    await screen.findByText(/Ada Lovelace/);
+    const keys = qc
+      .getQueryCache()
+      .getAll()
+      .map((q) => q.queryKey);
+    expect(keys).toHaveLength(1);
+    expect(keys[0]![0]).toBe('playgroups');
+    expect(JSON.stringify(keys[0])).toContain(TOKEN);
   });
 });

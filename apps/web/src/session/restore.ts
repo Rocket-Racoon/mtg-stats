@@ -20,7 +20,9 @@ export function restoreSession(client: ApiClient): Promise<void> {
       restored = false; // a transient failure: treat as signed out; the user can sign in again
     }
     const store = useSessionStore.getState();
-    // Only settle a session that is still restoring: a sign-in that raced it wins.
+    // This guard protects only the final status write. The client's side effects (clear() and
+    // onSessionExpired, or setTokens) already ran inside refreshSession(), so a sign-in that races
+    // the restore can still be undone; the pages therefore wait for the restore (see InvitePage).
     if (store.status !== 'restoring') return;
     if (restored) store.setStatus('signed_in');
     else store.signOut();

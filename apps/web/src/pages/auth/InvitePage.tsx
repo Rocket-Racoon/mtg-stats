@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { ApiError, useInvitePreview, useRegister } from '@mtg-stats/api-client';
+import { useSession } from '../../session/session';
 import { tooManyAttemptsMessage } from '../../session/rate-limit';
 import { useSessionStore } from '../../session/store';
 import {
@@ -29,6 +30,8 @@ export function InvitePage() {
   const preview = useInvitePreview(token);
   const register = useRegister();
   const navigate = useNavigate();
+  const { status } = useSession();
+  const restoring = status === 'restoring';
   const [values, setValues] = useState<Record<Field, string>>({
     username: '',
     display_name: '',
@@ -40,8 +43,12 @@ export function InvitePage() {
   const [gone, setGone] = useState(false);
 
   useEffect(() => {
-    document.title = 'Join · MTG Stats';
+    document.title = 'Invite · MTG Stats';
   }, []);
+
+  useEffect(() => {
+    if (gone) document.getElementById('page-title')?.focus();
+  }, [gone]);
 
   const set = (field: Field) => (value: string) => {
     setValues((current) => ({ ...current, [field]: value }));
@@ -54,7 +61,8 @@ export function InvitePage() {
 
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (register.isPending) return;
+    // Registering while the startup restore runs would let a late refresh undo the new session.
+    if (register.isPending || restoring) return;
     const found: Errors = {};
     const checks: Record<Field, string | null> = {
       username: validateUsername(values.username),
@@ -137,11 +145,12 @@ export function InvitePage() {
         <p role="alert">{SOMETHING_WENT_WRONG}</p>
         <button
           type="button"
+          disabled={preview.isFetching}
           onClick={() => {
             void preview.refetch();
           }}
         >
-          Retry
+          {preview.isFetching ? 'Retrying…' : 'Retry'}
         </button>
         <OpenInAppButton kind="invite" value={token} />
       </section>
@@ -216,7 +225,8 @@ export function InvitePage() {
             set('email')(event.target.value);
           }}
         />
-        <button type="submit" disabled={register.isPending}>
+        {restoring ? <p role="status">Restoring your session…</p> : null}
+        <button type="submit" disabled={register.isPending || restoring}>
           Create account
         </button>
       </form>

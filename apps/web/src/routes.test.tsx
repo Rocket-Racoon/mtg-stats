@@ -172,7 +172,9 @@ describe('focus after navigation (S-1.6.2)', () => {
 
   it('keeps focus on main across layouts: /about -> /sign-in', async () => {
     const router = renderAt('/about');
+    useSessionStore.setState({ status: 'signed_out' }); // a signed-in visitor is redirected away
     await act(() => router.navigate('/sign-in'));
+    expect(router.state.location.pathname).toBe('/sign-in');
     expect(screen.getByRole('main')).toHaveFocus();
     expect(document.activeElement?.id).toBe('main');
   });

@@ -170,6 +170,13 @@ describe('useInvitePreview', () => {
     expect(calls).toHaveLength(1);
   });
 
+  it('is cached under the playgroups domain, not identity', async () => {
+    const { wrapper, qc } = setup(() => json(preview));
+    const { result } = renderHook(() => useInvitePreview('inv-123'), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(qc.getQueryCache().getAll()[0]!.queryKey[0]).toBe('playgroups');
+  });
+
   it('uses a different cache entry per token', async () => {
     const { wrapper, qc } = setup(() => json(preview));
     const first = renderHook(() => useInvitePreview('aaa'), { wrapper });

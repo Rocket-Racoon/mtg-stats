@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build, createServer, loadConfigFromFile, type UserConfig } from 'vite';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const webRoot = fileURLToPath(new URL('..', import.meta.url));
 const configFile = resolvePath(webRoot, 'vite.config.ts');
@@ -15,6 +15,11 @@ const resolve = async (command: 'build' | 'serve', mode = 'production'): Promise
   if (!loaded) throw new Error('vite.config.ts not found');
   return loaded.config;
 };
+
+// These tests talk to a real Vite dev server on loopback, so they undo the setup file's rejecting fetch.
+beforeEach(() => {
+  vi.unstubAllGlobals();
+});
 
 afterEach(() => {
   vi.unstubAllEnvs();

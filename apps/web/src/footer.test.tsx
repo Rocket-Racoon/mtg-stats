@@ -164,6 +164,8 @@ describe('/about, AC wording and version (AC2)', () => {
 
   it('is linked from the footer on the app shell and the public shell', () => {
     for (const path of ['/games', '/sign-in']) {
+      // /sign-in redirects a signed-in visitor, so that case runs signed out.
+      useSessionStore.setState({ status: path === '/sign-in' ? 'signed_out' : 'signed_in' });
       const { unmount } = renderAt(path);
       expect(
         within(screen.getByRole('contentinfo')).getByRole('link', { name: 'About' }),

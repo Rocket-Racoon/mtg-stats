@@ -9,7 +9,7 @@ export type TokenResponse = components['schemas']['TokenResponse'];
 export type InvitePreview = components['schemas']['InvitePreviewOut'];
 
 export const authKeys = {
-  invitePreview: (token: string) => queryKey('identity', 'invitePreview', { token }),
+  invitePreview: (token: string) => queryKey('playgroups', 'invitePreview', { token }),
 };
 
 /**
@@ -47,7 +47,8 @@ export function useInvitePreview(token: string) {
     queryKey: authKeys.invitePreview(token),
     enabled: token !== '',
     retry: false,
-    queryFn: ({ signal }): Promise<InvitePreview> =>
-      client.POST('/api/v1/invites/preview', { body: { token }, signal }),
+    // No abort signal on purpose: StrictMode's mount, unmount, mount would cancel and resend it.
+    queryFn: (): Promise<InvitePreview> =>
+      client.POST('/api/v1/invites/preview', { body: { token } }),
   });
 }

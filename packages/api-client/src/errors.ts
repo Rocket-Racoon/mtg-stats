@@ -55,6 +55,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** Upper bound for `retryAfter`, in seconds (24 hours): a larger value is not useful to show. */
+const MAX_RETRY_AFTER = 86_400;
+
 /**
  * Parses a `Retry-After` header: delta-seconds (a non-negative integer) or an HTTP date, measured
  * from now and clamped at 0 (rounded up to whole seconds). Anything else gives null.
@@ -65,12 +68,12 @@ export function parseRetryAfter(
 ): number | null {
   if (value === null || value === undefined) return null;
   const text = value.trim();
-  if (/^\d+$/.test(text)) return Number(text);
-  // A date always has letters (day/month names); this rejects "-5", "1.5" and "".
-  if (!/[A-Za-z]/.test(text)) return null;
+  if (/^\d+$/.test(text)) return Math.min(Number(text), MAX_RETRY_AFTER);
+  // Only the IMF-fixdate form ("Wed, 21 Oct 2015 07:28:00 GMT") that servers send.
+  if (!/^[A-Za-z]{3}, \d{2} [A-Za-z]{3} \d{4} \d{2}:\d{2}:\d{2} GMT$/.test(text)) return null;
   const at = Date.parse(text);
   if (Number.isNaN(at)) return null;
-  return Math.max(0, Math.ceil((at - now) / 1000));
+  return Math.min(MAX_RETRY_AFTER, Math.max(0, Math.ceil((at - now) / 1000)));
 }
 
 /**

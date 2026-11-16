@@ -29,6 +29,11 @@ export interface TokenStore {
 
 type FetchFn = (input: Request) => Promise<Response>;
 
+/** The slice of the Web Locks API used here. Typed locally: React Native has no DOM lib. */
+interface LockManagerLike {
+  request<T>(name: string, callback: () => Promise<T>): Promise<T>;
+}
+
 type RefreshOutcome =
   { kind: 'ok'; accessToken: string } | { kind: 'rejected' } | { kind: 'transient'; error: Error };
 
@@ -129,7 +134,7 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions): Middleware
       return { kind: 'ok', accessToken };
     };
 
-    const locks = (globalThis.navigator as Navigator | undefined)?.locks;
+    const locks = (globalThis as { navigator?: { locks?: LockManagerLike } }).navigator?.locks;
     if (!bodyMode && locks && typeof locks.request === 'function') {
       return locks.request(REFRESH_LOCK, call);
     }

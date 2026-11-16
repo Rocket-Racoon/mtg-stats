@@ -99,3 +99,11 @@ async def delete_refresh_tokens_expired_before(session: AsyncSession, cutoff: da
         .returning(RefreshToken.id)
     )
     return len(result.all())
+
+
+async def is_active_site_admin(session: AsyncSession, user_id: UUID) -> bool:
+    """Whether this user exists, is active and is a site admin."""
+    result = await session.execute(
+        select(User.id).where(User.id == user_id, User.is_active, User.is_site_admin)
+    )
+    return result.scalar_one_or_none() is not None

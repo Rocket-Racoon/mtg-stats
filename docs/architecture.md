@@ -224,10 +224,11 @@ Each row is a need from the backlog that would otherwise require an upward call.
   - **Client mode**: a request is mobile only when it has `X-Client: mobile` and no `Origin` header; every other request is web. Web gets the refresh token only as the `mtgstats_refresh` cookie (`HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/api/v1/auth`), and mobile gets it only in the body.
   - **Single-flight refresh**: refresh tokens rotate per use, and reuse of any revoked token revokes its whole family. Clients must therefore refresh one at a time: one refresh across all tabs on web, and one in-flight promise on mobile.
   - Guests get **game-scoped tokens**, issued by `games`, valid until 24 h after the game ends or is abandoned, with a 7-day hard cap.
-  - The site admin role is checked against the database on every request.
+  - The site admin role is checked against the database on every request (`core.auth.require_site_admin`, through a checker that `create_app` registers from `identity`).
 - **Errors** (S-1.4.5): every error (422, 401, 403, 404, 409, 429, 500) returns
   `{"error": {"code": "<snake_case>", "message": "<text>", "details": <object|null>, "request_id": "<id>"}}`.
   - `code` is stable (`forbidden`, `section_hidden`, `game_closed` …), and clients switch on it, never on `message`.
+  - `invite_no_longer_valid` (410) is returned for a revoked, expired, used-up or unknown invite (S-2.1.2). Invite routes are `POST /invites`, `GET /invites` and `POST /invites/{id}/revoke`, owned by `playgroups`.
   - Validation errors go in `details`.
   - **`DomainError.persist_changes`**: normally a raised error rolls the request's session back. A subclass that sets `persist_changes = True` makes `get_session` commit what was flushed, then re-raise, so a rejected request can keep its side effect (for example revoking a token family on reuse). Raise such an error only from a request whose only writes are that intended side effect, and never inside a composite workflow, because the commit would also persist the workflow's other writes.
   - `request_id` also appears in the logs and the response headers. An unknown `/api/...` path returns this JSON 404 rather than the web app.

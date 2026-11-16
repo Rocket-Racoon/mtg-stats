@@ -159,7 +159,7 @@ Arrows mean "may call", and they point **down** to lower layers. Some examples:
 
 **Enforcement**: `apps/api/tests/architecture/test_domain_imports.py` computes the transitive closure of this graph. It fails when:
 - an import between domains isn't in the closure;
-- a domain imports `workflows/`, `workers/` or `cli/` (jobs are enqueued by name, never imported);
+- a domain imports `workflows/`, `workers/` or `cli/` (jobs are enqueued by name, never imported, and `cli/` is an entry point);
 - `core/` imports any domain, `workflows/`, `workers/` or `cli/`;
 - `workflows/` imports `workers/` or `cli/`, or `workers/` imports `cli/`;
 - a domain imports another domain, or `workflows/`, `workers/` or `cli/` import a domain, through anything other than exactly `app.<domain>.services`;

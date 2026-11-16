@@ -14,6 +14,7 @@ from app.core.logging import configure_logging
 from app.core.openapi import generate_operation_id
 from app.core.redis import close_redis, get_redis
 from app.core.request_id import RequestIDMiddleware
+from app.identity.router import router as identity_router
 from app.system.router import router as system_router
 
 API_PREFIX = "/api/v1"
@@ -65,5 +66,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api_router = APIRouter(prefix=API_PREFIX)
     # Domain routers are included on this router as their stories land.
     api_router.include_router(system_router)
+    api_router.include_router(identity_router)
     app.include_router(api_router)
     return app

@@ -38,6 +38,7 @@ def render_spec() -> str:
         "DATABASE_URL": "postgresql+psycopg://mtg:CHANGE_ME@localhost:5432/mtg_stats",
         "REDIS_URL": "redis://localhost:6379/0",
         "PUBLIC_WEB_URL": "http://localhost:5173",
+        "JWT_SECRET": "openapi-export-placeholder-not-a-secret",  # secrets-check: allow
     }
     # ``app.main`` builds nothing on import, and ``model_validate`` never reads the environment or
     # a ``.env`` file, so ambient variables (CORS_ALLOWED_ORIGINS and the like) cannot leak in.

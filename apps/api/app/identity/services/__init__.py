@@ -1,6 +1,7 @@
 """Public interface of the ``identity`` domain; other code imports only from here."""
 
 from app.identity.models import AVATAR_COLORS
+from app.identity.services.auth import InvalidCredentialsError, SignInResult, sign_in
 from app.identity.services.passwords import (
     InvalidPasswordError,
     InvalidUsernameError,
@@ -31,11 +32,13 @@ from app.identity.services.players import (
 __all__ = [
     "AVATAR_COLORS",
     "InvalidAvatarColorError",
+    "InvalidCredentialsError",
     "InvalidDisplayNameError",
     "InvalidEmailError",
     "InvalidPasswordError",
     "InvalidUsernameError",
     "PlayerInfo",
+    "SignInResult",
     "UserNotFoundError",
     "UsernameTakenError",
     "create_guest_player",
@@ -49,6 +52,7 @@ __all__ = [
     "normalize_email",
     "password_needs_rehash",
     "set_password",
+    "sign_in",
     "validate_password",
     "validate_username",
     "verify_password",

@@ -2,8 +2,9 @@
 export const TOO_MANY_ATTEMPTS_FALLBACK = 'Too many attempts. Try again later.';
 
 /**
- * "Too many attempts. Try again in N minutes" for a 429 (S-2.1.6 AC2, shared with mobile (S-2.1.7)). `retryAfterSeconds` is
- * `ApiError.retryAfter`; N is rounded up to whole minutes and is at least 1 ("1 minute").
+ * "Too many attempts. Try again in N minutes" for a 429 (S-2.1.6 AC2, shared with mobile in
+ * S-2.1.7). `retryAfterSeconds` is `ApiError.retryAfter`; N is rounded up to whole minutes and is
+ * at least 1 ("1 minute").
  * A null `retryAfter` gives {@link TOO_MANY_ATTEMPTS_FALLBACK}.
  */
 export function tooManyAttemptsMessage(retryAfterSeconds: number | null): string {

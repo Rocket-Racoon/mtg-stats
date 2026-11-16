@@ -157,7 +157,9 @@ export default function Invite() {
           testID="invite-preview-error"
         />
         <AppButton
-          label="Retry"
+          label={preview.isFetching ? 'Retrying…' : 'Retry'}
+          disabled={preview.isFetching}
+          busy={preview.isFetching}
           onPress={() => {
             void preview.refetch();
           }}
@@ -171,7 +173,7 @@ export default function Invite() {
     return (
       <ScrollView contentContainerStyle={styles.container} testID="invite-screen">
         {header}
-        <Text accessibilityRole="progressbar">Loading invite…</Text>
+        <Text accessibilityLiveRegion="polite">Loading invite…</Text>
       </ScrollView>
     );
   }
@@ -243,7 +245,13 @@ export default function Invite() {
         onSubmitEditing={submit}
       />
       {restoring ? <Text accessibilityLiveRegion="polite">Restoring your session…</Text> : null}
-      <AppButton label="Create account" onPress={submit} testID="invite-submit" />
+      <AppButton
+        label={register.isPending ? 'Creating account…' : 'Create account'}
+        onPress={submit}
+        disabled={register.isPending || restoring}
+        busy={register.isPending}
+        testID="invite-submit"
+      />
     </ScrollView>
   );
 }

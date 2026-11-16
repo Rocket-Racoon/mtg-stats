@@ -2,7 +2,7 @@ import { useSignIn } from '@mtg-stats/api-client';
 import { Stack, router } from 'expo-router';
 import { useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text } from 'react-native';
-import { formErrorMessage } from '../../auth/errors';
+import { SOMETHING_WENT_WRONG, formErrorMessage } from '../../auth/errors';
 import { AppButton } from '../../components/AppButton';
 import { FormError, TextField, type TextInputInstance } from '../../components/TextField';
 import { useSession } from '../../session/SessionProvider';
@@ -38,7 +38,7 @@ export default function SignIn() {
       {
         onSuccess: (tokens) => {
           if (!tokens.refresh_token) {
-            setFormError(formErrorMessage(null)); // not a mobile-mode response
+            setFormError(SOMETHING_WENT_WRONG); // not a mobile-mode response
             return;
           }
           void signIn({ accessToken: tokens.access_token, refreshToken: tokens.refresh_token });
@@ -87,7 +87,13 @@ export default function SignIn() {
         returnKeyType="go"
         onSubmitEditing={submit}
       />
-      <AppButton label="Sign in" onPress={submit} testID="sign-in-submit" />
+      <AppButton
+        label={mutation.isPending ? 'Signing in�' : 'Sign in'}
+        onPress={submit}
+        disabled={blocked}
+        busy={mutation.isPending}
+        testID="sign-in-submit"
+      />
       <AppButton
         label="I have an invite"
         onPress={() => router.push('/have-invite')}

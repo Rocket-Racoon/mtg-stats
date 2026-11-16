@@ -49,6 +49,9 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
     set({ status: 'signed-in' });
   },
   setTokens: async ({ accessToken, refreshToken }) => {
+    // A refresh that finishes after sign-out must not bring the tokens back. The launch restore
+    // sets tokens while 'restoring', so it is unaffected.
+    if (get().status === 'signed-out') return;
     set(refreshToken === undefined ? { accessToken } : { accessToken, refreshToken });
     await writeTokens({ accessToken, refreshToken });
   },

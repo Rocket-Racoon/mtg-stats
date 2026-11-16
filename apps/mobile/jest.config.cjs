@@ -12,6 +12,7 @@ module.exports = {
   testRegex: String.raw`/src/.*\.test\.tsx?$`,
   // Reanimated 4 / Worklets 0.13 official Jest setup: swaps native-only modules for JS ones.
   // jest.setup.ts must come after the Gesture Handler setup.
+  setupFilesAfterEnv: ['<rootDir>/jest.setup-after-env.ts'],
   setupFiles: ['react-native-gesture-handler/jestSetup', '<rootDir>/jest.setup.ts'],
   resolver: require.resolve('react-native-reanimated/jest/resolver'),
   // jest-expo has no Metro resolver, so api-client would load its own react@19.3.1 and fail with

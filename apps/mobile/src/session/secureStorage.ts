@@ -1,8 +1,13 @@
 import * as SecureStore from 'expo-secure-store';
 
-/** expo-secure-store keys (Android Keystore). Nothing else holds tokens: no AsyncStorage anywhere. */
+/**
+ * expo-secure-store keys (iOS Keychain, Android Keystore). Nothing else holds tokens: no
+ * AsyncStorage anywhere. Both keys use WHEN_UNLOCKED_THIS_DEVICE_ONLY, which keeps the tokens out
+ * of device backups and transfers to a new phone (the user signs in again there, on purpose).
+ */
 export const ACCESS_TOKEN_KEY = 'mtgstats.accessToken'; // key name, not a secret // secrets-check: allow
 export const REFRESH_TOKEN_KEY = 'mtgstats.refreshToken'; // key name, not a secret // secrets-check: allow
+const OPTIONS = { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY };
 
 /**
  * Secure-store failures never propagate (S-2.1.7): a failed write leaves the new tokens in memory
@@ -15,10 +20,10 @@ export async function writeTokens(tokens: {
 }): Promise<void> {
   try {
     if (tokens.accessToken !== undefined) {
-      await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, tokens.accessToken);
+      await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, tokens.accessToken, OPTIONS);
     }
     if (tokens.refreshToken !== undefined) {
-      await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, tokens.refreshToken);
+      await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, tokens.refreshToken, OPTIONS);
     }
   } catch {
     // Memory keeps the tokens; see the note above.

@@ -39,11 +39,15 @@ let originalFetch: typeof fetch | null = null;
  * Expo's winter runtime re-installs its own fetch on globalThis when the app modules load, which
  * would replace a stub made before the load. So the stub is (re)assigned after the modules load.
  */
+const rejectingFetch = ((input: string | Request) => {
+  const url = typeof input === 'string' ? input : input.url;
+  return Promise.reject(new TypeError(`Unstubbed fetch in a unit test: ${url}`));
+}) as unknown as typeof fetch;
+
 function installFetch() {
-  if (!stubbedFetch) return;
   originalFetch ??= globalThis.fetch;
   Object.defineProperty(globalThis, 'fetch', {
-    value: stubbedFetch,
+    value: stubbedFetch ?? rejectingFetch,
     writable: true,
     configurable: true,
   });
@@ -210,4 +214,18 @@ export function sourceFiles(): string[] {
   const out: string[] = [];
   walk(SRC, out);
   return out;
+}
+
+/** The session store of the app currently mounted (same module registry as `mountApp`). */
+export function sessionStore() {
+  return jest.requireActual<typeof import('../session/store')>('../session/store').useSessionStore;
+}
+
+/** A response the test releases by hand, to hold a request in flight. */
+export function deferred() {
+  let release: (response: Response) => void = () => undefined;
+  const promise = new Promise<Response>((resolve) => {
+    release = resolve;
+  });
+  return { promise, release };
 }

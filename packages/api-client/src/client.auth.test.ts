@@ -872,3 +872,183 @@ describe('existing guarantees with a token store', () => {
     expect(error).toMatchObject({ status: 200, code: 'unexpected_response' });
   });
 });
+
+describe('existing guarantees on the retry', () => {
+  /** First decks call 401s, the refresh succeeds, the retry runs `second`. */
+  function retryServer(second: () => Response) {
+    let decksCalls = 0;
+    return fakeFetch((rec) => {
+      if (rec.path === REFRESH_PATH) return tokenResponse('new');
+      decksCalls += 1;
+      return decksCalls === 1 ? errorResponse(401, 'token_expired') : second();
+    });
+  }
+
+  it('wraps a network error on the retry as network_error with status 0', async () => {
+    const srv = retryServer(() => {
+      throw new TypeError('Failed to fetch');
+    });
+    const error = (await caught(
+      build(srv.fetch, { tokenStore: memStore() }).GET(DECKS),
+    )) as ApiError;
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 0, code: 'network_error' });
+    expect(srv.refreshCalls()).toHaveLength(1);
+  });
+
+  it('maps a non-JSON 2xx on the retry to unexpected_response with the real status', async () => {
+    const srv = retryServer(() => new Response('<html>hi</html>', { status: 201 }));
+    const error = (await caught(
+      build(srv.fetch, { tokenStore: memStore() }).GET(DECKS),
+    )) as ApiError;
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 201, code: 'unexpected_response' });
+  });
+
+  it('rethrows an AbortError thrown by fetch on the retry unchanged', async () => {
+    const abort = new DOMException('aborted', 'AbortError');
+    const srv = retryServer(() => {
+      throw abort;
+    });
+    const error = await caught(build(srv.fetch, { tokenStore: memStore() }).GET(DECKS));
+    expect(error).toBe(abort);
+  });
+});
+
+describe('abort while waiting for the shared refresh', () => {
+  function deferredServer() {
+    let release: (response: Response) => void = () => undefined;
+    const gate = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    const srv = fakeFetch((rec) => {
+      if (rec.path === REFRESH_PATH) return gate;
+      return rec.headers.get('Authorization') === 'Bearer new'
+        ? okResponse()
+        : errorResponse(401, 'token_expired');
+    });
+    return { srv, release };
+  }
+
+  async function startPair(outcome: Response) {
+    const { srv, release } = deferredServer();
+    const store = memStore();
+    const onSessionExpired = vi.fn();
+    const api = build(srv.fetch, { tokenStore: store, onSessionExpired });
+    const controller = new AbortController();
+    const aborted = caught(api.GET(DECKS, { signal: controller.signal }));
+    const other = caught(api.GET(DECKS));
+    await vi.waitFor(() => {
+      expect(srv.refreshCalls()).toHaveLength(1);
+    });
+    controller.abort();
+    release(outcome);
+    return { srv, store, onSessionExpired, aborted, other };
+  }
+
+  it('rejects the aborted caller with an AbortError after a successful refresh, others resolve', async () => {
+    const { srv, aborted, other } = await startPair(tokenResponse('new'));
+    const abortedError = (await aborted) as Error;
+    expect(abortedError).not.toBeInstanceOf(ApiError);
+    expect(abortedError.name).toBe('AbortError');
+    // The other caller resolved with data, so caught() above would have thrown otherwise.
+    await expect(other).rejects.toThrow('expected the call to throw');
+    expect(srv.refreshCalls()).toHaveLength(1);
+  });
+
+  it('rejects the aborted caller with an AbortError after a rejected refresh', async () => {
+    const { aborted, other, store, onSessionExpired } = await startPair(
+      errorResponse(401, 'invalid_refresh'),
+    );
+    const abortedError = (await aborted) as Error;
+    expect(abortedError).not.toBeInstanceOf(ApiError);
+    expect(abortedError.name).toBe('AbortError');
+    expect(await other).toMatchObject({ status: 401, code: 'token_expired' });
+    expect(store.clear).toHaveBeenCalledTimes(1);
+    expect(onSessionExpired).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects the aborted caller with an AbortError after a transient refresh failure', async () => {
+    const { aborted, other, store, onSessionExpired } = await startPair(
+      errorResponse(500, 'server_error'),
+    );
+    const abortedError = (await aborted) as Error;
+    expect(abortedError).not.toBeInstanceOf(ApiError);
+    expect(abortedError.name).toBe('AbortError');
+    expect(await other).toMatchObject({ status: 500, code: 'server_error' });
+    expect(store.clear).not.toHaveBeenCalled();
+    expect(onSessionExpired).not.toHaveBeenCalled();
+  });
+
+  it('resolves the other waiting request after a successful refresh', async () => {
+    const { srv, release } = deferredServer();
+    const api = build(srv.fetch, { tokenStore: memStore() });
+    const controller = new AbortController();
+    const aborted = caught(api.GET(DECKS, { signal: controller.signal }));
+    const other = api.GET(DECKS);
+    await vi.waitFor(() => {
+      expect(srv.refreshCalls()).toHaveLength(1);
+    });
+    controller.abort();
+    release(tokenResponse('new'));
+    expect(((await aborted) as Error).name).toBe('AbortError');
+    expect(await other).toEqual({ ok: true });
+  });
+});
+
+describe('user middleware alongside a token store', () => {
+  it('keeps a header added by a user onRequest on the retry', async () => {
+    const srv = server();
+    const api = build(srv.fetch, { tokenStore: memStore() });
+    api.use({
+      onRequest({ request }) {
+        request.headers.set('X-User-Mw', 'yes');
+        return request;
+      },
+    });
+    await api.GET(DECKS);
+    const decks = srv.apiCalls();
+    expect(decks).toHaveLength(2);
+    expect(decks[0]!.headers.get('X-User-Mw')).toBe('yes');
+    expect(decks[1]!.headers.get('X-User-Mw')).toBe('yes');
+    expect(decks[1]!.headers.get('Authorization')).toBe('Bearer new');
+  });
+
+  it('lets a user onResponse see the original 401 while the caller gets the retried success', async () => {
+    const srv = server();
+    const api = build(srv.fetch, { tokenStore: memStore() });
+    const seen: number[] = [];
+    api.use({
+      onResponse({ response }) {
+        seen.push(response.status);
+      },
+    });
+    const data = await api.GET(DECKS);
+    expect(data).toEqual({ ok: true });
+    expect(seen[0]).toBe(401);
+  });
+});
+
+describe("a caller's own Authorization header on a 401", () => {
+  const guest = { headers: { Authorization: 'Bearer guest' } };
+
+  it.each([
+    ['with a stored token', 'old'],
+    ['without a stored token', null],
+  ])('rejects without refresh, retry, clear or callback %s', async (_label, access) => {
+    const srv = server();
+    const store = memStore({ access });
+    const onSessionExpired = vi.fn();
+    const error = (await caught(
+      build(srv.fetch, { tokenStore: store, onSessionExpired }).GET(DECKS, guest),
+    )) as ApiError;
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 401, code: 'token_expired' });
+    expect(srv.refreshCalls()).toHaveLength(0);
+    expect(srv.apiCalls()).toHaveLength(1);
+    expect(srv.apiCalls()[0]!.headers.get('Authorization')).toBe('Bearer guest');
+    expect(store.clear).not.toHaveBeenCalled();
+    expect(store.setTokens).not.toHaveBeenCalled();
+    expect(onSessionExpired).not.toHaveBeenCalled();
+  });
+});

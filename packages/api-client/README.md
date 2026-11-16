@@ -74,3 +74,12 @@ interface TokenStore {
   `onSessionExpired` runs once, and waiting requests reject with the original 401 `ApiError`.
   **Transient failures** (network, 5xx, 408, 429) leave the store alone and reject with that failure's `ApiError`.
 - Requests to `/api/v1/auth/*` are sent with `credentials: "include"` so the cookie is stored and sent.
+- **Middleware order**: the auth hook runs its `onResponse` last (openapi-fetch runs `onResponse` in reverse
+  order). A user `onResponse` sees the original 401, and the retried response passes through no middleware.
+- **Caller-supplied `Authorization`**: when the caller sets its own `Authorization` header, a 401 never
+  refreshes, retries, clears the store or calls `onSessionExpired`; it rejects as usual.
+- **Caveats**: an explicit `credentials: "same-origin"` on an auth path cannot be told from the default, so
+  it is upgraded to `include`. A 401 arriving after a rejected refresh has settled starts another refresh,
+  which may call `onSessionExpired` again, so make the callback idempotent. If `getRefreshToken` or
+  `setTokens` throws, that raw error rejects the waiting requests and the store is not cleared.
+  If the caller aborts while a refresh runs, it gets an `AbortError`; the refresh side effects still happen once.

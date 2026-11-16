@@ -42,6 +42,8 @@ interface Pending {
   clone: Request;
   /** The access token this request was sent with. */
   sentToken: string | null;
+  /** The caller supplied its own Authorization header: never refresh or retry. */
+  callerAuth: boolean;
 }
 
 export interface AuthMiddlewareOptions {
@@ -68,6 +70,29 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
+/** Releases the original 401 body before a retry. Never throws. */
+function discard(response: Response): void {
+  try {
+    const body = (response as { body?: { cancel?: () => Promise<void> } | null }).body;
+    void body?.cancel?.()?.catch(() => undefined);
+  } catch {
+    // Ignore: the body may be locked or already used.
+  }
+}
+
+/** The caller aborted while the refresh ran: surface an AbortError, not a 401 or refresh error. */
+function throwIfAborted(request: Request): void {
+  const signal = request.signal as AbortSignal | undefined;
+  if (!signal?.aborted) return;
+  const reason: unknown = signal.reason;
+  if (reason instanceof Error && reason.name === 'AbortError') throw reason;
+  const Ctor = (globalThis as { DOMException?: new (m: string, n: string) => Error }).DOMException;
+  if (Ctor) throw new Ctor('The operation was aborted.', 'AbortError');
+  const error = new Error('The operation was aborted.');
+  error.name = 'AbortError';
+  throw error;
+}
+
 function toApiError(error: unknown): Error {
   if (error instanceof ApiError) return error;
   return new ApiError({
@@ -86,7 +111,8 @@ function toApiError(error: unknown): Error {
 export function createAuthMiddleware(options: AuthMiddlewareOptions): Middleware {
   const { tokenStore, onSessionExpired } = options;
   const baseUrl = options.baseUrl.replace(/\/+$/, '');
-  const pending = new Map<string, Pending>();
+  // Keyed by the per-call `options` object openapi-fetch passes to every hook of one call.
+  const pending = new WeakMap<object, Pending>();
   let inFlight: Promise<RefreshOutcome> | null = null;
 
   const performRefresh = async (fetchFn: FetchFn): Promise<RefreshOutcome> => {
@@ -175,7 +201,7 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions): Middleware
   };
 
   return {
-    async onRequest({ request, schemaPath, id }) {
+    async onRequest({ request, schemaPath, options: callOptions }) {
       let current = request;
       if (schemaPath.startsWith(AUTH_PREFIX) && current.credentials === 'same-origin') {
         // `same-origin` is the Request default, so an explicit caller choice survives.
@@ -183,20 +209,26 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions): Middleware
       }
       if (!tokenStore) return current === request ? undefined : current;
 
-      const token = await tokenStore.getAccessToken();
-      if (isNonEmptyString(token) && !current.headers.has('Authorization')) {
-        current.headers.set('Authorization', `Bearer ${token}`);
+      const callerAuth = current.headers.has('Authorization');
+      if (!callerAuth) {
+        const token = await tokenStore.getAccessToken();
+        if (isNonEmptyString(token)) current.headers.set('Authorization', `Bearer ${token}`);
       }
-      pending.set(id, { clone: current.clone(), sentToken: bearerToken(current) });
+      pending.set(callOptions, {
+        clone: current.clone(),
+        sentToken: bearerToken(current),
+        callerAuth,
+      });
       return current === request ? undefined : current;
     },
 
-    async onResponse({ request, response, schemaPath, id, options: callOptions }) {
-      const entry = pending.get(id);
-      pending.delete(id);
+    async onResponse({ request, response, schemaPath, options: callOptions }) {
+      const entry = pending.get(callOptions);
+      pending.delete(callOptions);
       if (
         !tokenStore ||
         !entry ||
+        entry.callerAuth ||
         response.status !== 401 ||
         schemaPath === LOGIN_PATH ||
         schemaPath === REFRESH_PATH ||
@@ -209,17 +241,20 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions): Middleware
       // Another request already refreshed: retry with the current token, no new refresh.
       const latest = await tokenStore.getAccessToken();
       if (isNonEmptyString(latest) && latest !== entry.sentToken) {
+        discard(response);
         return fetchFn(retryRequest(entry, request, latest));
       }
 
       const outcome = await refreshOnce(fetchFn);
+      throwIfAborted(request);
       if (outcome.kind === 'rejected') return undefined; // the original 401 becomes the ApiError
       if (outcome.kind === 'transient') throw outcome.error;
+      discard(response);
       return fetchFn(retryRequest(entry, request, outcome.accessToken));
     },
 
-    onError({ id }) {
-      pending.delete(id);
+    onError({ options: callOptions }) {
+      pending.delete(callOptions);
       return undefined;
     },
   };

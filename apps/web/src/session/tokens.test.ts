@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { REFRESH_PATH } from '@mtg-stats/api-client';
 import { api } from '../api';
-import { memoryTokenStore } from './tokens';
+import { memoryTokenStore, setAccessToken } from './tokens';
 import { useSessionStore } from './store';
 
 afterEach(async () => {
@@ -103,5 +103,35 @@ describe('the app api client', () => {
     await api.GET('/api/v1/health/live');
     expect(useSessionStore.getState().status).toBe('signed_in');
     expect(await memoryTokenStore.getAccessToken()).toBe('fresh');
+  });
+});
+
+describe('setAccessToken', () => {
+  it('sets the token the memory store returns', async () => {
+    setAccessToken('signed-in');
+    expect(await memoryTokenStore.getAccessToken()).toBe('signed-in');
+  });
+
+  it('is sent by the app api client as the Bearer token', async () => {
+    setAccessToken('signed-in');
+    const seen: (string | null)[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        seen.push(new Request(input, init).headers.get('Authorization'));
+        return new Response(JSON.stringify({ status: 'ok' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }),
+    );
+    await api.GET('/api/v1/health/live');
+    expect(seen).toEqual(['Bearer signed-in']);
+  });
+
+  it('clears with null', async () => {
+    setAccessToken('signed-in');
+    setAccessToken(null);
+    expect(await memoryTokenStore.getAccessToken()).toBeNull();
   });
 });

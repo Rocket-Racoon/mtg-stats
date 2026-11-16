@@ -115,7 +115,9 @@ export function createApiClient<P extends object = paths>(options: ApiClientOpti
     fetch: (input: Request) => safeFetch(input),
   });
 
-  // Registered first so user middleware sees the Authorization header and the final response.
+  // Registered first: its onRequest runs before user middleware. openapi-fetch runs onResponse in
+  // reverse order, so the auth hook runs LAST: user onResponse sees the pre-retry 401, and the
+  // retried response passes through no middleware.
   inner.use(
     createAuthMiddleware({
       baseUrl: options.baseUrl,

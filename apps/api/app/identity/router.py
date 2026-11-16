@@ -20,10 +20,10 @@ from app.core.auth import (
     token_response,
 )
 from app.core.db import SessionDep
-from app.core.errors import AuthenticationError
+from app.core.errors import AuthenticationError, ErrorResponse
 from app.core.rate_limit import client_ip
 from app.identity import services
-from app.identity.schemas import LoginRequest, MeResponse, RefreshRequest
+from app.identity.schemas import ChangePasswordRequest, LoginRequest, MeResponse, RefreshRequest
 
 router = APIRouter()
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
@@ -58,6 +58,42 @@ async def login(
     """
     result = await services.throttled_sign_in(
         session, username=body.username, password=body.password, ip=client_ip(request)
+    )
+    return token_response(result.access_token, result.refresh_token, client_mode(request), response)
+
+
+@auth_router.post(
+    "/change-password",
+    summary="Change my password",
+    responses={400: {"model": ErrorResponse, "description": "`invalid_current_password`"}},
+    response_model_exclude_none=True,
+)
+async def change_password(
+    body: ChangePasswordRequest,
+    user: CurrentUserDep,
+    request: Request,
+    response: Response,
+    session: SessionDep,
+) -> TokenResponse:
+    """Change the caller's password and sign this session in again.
+
+    Requires a valid access token. A wrong current password is a 400 `invalid_current_password`
+    with a field error on `current_password`; a new password that breaks the registration rules is
+    a 422 with a field error on `new_password`. Every refresh token of the user is revoked
+    (other devices sign out when their access token expires), and the response carries new
+    tokens exactly as `POST /auth/login` does. Attempts share the sign-in throttle (429
+    `rate_limited` with `Retry-After`).
+
+    Client mode: send `X-Client: mobile` without an `Origin` header to get the refresh token in
+    the response body; every other request is a web client and gets it in the `mtgstats_refresh`
+    cookie (`HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/api/v1/auth`) instead.
+    """
+    result = await services.change_password(
+        session,
+        user_id=user.id,
+        current_password=body.current_password,
+        new_password=body.new_password,
+        ip=client_ip(request),
     )
     return token_response(result.access_token, result.refresh_token, client_mode(request), response)
 

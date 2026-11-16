@@ -37,10 +37,46 @@ def add_player(session: AsyncSession, player: Player) -> None:
     session.add(player)
 
 
-async def get_user_by_username(session: AsyncSession, username: str) -> User | None:
-    """Return the user whose username matches case-insensitively, or None."""
+async def get_user_by_username(
+    session: AsyncSession, username: str, *, for_update: bool = False
+) -> User | None:
+    """Return the user whose username matches case-insensitively, or None.
+
+    ``for_update`` locks the row ``FOR NO KEY UPDATE`` (see :func:`get_user_for_update`) and
+    re-reads it if we had to wait.
+    """
+    query = select(User).where(func.lower(User.username) == username.lower())
+    if for_update:
+        query = query.with_for_update(key_share=True).execution_options(populate_existing=True)
+    result = await session.execute(query)
+    return result.scalar_one_or_none()
+
+
+async def get_user_for_update(session: AsyncSession, user_id: UUID) -> User | None:
+    """Return the user locked ``FOR NO KEY UPDATE`` (re-read if we waited), or None.
+
+    Excludes every other writer and every :func:`get_user_shared` holder, but not the
+    ``FOR KEY SHARE`` an ``INSERT`` into ``refresh_tokens`` takes for its foreign key.
+    """
     result = await session.execute(
-        select(User).where(func.lower(User.username) == username.lower())
+        select(User)
+        .where(User.id == user_id)
+        .with_for_update(key_share=True)
+        .execution_options(populate_existing=True)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_user_shared(session: AsyncSession, user_id: UUID) -> User | None:
+    """Return the user locked ``FOR SHARE`` (re-read if we waited), or None.
+
+    Waits for a pending password change and then sees its result; many holders can coexist.
+    """
+    result = await session.execute(
+        select(User)
+        .where(User.id == user_id)
+        .with_for_update(read=True)
+        .execution_options(populate_existing=True)
     )
     return result.scalar_one_or_none()
 
@@ -79,10 +115,18 @@ async def revoke_family(session: AsyncSession, family_id: UUID, now: datetime) -
 
 
 async def revoke_user_tokens(session: AsyncSession, user_id: UUID, now: datetime) -> int:
-    """Revoke every unrevoked token of a user; return how many."""
+    """Revoke every unrevoked, unexpired token of a user; return how many.
+
+    Expired rows are skipped (they cannot refresh anyway) so this UPDATE never overlaps the
+    cleanup job's DELETE, which only touches rows expired for over a week.
+    """
     result = await session.execute(
         update(RefreshToken)
-        .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
+        .where(
+            RefreshToken.user_id == user_id,
+            RefreshToken.revoked_at.is_(None),
+            RefreshToken.expires_at > now,
+        )
         .values(revoked_at=now)
         .execution_options(synchronize_session="fetch")
         .returning(RefreshToken.id)

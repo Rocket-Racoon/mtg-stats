@@ -1,9 +1,10 @@
 """Player and user creation and lookup. Everything here runs in the caller's session."""
 
+import asyncio
 import unicodedata
 from collections.abc import Collection
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
@@ -13,7 +14,7 @@ from app.core.errors import DomainError
 from app.core.ids import uuid7
 from app.identity import repository
 from app.identity.models import AVATAR_COLORS, DISPLAY_NAME_MAX_LENGTH, Player, User
-from app.identity.services.auth import revoke_all_refresh_tokens
+from app.identity.services.auth import replace_password
 from app.identity.services.passwords import hash_password, validate_password, validate_username
 
 EMAIL_MAX_LENGTH = 320
@@ -261,10 +262,7 @@ async def set_password(session: AsyncSession, *, username: str, password: str) -
         UserNotFoundError: if no user has this username (case-insensitive).
     """
     validate_password(password)
-    user = await repository.get_user_by_username(session, username)
+    user = await repository.get_user_by_username(session, username, for_update=True)
     if user is None:
         raise UserNotFoundError
-    user.password_hash = hash_password(password)
-    user.password_changed_at = datetime.now(UTC)
-    await revoke_all_refresh_tokens(session, user_id=user.id)
-    await session.flush()
+    await replace_password(session, user, await asyncio.to_thread(hash_password, password))

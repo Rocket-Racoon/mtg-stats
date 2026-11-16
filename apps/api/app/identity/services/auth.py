@@ -11,10 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import InvalidTokenError, IssuedToken, decode_token, issue_token
 from app.core.config import get_settings
-from app.core.errors import AuthenticationError
+from app.core.errors import AuthenticationError, DomainError
 from app.core.ids import uuid7
 from app.identity import repository
-from app.identity.models import RefreshToken
+from app.identity.models import RefreshToken, User
 from app.identity.services.passwords import hash_password, password_needs_rehash, verify_password
 
 
@@ -23,6 +23,27 @@ class InvalidCredentialsError(AuthenticationError):
 
     code = "invalid_credentials"
     default_message = "Incorrect username or password."
+
+
+class InvalidCurrentPasswordError(DomainError):
+    """The current password given to change-password is wrong (400, field error)."""
+
+    code = "invalid_current_password"
+    status_code = 400
+    default_message = "Current password is incorrect."
+
+    def __init__(self) -> None:
+        super().__init__(
+            details={
+                "fields": [
+                    {
+                        "loc": ["body", "current_password"],
+                        "path": "body.current_password",
+                        "message": self.default_message,
+                    }
+                ]
+            }
+        )
 
 
 @dataclass(frozen=True)
@@ -69,11 +90,27 @@ async def start_session(session: AsyncSession, *, user_id: UUID) -> SignInResult
     return result
 
 
+async def replace_password(session: AsyncSession, user: User, new_hash: str) -> None:
+    """Store a precomputed password hash, stamp ``password_changed_at``, revoke all refresh tokens.
+
+    The caller hashes off-loop BEFORE locking, and must already hold the user's exclusive lock
+    (``get_user_for_update``) so no token issuer can slip a new family past the revocation.
+    Flushes; never commits.
+    """
+    user.password_hash = new_hash
+    user.password_changed_at = datetime.now(UTC)
+    await revoke_all_refresh_tokens(session, user_id=user.id)
+    await session.flush()
+
+
 async def sign_in(session: AsyncSession, *, username: str, password: str) -> SignInResult:
     """Check the credentials and issue an access and a refresh token.
 
     Every failure raises :class:`InvalidCredentialsError` with the same message, and an unknown
-    username still runs one argon2 verification against a dummy hash. A successful sign-in with an
+    username still runs one argon2 verification against a dummy hash. Wrong passwords and unknown
+    usernames never take a row lock (no timing difference, no held connection). Only on a match is
+    the user locked ``FOR NO KEY UPDATE`` and re-read: if a concurrent password change replaced the
+    verified hash, or the user was deactivated, the sign-in fails. A successful sign-in with an
     outdated hash stores a new one (flushed, never committed; the caller's session commits).
 
     Raises:
@@ -84,13 +121,21 @@ async def sign_in(session: AsyncSession, *, username: str, password: str) -> Sig
         dummy = await asyncio.to_thread(_dummy_hash)
         await asyncio.to_thread(verify_password, dummy, password)
         raise InvalidCredentialsError
-    matches = await asyncio.to_thread(verify_password, user.password_hash, password)
+    verified_hash = user.password_hash
+    user_id = user.id
+    matches = await asyncio.to_thread(verify_password, verified_hash, password)
     if not matches or not user.is_active:
         raise InvalidCredentialsError
-    if await asyncio.to_thread(password_needs_rehash, user.password_hash):
-        user.password_hash = await asyncio.to_thread(hash_password, password)
+    new_hash: str | None = None
+    if await asyncio.to_thread(password_needs_rehash, verified_hash):
+        new_hash = await asyncio.to_thread(hash_password, password)  # before locking
+    locked = await repository.get_user_for_update(session, user_id)
+    if locked is None or not locked.is_active or locked.password_hash != verified_hash:
+        raise InvalidCredentialsError
+    if new_hash is not None:
+        locked.password_hash = new_hash
         await session.flush()
-    return await start_session(session, user_id=user.id)
+    return await start_session(session, user_id=locked.id)
 
 
 CLEANUP_GRACE = timedelta(days=7)
@@ -140,6 +185,8 @@ async def refresh_session(session: AsyncSession, *, refresh_token: str) -> SignI
         RefreshTokenReuseError: the token was already revoked, or its user is inactive.
     """
     claims = decode_token(refresh_token, expected_type="refresh")
+    # Lock order is always user, then token: wait out a concurrent password change first.
+    user = await repository.get_user_shared(session, claims.sub)
     row = await repository.get_refresh_token_for_update(session, hash_refresh_token(refresh_token))
     if row is None:
         raise InvalidTokenError
@@ -149,8 +196,7 @@ async def refresh_session(session: AsyncSession, *, refresh_token: str) -> SignI
         raise RefreshTokenReuseError
     if row.expires_at <= now:
         raise InvalidTokenError
-    user = await repository.get_user(session, row.user_id)
-    if user is None or not user.is_active or user.id != claims.sub:
+    if user is None or not user.is_active or row.user_id != user.id:
         await repository.revoke_family(session, row.family_id, now)
         raise RefreshTokenReuseError
     result = SignInResult(

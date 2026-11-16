@@ -9,6 +9,7 @@ import { NotFoundPage } from './pages/NotFound';
 import { PlaceholderPage } from './pages/Placeholder';
 import { InvitePage } from './pages/auth/InvitePage';
 import { SignInPage } from './pages/auth/SignInPage';
+import { AccountPage } from './pages/AccountPage';
 import { SharedLinkPage } from './pages/SharedLinkPage';
 import { RequireSession } from './session/RequireSession';
 import { SIGN_IN_PATH } from './session/sign-in';
@@ -53,6 +54,7 @@ export const routes: RouteObject[] = [
               { path: 'stats', element: <PlaceholderPage title="Stats" /> },
               { path: 'collection', element: <PlaceholderPage title="Collection" /> },
               { path: 'leagues', element: <PlaceholderPage title="Leagues" /> },
+              { path: 'account', element: <AccountPage /> },
               { path: '*', element: <NotFoundPage /> },
             ],
           },

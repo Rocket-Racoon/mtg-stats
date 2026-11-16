@@ -2,7 +2,9 @@
 
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.identity.services import validate_password
 
 
 class LoginRequest(BaseModel):
@@ -10,6 +12,19 @@ class LoginRequest(BaseModel):
 
     username: str = Field(min_length=1, max_length=256)
     password: str = Field(min_length=1, max_length=1024)
+
+
+class ChangePasswordRequest(BaseModel):
+    """Body of ``POST /auth/change-password``. The new password follows the registration rules."""
+
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def _new_password(cls, value: str) -> str:
+        validate_password(value)
+        return value
 
 
 class RefreshRequest(BaseModel):

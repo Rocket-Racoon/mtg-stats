@@ -11,6 +11,7 @@ from app.identity.services.admin import (
 )
 from app.identity.services.auth import (
     InvalidCredentialsError,
+    InvalidCurrentPasswordError,
     RefreshTokenReuseError,
     SignInResult,
     cleanup_refresh_tokens,
@@ -23,6 +24,7 @@ from app.identity.services.auth import (
     warm_up_sign_in,
 )
 from app.identity.services.jobs import cleanup_refresh_tokens_job
+from app.identity.services.password_change import change_password
 from app.identity.services.passwords import (
     InvalidPasswordError,
     InvalidUsernameError,
@@ -55,6 +57,7 @@ __all__ = [
     "AVATAR_COLORS",
     "InvalidAvatarColorError",
     "InvalidCredentialsError",
+    "InvalidCurrentPasswordError",
     "InvalidDisplayNameError",
     "InvalidEmailError",
     "InvalidPasswordError",
@@ -67,6 +70,7 @@ __all__ = [
     "SiteAdminChange",
     "UserNotFoundError",
     "UsernameTakenError",
+    "change_password",
     "cleanup_refresh_tokens",
     "cleanup_refresh_tokens_job",
     "create_guest_player",

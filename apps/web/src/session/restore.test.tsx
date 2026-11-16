@@ -239,18 +239,15 @@ describe('review: the invite form cannot race the startup restore', () => {
     const user = userEvent.setup();
     expect(useSessionStore.getState().status).toBe('restoring');
 
-    // Let the preview land, then try to submit as fast as a user could.
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    const early = screen.queryByLabelText(/username/i);
-    if (early) {
-      await user.type(early, 'ada');
-      await user.type(screen.getByLabelText(/display name/i), 'Ada');
-      await user.type(screen.getByLabelText(/password/i), 'correct horse battery{Enter}');
-      const button = screen.queryByRole('button', {
-        name: /register|create account|sign up|join/i,
-      });
-      if (button) await user.click(button);
-    }
+    // The preview answers while the refresh stays deferred: the form shows, but cannot submit.
+    const username = await screen.findByLabelText(/username/i);
+    const submit = screen.getByRole('button', { name: /register|create account|sign up|join/i });
+    expect(submit).toBeDisabled();
+    expect(screen.getByText('Restoring your session…')).toBeInTheDocument();
+    await user.type(username, 'ada');
+    await user.type(screen.getByLabelText(/display name/i), 'Ada');
+    await user.type(screen.getByLabelText(/password/i), 'correct horse battery{Enter}');
+    await user.click(submit);
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(api.registers()).toHaveLength(0);
     expect(useSessionStore.getState().status).toBe('restoring');
@@ -258,12 +255,7 @@ describe('review: the invite form cannot race the startup restore', () => {
     // The restore settles as signed out; now registering works.
     refresh.settle(failure(401, 'invalid_refresh'));
     await waitFor(() => expect(useSessionStore.getState().status).toBe('signed_out'));
-    const username = await screen.findByLabelText(/username/i);
-    if ((username as HTMLInputElement).value === '') {
-      await user.type(username, 'ada');
-      await user.type(screen.getByLabelText(/display name/i), 'Ada');
-      await user.type(screen.getByLabelText(/password/i), 'correct horse battery');
-    }
+    await waitFor(() => expect(submit).toBeEnabled());
     await user.click(screen.getByRole('button', { name: /register|create account|sign up|join/i }));
     await waitFor(() => expect(api.registers()).toHaveLength(1));
     await waitFor(() => expect(useSessionStore.getState().status).toBe('signed_in'));

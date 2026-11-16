@@ -578,3 +578,20 @@ describe('S-2.1.6 review: the preview query key', () => {
     expect(JSON.stringify(keys[0])).toContain(TOKEN);
   });
 });
+
+describe('S-2.1.6 review: the session is still restoring', () => {
+  it('shows the form with a disabled submit button and the restoring status', async () => {
+    const api = stubApi({});
+    useSessionStore.setState({ status: 'restoring', accessToken: null });
+    const user = userEvent.setup();
+    mount();
+    await screen.findByText(/Ada Lovelace/);
+    expect(createButton()).toBeDisabled();
+    const status = screen.getByText('Restoring your session…');
+    expect(status).toHaveAttribute('role', 'status');
+    await user.type(usernameInput(), 'ada');
+    await user.type(displayNameInput(), 'Ada');
+    await user.type(passwordInput(), 'correct horse battery{Enter}');
+    expect(api.registers()).toHaveLength(0);
+  });
+});

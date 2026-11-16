@@ -72,6 +72,33 @@ describe('ApiError.retryAfter: HTTP date', () => {
   });
 });
 
+describe('ApiError.retryAfter: cap', () => {
+  it('caps a huge delta-seconds value at 86400 (one day)', () => {
+    expect(parse({ 'Retry-After': '999999' }).retryAfter).toBe(86400);
+  });
+
+  it('keeps 86400 itself', () => {
+    expect(parse({ 'Retry-After': '86400' }).retryAfter).toBe(86400);
+  });
+
+  it('caps a far-future HTTP date at 86400', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-16T12:00:00.000Z'));
+    expect(parse({ 'Retry-After': 'Fri, 31 Dec 2100 23:59:59 GMT' }).retryAfter).toBe(86400);
+  });
+});
+
+describe('ApiError.retryAfter: obsolete HTTP date forms', () => {
+  it.each([
+    ['RFC 850', 'Wednesday, 18-Nov-26 12:02:00 GMT'],
+    ['asctime', 'Wed Nov 18 12:02:00 2026'],
+  ])('is null for the %s form', (_label, header) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-16T12:00:00.000Z'));
+    expect(parse({ 'Retry-After': header }).retryAfter).toBeNull();
+  });
+});
+
 describe('ApiError.retryAfter: null', () => {
   it('is null when the header is missing', () => {
     expect(parse({}).retryAfter).toBeNull();

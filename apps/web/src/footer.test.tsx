@@ -22,6 +22,8 @@ beforeEach(() => {
 });
 
 function renderAt(path: string) {
+  // A signed-in visitor is redirected away from /sign-in, so that page renders signed out.
+  if (path.startsWith('/sign-in')) useSessionStore.setState({ status: 'signed_out' });
   return render(
     <AppProviders>
       <RouterProvider router={createMemoryRouter(routes, { initialEntries: [path] })} />

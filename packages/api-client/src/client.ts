@@ -62,6 +62,14 @@ export interface ApiClient<P extends object = paths> {
   use(...middleware: Middleware[]): void;
   /** Unregister middleware. */
   eject(...middleware: Middleware[]): void;
+  /**
+   * Restores a session from the refresh credential (the HttpOnly cookie on web). Shares the
+   * single-flight refresh, and the Web Locks path in cookie mode, with the 401 retry. Resolves
+   * true after a successful refresh (`setTokens` already ran), false when it was rejected (the
+   * store is cleared and `onSessionExpired` has run) or when there is no `tokenStore`. Throws
+   * the `ApiError` on a transient failure (network, 5xx, 408, 429).
+   */
+  refreshSession(): Promise<boolean>;
 }
 
 export interface ApiClientOptions {
@@ -118,13 +126,12 @@ export function createApiClient<P extends object = paths>(options: ApiClientOpti
   // Registered first: its onRequest runs before user middleware. openapi-fetch runs onResponse in
   // reverse order, so the auth hook runs LAST: user onResponse sees the pre-retry 401, and the
   // retried response passes through no middleware.
-  inner.use(
-    createAuthMiddleware({
-      baseUrl: options.baseUrl,
-      tokenStore: options.tokenStore,
-      onSessionExpired: options.onSessionExpired,
-    }),
-  );
+  const auth = createAuthMiddleware({
+    baseUrl: options.baseUrl,
+    tokenStore: options.tokenStore,
+    onSessionExpired: options.onSessionExpired,
+  });
+  inner.use(auth);
 
   // The public ApiClient interface carries the strict typings; the bodies stay loosely typed.
   const method = (name: 'GET' | 'PUT' | 'POST' | 'PATCH' | 'DELETE') => {
@@ -179,5 +186,6 @@ export function createApiClient<P extends object = paths>(options: ApiClientOpti
     DELETE: method('DELETE'),
     use: (...middleware: Middleware[]) => inner.use(...middleware),
     eject: (...middleware: Middleware[]) => inner.eject(...middleware),
+    refreshSession: () => auth.refresh((input: Request) => safeFetch(input)),
   } as unknown as ApiClient<P>;
 }

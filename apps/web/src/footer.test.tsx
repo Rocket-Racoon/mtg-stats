@@ -11,6 +11,7 @@ import {
 } from '@mtg-stats/card-utils';
 import { createMemoryRouter, type RouteObject } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
+import { AppProviders } from './providers/AppProviders';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { env } from './env';
 import { routes } from './routes';
@@ -21,7 +22,13 @@ beforeEach(() => {
 });
 
 function renderAt(path: string) {
-  return render(<RouterProvider router={createMemoryRouter(routes, { initialEntries: [path] })} />);
+  // A signed-in visitor is redirected away from /sign-in, so that page renders signed out.
+  if (path.startsWith('/sign-in')) useSessionStore.setState({ status: 'signed_out' });
+  return render(
+    <AppProviders>
+      <RouterProvider router={createMemoryRouter(routes, { initialEntries: [path] })} />
+    </AppProviders>,
+  );
 }
 
 /** Every concrete path in the route table, plus an unknown one for the catch-all. */
@@ -138,7 +145,11 @@ describe('footer wording is exactly the AC text (AC1)', () => {
 describe('/about, AC wording and version (AC2)', () => {
   it('renders without redirecting, with the version from package.json', async () => {
     const router = createMemoryRouter(routes, { initialEntries: ['/about'] });
-    render(<RouterProvider router={router} />);
+    render(
+      <AppProviders>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
     expect(router.state.location.pathname).toBe('/about');
     const pkg = (await import('../package.json')) as { version: string };
     expect(screen.getByTestId('app-version')).toHaveTextContent(pkg.version);
@@ -155,6 +166,8 @@ describe('/about, AC wording and version (AC2)', () => {
 
   it('is linked from the footer on the app shell and the public shell', () => {
     for (const path of ['/games', '/sign-in']) {
+      // /sign-in redirects a signed-in visitor, so that case runs signed out.
+      useSessionStore.setState({ status: path === '/sign-in' ? 'signed_out' : 'signed_in' });
       const { unmount } = renderAt(path);
       expect(
         within(screen.getByRole('contentinfo')).getByRole('link', { name: 'About' }),

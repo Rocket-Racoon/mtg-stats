@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { act, render, screen } from '@testing-library/react';
 import { createMemoryRouter, type RouteObject } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
+import { AppProviders } from '../providers/AppProviders';
 import { afterEach, describe, expect, it } from 'vitest';
 import { routes } from '../routes';
 import { safeNext } from './next';
@@ -21,7 +22,9 @@ function renderAt(path: string, session: Session) {
   const router = createMemoryRouter(routes, { initialEntries: [path] });
   render(
     <SessionProvider session={session}>
-      <RouterProvider router={router} />
+      <AppProviders>
+        <RouterProvider router={router} />
+      </AppProviders>
     </SessionProvider>,
   );
   return router;
@@ -82,7 +85,11 @@ describe('guard redirect (AC1)', () => {
   it('reads the store when no session is injected', () => {
     useSessionStore.setState({ status: 'signed_in' });
     const router = createMemoryRouter(routes, { initialEntries: ['/games'] });
-    render(<RouterProvider router={router} />);
+    render(
+      <AppProviders>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
     expect(screen.getByRole('heading', { level: 2, name: 'Games' })).toBeInTheDocument();
   });
 });
@@ -116,7 +123,9 @@ describe('RequireSession above /sign-in (safety net)', () => {
     );
     render(
       <SessionProvider session={SIGNED_OUT}>
-        <RouterProvider router={router} />
+        <AppProviders>
+          <RouterProvider router={router} />
+        </AppProviders>
       </SessionProvider>,
     );
     expect(screen.getByText('sign-in page')).toBeInTheDocument();
@@ -137,7 +146,11 @@ describe('restoring (AC3)', () => {
   it('renders the page once restoring becomes signed_in, without a reload', () => {
     useSessionStore.setState({ status: 'restoring' });
     const router = createMemoryRouter(routes, { initialEntries: ['/decks'] });
-    render(<RouterProvider router={router} />);
+    render(
+      <AppProviders>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
     expect(screen.getByText('Loading…')).toBeInTheDocument();
     act(() => {
       useSessionStore.getState().setStatus('signed_in');
@@ -150,7 +163,11 @@ describe('restoring (AC3)', () => {
   it('redirects once restoring becomes signed_out', () => {
     useSessionStore.setState({ status: 'restoring' });
     const router = createMemoryRouter(routes, { initialEntries: ['/decks?a=1'] });
-    render(<RouterProvider router={router} />);
+    render(
+      <AppProviders>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
     act(() => {
       useSessionStore.getState().setStatus('signed_out');
     });
@@ -166,7 +183,9 @@ describe('restoring (AC3)', () => {
       set = setSession;
       return (
         <SessionProvider session={session}>
-          <RouterProvider router={router} />
+          <AppProviders>
+            <RouterProvider router={router} />
+          </AppProviders>
         </SessionProvider>
       );
     }

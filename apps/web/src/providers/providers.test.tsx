@@ -58,8 +58,8 @@ describe('AppProviders (AC1)', () => {
     expect(screen.getByText('stale 30000 retry false')).toBeInTheDocument();
   });
 
-  it('starts the session store signed out', () => {
-    expect(useSessionStore.getState().status).toBe('signed_out');
+  it('starts the session store restoring (S-2.1.6)', () => {
+    expect(useSessionStore.getState().status).toBe('restoring');
   });
 });
 

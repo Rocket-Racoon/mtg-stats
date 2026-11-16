@@ -3,6 +3,7 @@
 import { render, screen, within } from '@testing-library/react';
 import { createMemoryRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
+import { AppProviders } from '../providers/AppProviders';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes } from '../routes';
 import { PUBLIC_PATHS } from '../session/public-paths';
@@ -60,7 +61,11 @@ const TITLES: Record<LinkKind, string> = {
 
 function mount(path: string) {
   const router = createMemoryRouter(routes, { initialEntries: [path] });
-  render(<RouterProvider router={router} />);
+  render(
+    <AppProviders>
+      <RouterProvider router={router} />
+    </AppProviders>,
+  );
   return router;
 }
 

@@ -5,6 +5,7 @@ export type { ApiClient, ApiClientOptions, ApiMethod } from './client';
 export { REFRESH_PATH } from './auth';
 export type { AuthTokens, TokenStore } from './auth';
 export { apiOrigin } from './origin';
+export { TOO_MANY_ATTEMPTS_FALLBACK, tooManyAttemptsMessage } from './rate-limit';
 export { ApiError, NETWORK_ERROR, UNEXPECTED_RESPONSE, parseRetryAfter } from './errors';
 export type { ApiErrorDetails, ApiErrorInit } from './errors';
 export type { components, operations, paths } from './generated/schema';

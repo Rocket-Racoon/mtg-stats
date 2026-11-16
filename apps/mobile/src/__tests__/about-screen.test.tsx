@@ -10,6 +10,7 @@ import { router } from 'expo-router';
 import * as lib from 'expo-router/testing-library';
 import { Linking } from 'react-native';
 import { act } from '@testing-library/react-native';
+import { signInViaStore } from './sign-in-via-store';
 
 jest.setTimeout(60000);
 
@@ -39,7 +40,7 @@ describe('About from the More tab', () => {
   it('opens from More, shows the shared notices and returns to More on back', async () => {
     await lib.renderRouter(APP_DIR, { initialUrl: '/' });
     const { screen, fireEvent } = lib;
-    await fireEvent.press(await screen.findByLabelText('Continue (placeholder)'));
+    await signInViaStore();
     await fireEvent.press(await screen.findByLabelText('More'));
     await fireEvent.press(await screen.findByLabelText('About'));
     await expectAboutContent();
@@ -58,7 +59,7 @@ describe('About from the sign-in stack', () => {
     await expectAboutContent();
     expect(screen).toHavePathname('/about');
     await act(async () => router.back());
-    expect(await screen.findByLabelText('Continue (placeholder)')).toBeTruthy();
+    expect(await screen.findByLabelText('I have an invite')).toBeTruthy();
   });
 });
 

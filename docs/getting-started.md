@@ -155,6 +155,8 @@ Before the first run:
 2. Have the root `.env` in place (step 4).
 3. Have the dev database at head, which `alembic check` needs. The Compose `migrate` service already does this; for the native setup run `uv run --directory apps/api alembic upgrade head`. Dev database only, never against another one.
 
+**Reset the dev database.** `pnpm db:reset` drops and recreates the dev database, migrates it to head and runs the registered seeders (it prints `seeded: N seeders`). It refuses, touches nothing and exits non-zero unless `APP_ENV=dev` (process environment or the dev `.env`) and the `DATABASE_URL` host is `localhost`, `127.0.0.1` or `postgres`. On a host shell the bare name `postgres` resolves only through DNS (it is the Compose service name), so prefer `localhost` or `127.0.0.1` there. Stop the API and worker first if you can; open connections to the database are terminated.
+
 Then start it with `pnpm verify`:
 
 ```powershell

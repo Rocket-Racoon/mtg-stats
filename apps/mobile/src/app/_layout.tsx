@@ -1,19 +1,24 @@
 import { Stack, router, usePathname, type Href } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { api } from '../api';
 import { AppProviders } from '../components/AppProviders';
 import { isPendingCandidate } from '../session/paths';
 import { restoreSession } from '../session/restore';
 import { SessionProvider, useSession } from '../session/SessionProvider';
+import { preventSplashAutoHide, useSplashWhileRestoring } from '../session/splash';
 import { useSessionStore } from '../session/store';
+
+// Keep the native splash up from launch until the session leaves 'restoring' (see splash.ts).
+preventSplashAutoHide();
 
 export function RootNavigator() {
   const { status } = useSession();
   const pendingHref = useSessionStore((s) => s.pendingHref);
   const signedIn = status === 'signed-in';
   const restoring = status === 'restoring';
+  useSplashWhileRestoring(status);
 
   // The launch URL, read on the first render while the navigator still holds it: once the session
   // settles, a protected path (for example mtgstats://decks) becomes the pending link. Signed out
@@ -48,7 +53,7 @@ export function RootNavigator() {
   }, [signedIn, settled, pendingHref]);
 
   // The navigator stays mounted while restoring so it takes the launch URL (a deep link); the
-  // loading view covers it until the restore settles.
+  // native splash covers it until the restore settles.
   return (
     <View style={styles.root}>
       <View
@@ -74,11 +79,6 @@ export function RootNavigator() {
           </Stack.Protected>
         </Stack>
       </View>
-      {restoring ? (
-        <View style={styles.loading} testID="session-restoring">
-          <ActivityIndicator accessibilityLabel="Loading" size="large" />
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -106,10 +106,4 @@ export default function RootLayout() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  loading: {
-    ...StyleSheet.absoluteFill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#ffffff',
-  },
 });

@@ -55,7 +55,7 @@ describe('restore with a stored refresh token', () => {
     expect(writes.find(([k, v]) => v === REFRESH_2 && /refresh/i.test(k))).toBeDefined();
   });
 
-  it('shows a loading view and no sign-in form while the refresh is in flight', async () => {
+  it('shows neither the sign-in form nor the tabs while the refresh is in flight', async () => {
     let release: (r: Response) => void = () => undefined;
     stubApi({
       [REFRESH]: () =>

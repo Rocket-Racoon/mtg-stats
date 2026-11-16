@@ -2,11 +2,11 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createBrowserRouter } from 'react-router';
 import { routes } from './routes';
-// Kept until S-1.5.3 hooks import `api`; proves the client bundles (S-1.5.2 AC4).
-import './api';
+import { api } from './api';
 import './theme/theme.css';
 import './App.css';
 import { AppRoot } from './providers/AppRoot';
+import { restoreSession } from './session/restore';
 import { startThemeSync } from './theme/store';
 
 const container = document.getElementById('root');
@@ -15,6 +15,9 @@ if (!container) {
 }
 
 startThemeSync();
+
+// Resolve the 'restoring' session status once, before anything protected renders (S-2.1.6 AC5).
+void restoreSession(api);
 
 const router = createBrowserRouter(routes);
 

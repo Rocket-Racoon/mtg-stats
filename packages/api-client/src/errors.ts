@@ -7,6 +7,8 @@ export interface ApiErrorInit {
   message: string;
   details?: ApiErrorDetails | null;
   requestId?: string | null;
+  /** Seconds to wait before retrying, from the `Retry-After` header. */
+  retryAfter?: number | null;
   cause?: unknown;
 }
 
@@ -24,6 +26,8 @@ export class ApiError extends Error {
   readonly code: string;
   readonly details: ApiErrorDetails | null;
   readonly requestId: string | null;
+  /** Seconds from the `Retry-After` header (usually on a 429), or null when absent or invalid. */
+  readonly retryAfter: number | null;
 
   constructor(init: ApiErrorInit) {
     super(init.message, init.cause === undefined ? undefined : { cause: init.cause });
@@ -32,6 +36,7 @@ export class ApiError extends Error {
     this.code = init.code;
     this.details = init.details ?? null;
     this.requestId = init.requestId ?? null;
+    this.retryAfter = init.retryAfter ?? null;
     if (init.cause !== undefined && this.cause !== init.cause) {
       // Hermes may ignore the Error options bag; assign it explicitly.
       Object.defineProperty(this, 'cause', {
@@ -51,11 +56,30 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * Parses a `Retry-After` header: delta-seconds (a non-negative integer) or an HTTP date, measured
+ * from now and clamped at 0 (rounded up to whole seconds). Anything else gives null.
+ */
+export function parseRetryAfter(
+  value: string | null | undefined,
+  now: number = Date.now(),
+): number | null {
+  if (value === null || value === undefined) return null;
+  const text = value.trim();
+  if (/^\d+$/.test(text)) return Number(text);
+  // A date always has letters (day/month names); this rejects "-5", "1.5" and "".
+  if (!/[A-Za-z]/.test(text)) return null;
+  const at = Date.parse(text);
+  if (Number.isNaN(at)) return null;
+  return Math.max(0, Math.ceil((at - now) / 1000));
+}
+
+/**
  * Builds the ApiError for a non-2xx response. `body` is the parsed JSON body, or the raw
  * text when it was not JSON.
  */
 export function apiErrorFromResponse(response: Response, body: unknown): ApiError {
   const headerRequestId = response.headers.get('X-Request-ID');
+  const retryAfter = parseRetryAfter(response.headers.get('Retry-After'));
   const envelope = isRecord(body) ? body.error : undefined;
   if (
     isRecord(envelope) &&
@@ -71,6 +95,7 @@ export function apiErrorFromResponse(response: Response, body: unknown): ApiErro
         typeof envelope.request_id === 'string' && envelope.request_id !== ''
           ? envelope.request_id
           : headerRequestId,
+      retryAfter,
     });
   }
   return new ApiError({
@@ -79,6 +104,7 @@ export function apiErrorFromResponse(response: Response, body: unknown): ApiErro
     message: response.statusText || `Unexpected response (HTTP ${response.status})`,
     details: isRecord(body) ? body : null,
     requestId: headerRequestId,
+    retryAfter,
   });
 }
 

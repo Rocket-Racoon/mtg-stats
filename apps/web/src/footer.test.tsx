@@ -11,6 +11,7 @@ import {
 } from '@mtg-stats/card-utils';
 import { createMemoryRouter, type RouteObject } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
+import { AppProviders } from './providers/AppProviders';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { env } from './env';
 import { routes } from './routes';
@@ -21,7 +22,11 @@ beforeEach(() => {
 });
 
 function renderAt(path: string) {
-  return render(<RouterProvider router={createMemoryRouter(routes, { initialEntries: [path] })} />);
+  return render(
+    <AppProviders>
+      <RouterProvider router={createMemoryRouter(routes, { initialEntries: [path] })} />
+    </AppProviders>,
+  );
 }
 
 /** Every concrete path in the route table, plus an unknown one for the catch-all. */
@@ -138,7 +143,11 @@ describe('footer wording is exactly the AC text (AC1)', () => {
 describe('/about, AC wording and version (AC2)', () => {
   it('renders without redirecting, with the version from package.json', async () => {
     const router = createMemoryRouter(routes, { initialEntries: ['/about'] });
-    render(<RouterProvider router={router} />);
+    render(
+      <AppProviders>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
     expect(router.state.location.pathname).toBe('/about');
     const pkg = (await import('../package.json')) as { version: string };
     expect(screen.getByTestId('app-version')).toHaveTextContent(pkg.version);

@@ -108,7 +108,7 @@ describe('AC1: signed-out redirect through the real route table', () => {
     expect(heading('Decks')).toBeInTheDocument();
   });
 
-  it.each<SessionStatus>(['signed_out', 'restoring', 'signed_in'])(
+  it.each<SessionStatus>(['signed_out', 'restoring'])(
     'never redirects /sign-in to itself when %s',
     (status) => {
       const router = mount('/sign-in?next=/decks', { status });

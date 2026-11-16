@@ -1,6 +1,7 @@
 """Public interface of the ``identity`` domain; other code imports only from here."""
 
 from app.identity.models import AVATAR_COLORS
+from app.identity.services.admin import is_site_admin
 from app.identity.services.auth import (
     InvalidCredentialsError,
     RefreshTokenReuseError,
@@ -64,6 +65,7 @@ __all__ = [
     "get_players",
     "hash_password",
     "hash_refresh_token",
+    "is_site_admin",
     "normalize_display_name",
     "normalize_email",
     "password_needs_rehash",

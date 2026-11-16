@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI
 
+from app.core.auth import register_site_admin_checker
 from app.core.config import Settings, get_settings
 from app.core.cors import OriginGatedCORSMiddleware
 from app.core.db import dispose_engine, get_engine
@@ -17,6 +18,7 @@ from app.core.redis import close_redis, get_redis
 from app.core.request_id import RequestIDMiddleware
 from app.identity import services as identity_services
 from app.identity.router import router as identity_router
+from app.playgroups.router import router as playgroups_router
 from app.system.router import router as system_router
 
 API_PREFIX = "/api/v1"
@@ -60,6 +62,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         swagger_ui_oauth2_redirect_url=f"{API_PREFIX}/docs/oauth2-redirect",
     )
     app.state.settings = settings
+    register_site_admin_checker(identity_services.is_site_admin)
     register_exception_handlers(app)
     # add_middleware puts the latest at the outermost position: request ID > CORS > 500 catcher.
     app.add_middleware(UnhandledErrorMiddleware)
@@ -70,5 +73,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Domain routers are included on this router as their stories land.
     api_router.include_router(system_router)
     api_router.include_router(identity_router)
+    api_router.include_router(playgroups_router)
     app.include_router(api_router)
     return app

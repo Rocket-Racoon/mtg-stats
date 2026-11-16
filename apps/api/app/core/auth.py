@@ -4,10 +4,12 @@ Tokens are HS256 JWTs signed with ``JWT_SECRET``. Both kinds carry ``sub``, ``ex
 ``jti`` and ``type`` (``access`` or ``refresh``). Decoding accepts only HS256, so ``alg=none`` and
 algorithm-confusion tokens fail. ``current_user`` only decodes the token; it never reads the
 database, so a deactivated user's access token works until it expires (at most the access
-lifetime). This module imports no domain.
+lifetime). ``require_site_admin`` is the exception: it checks the database on every request
+through a checker that ``create_app`` registers. This module imports no domain.
 """
 
 import secrets
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, ClassVar, Literal
@@ -16,9 +18,11 @@ from uuid import UUID
 import jwt
 from fastapi import Depends, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
-from app.core.errors import AuthenticationError
+from app.core.db import SessionDep
+from app.core.errors import AuthenticationError, PermissionDeniedError
 
 JWT_ALGORITHM = "HS256"
 REQUIRED_CLAIMS = ("sub", "exp", "iat", "jti", "type")
@@ -163,6 +167,39 @@ async def current_user(
 
 
 CurrentUserDep = Annotated[CurrentUser, Depends(current_user)]
+
+SiteAdminChecker = Callable[[AsyncSession, UUID], Awaitable[bool]]
+_site_admin_checker: SiteAdminChecker | None = None
+
+
+def register_site_admin_checker(checker: SiteAdminChecker | None) -> None:
+    """Register the function that says whether a user is an active site admin.
+
+    ``core`` cannot import ``identity``, so ``create_app`` registers ``identity``'s checker here.
+    Passing ``None`` clears it (``require_site_admin`` then fails closed).
+    """
+    global _site_admin_checker  # noqa: PLW0603
+    _site_admin_checker = checker
+
+
+async def require_site_admin(user: CurrentUserDep, session: SessionDep) -> CurrentUser:
+    """FastAPI dependency: the caller, if they are a site admin right now, else a 403.
+
+    The role is read from the database on every request (no caching, no token claim), so a
+    revoked admin or a deactivated account loses access at once.
+
+    Raises:
+        PermissionDeniedError: the user is not an active site admin (code ``forbidden``).
+        RuntimeError: no checker is registered (fails closed, a 500).
+    """
+    if _site_admin_checker is None:
+        raise RuntimeError("no site-admin checker registered; call register_site_admin_checker")
+    if not await _site_admin_checker(session, user.id):
+        raise PermissionDeniedError
+    return user
+
+
+SiteAdminDep = Annotated[CurrentUser, Depends(require_site_admin)]
 
 
 def client_mode(request: Request) -> ClientMode:

@@ -39,10 +39,15 @@ local retry = 0
 local blocked = 0
 for i, name in ipairs(KEYS) do
   local count = tonumber(redis.call('GET', name) or '0')
+  if count == nil then
+    redis.call('DEL', name)
+    count = 0
+  end
   if count >= tonumber(ARGV[i + 1]) then
     blocked = 1
     local ttl = redis.call('TTL', name)
-    if ttl < 1 then ttl = window end
+    if ttl == -1 then redis.call('EXPIRE', name, window) end
+    if ttl < 0 then ttl = window elseif ttl < 1 then ttl = 1 end
     if ttl > retry then retry = ttl end
   end
 end

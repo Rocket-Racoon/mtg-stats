@@ -43,13 +43,16 @@ async def throttled_sign_in(
     )
     if isinstance(outcome, rate_limit.Blocked):
         raise RateLimitedError(retry_after=outcome.retry_after)
+    counted = isinstance(outcome, rate_limit.Allowed) and outcome.counted
     try:
         result = await sign_in(session, username=username, password=password)
     except InvalidCredentialsError:
         raise
     except BaseException:
-        await rate_limit.give_back([user_key, ip_key])
+        if counted:
+            await rate_limit.give_back([user_key, ip_key])
         raise
-    await rate_limit.reset(user_key)
-    await rate_limit.give_back([ip_key])
+    if counted:  # Redis was down at acquire: skip the extra failing calls
+        await rate_limit.reset(user_key)
+        await rate_limit.give_back([ip_key])
     return result

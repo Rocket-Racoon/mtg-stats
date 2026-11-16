@@ -197,6 +197,9 @@ async def test_retry_after_falls_back_to_the_window_when_the_counter_has_no_ttl(
         await redis.persist(user_key)
 
     assert _assert_throttled(await login(client)) == 900
+    assert (
+        1 <= await ttl_of(user_key) <= 900
+    )  # the blocked key got a window, it cannot stay forever
 
 
 # ------------------------------------------------------------------------------ AC2

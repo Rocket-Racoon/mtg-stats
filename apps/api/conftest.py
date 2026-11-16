@@ -236,39 +236,53 @@ _REDIS_UNREACHABLE: list[bool] = []  # set once cleanup finds Redis down; later 
 
 
 @pytest.fixture(autouse=True)
-async def rate_limit_prefix(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[str]:
+async def rate_limit_prefix() -> AsyncIterator[str]:
     """Give every test its own rate-limit key prefix on the shared test Redis (S-2.1.10).
 
     Counters never leak between tests (or from an earlier run), and only keys under this test's
     prefix are deleted afterwards (SCAN MATCH, never a database-wide flush). The lazy Redis client
-    is reset around the test because it is bound to the test's event loop. Cleanup is best
-    effort: it is skipped when Redis is unreachable, and that is remembered for the session so
-    later tests do not each pay the connect timeout.
+    is reset around the test because it is bound to the test's event loop.
+
+    It deliberately does not request ``monkeypatch``: as an autouse fixture it is set up before the
+    test's own fixtures and torn down after them, so a test's patches of the Redis client (a
+    failing or hanging one) are already undone when the cleanup runs. The env var uses a private
+    ``MonkeyPatch.context()`` for the same reason.
+
+    Cleanup is bounded by a 2 s timeout. When Redis is unreachable (a connection-level error) it is
+    skipped, and that is remembered for the session so later tests do not each pay the timeout.
+    After deleting, it checks that no key under the prefix is left (a leak fails the test).
     """
     from redis.asyncio import Redis  # noqa: PLC0415
+    from redis.exceptions import ConnectionError as RedisConnectionError  # noqa: PLC0415
 
     from app.core.config import get_settings  # noqa: PLC0415
     from app.core.redis import close_redis  # noqa: PLC0415
 
     prefix = f"mtgstats:rl:test-{uuid.uuid4().hex}"
     redis_url = os.environ["REDIS_URL"]  # a test may point REDIS_URL elsewhere; clean the real one
-    monkeypatch.setenv("RATE_LIMIT_KEY_PREFIX", prefix)
-    get_settings.cache_clear()
-    await close_redis()
-    try:
-        yield prefix
-    finally:
+    with pytest.MonkeyPatch.context() as env:
+        env.setenv("RATE_LIMIT_KEY_PREFIX", prefix)
+        get_settings.cache_clear()
+        await close_redis()
         try:
-            await close_redis()
-            if not _REDIS_UNREACHABLE:
-                cleaner: Redis = Redis.from_url(redis_url, socket_connect_timeout=1.0)
-                try:
-                    keys = [key async for key in cleaner.scan_iter(match=f"{prefix}*", count=500)]
-                    if keys:
-                        await cleaner.delete(*keys)
-                except Exception:
-                    _REDIS_UNREACHABLE.append(True)
-                finally:
-                    await cleaner.aclose()
+            yield prefix
         finally:
-            get_settings.cache_clear()
+            try:
+                await close_redis()
+                if not _REDIS_UNREACHABLE:
+                    cleaner: Redis = Redis.from_url(redis_url, socket_connect_timeout=1.0)
+                    try:
+                        async with asyncio.timeout(2):
+                            keys = [k async for k in cleaner.scan_iter(f"{prefix}*", count=500)]
+                            if keys:
+                                await cleaner.delete(*keys)
+                            left = [k async for k in cleaner.scan_iter(f"{prefix}*", count=500)]
+                    except (RedisConnectionError, OSError, TimeoutError):
+                        _REDIS_UNREACHABLE.append(True)
+                    else:
+                        if left:
+                            pytest.fail(f"rate-limit keys leaked under {prefix}: {len(left)}")
+                    finally:
+                        await cleaner.aclose()
+            finally:
+                get_settings.cache_clear()

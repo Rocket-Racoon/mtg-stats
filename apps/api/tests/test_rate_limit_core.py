@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
+from app.core import rate_limit
 from app.core.db import AppSession
 from app.core.redis import close_redis
 from tests.rate_limit_support import (
@@ -18,7 +19,10 @@ from tests.rate_limit_support import (
     keys_under,
     login,
     make_member,
+    peek_redis,
+    ttl_of,
     use_settings,
+    value_of,
 )
 from tests.register_support import (
     PREVIEW,
@@ -188,3 +192,59 @@ async def test_a_hanging_redis_call_times_out_and_the_request_goes_through(
     warnings = _warnings(caplog)
     assert len(warnings) == 1
     assert "TimeoutError" in warnings[0].getMessage()
+
+
+# ------------------------------------------------------------------------------ Lua edge cases
+
+
+async def _set(name: str, value: str, *, pexpire_ms: int | None = None) -> None:
+    async with peek_redis() as redis:
+        await redis.set(name, value)
+        if pexpire_ms is not None:
+            await redis.pexpire(name, pexpire_ms)
+
+
+async def test_a_blocked_key_with_under_a_second_left_gives_retry_after_one() -> None:
+    name = rate_limit.key("test", "almost-expired")
+    await _set(name, "3", pexpire_ms=300)
+
+    outcome = await rate_limit.acquire([(name, 3)])
+
+    assert outcome == rate_limit.Blocked(retry_after=1)
+    assert await value_of(name) == 3  # a block increments nothing
+
+
+async def test_a_blocked_key_without_a_ttl_gives_the_window_and_gets_a_ttl() -> None:
+    name = rate_limit.key("test", "no-ttl")
+    await _set(name, "3")
+    assert await ttl_of(name) == -1
+
+    outcome = await rate_limit.acquire([(name, 3)])
+
+    assert outcome == rate_limit.Blocked(retry_after=900)
+    assert 1 <= await ttl_of(name) <= 900
+
+
+async def test_a_corrupt_counter_value_is_treated_as_zero_and_repaired() -> None:
+    name = rate_limit.key("test", "corrupt")
+    await _set(name, "abc")
+
+    outcome = await rate_limit.acquire([(name, 3)])
+
+    assert outcome == rate_limit.Allowed(counted=True)
+    assert await value_of(name) == 1  # an integer again (value_of parses with int())
+    assert 1 <= await ttl_of(name) <= 900
+
+
+async def test_a_successful_login_with_redis_down_logs_exactly_one_warning(
+    redis_down: str,
+    client: httpx.AsyncClient,
+    app_schema: AppSession,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    await make_member(app_schema)
+
+    response = await login(client, "ada", PASSWORD)
+
+    assert response.status_code == 200
+    assert len(_warnings(caplog)) == 1  # the uncounted attempt skips the reset and the give-back

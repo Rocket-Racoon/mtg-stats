@@ -45,3 +45,32 @@ export function useDecks(params: { limit?: number } = {}) {
 
 (`/api/v1/decks` is hypothetical: the spec has no list endpoint yet.) Flatten the pages with
 `data.pages.flatMap((page) => page.items)`.
+
+## Auth: token store, Bearer header and refresh
+
+Pass a `tokenStore` (and optionally `onSessionExpired`) to `createApiClient`. The package never needs
+app-specific code; the two platforms differ only in the store they supply.
+
+```ts
+interface TokenStore {
+  getAccessToken(): string | null | Promise<string | null>;
+  getRefreshToken?(): string | null | Promise<string | null>; // omit for cookie mode
+  setTokens(tokens: { accessToken: string; refreshToken?: string }): void | Promise<void>;
+  clear(): void | Promise<void>;
+}
+```
+
+- **Header**: while an access token exists, every request carries `Authorization: Bearer <token>`.
+- **Refresh**: a 401 (except from `/auth/login`, `/auth/refresh` and `/auth/logout`) triggers one refresh,
+  then the original request is retried once. A 401 on the retry rejects and does not refresh again.
+- **Single-flight**: at most one refresh runs per client; concurrent 401s await the same call. A request
+  whose token is already stale (another request refreshed) retries with the current token without refreshing.
+- **Cookie mode (web)**: the store has no refresh token. The refresh is `POST /api/v1/auth/refresh` with
+  `credentials: "include"` and no body, run inside `navigator.locks` (`mtgstats-auth-refresh`) when
+  available so tabs do not race. The access token is kept in memory; the refresh token is the HttpOnly cookie.
+- **Body mode (mobile)**: `getRefreshToken()` returns a token. The refresh sends `X-Client: mobile` and
+  `{"refresh_token": ...}`, and `setTokens` receives the rotated refresh token.
+- **Rejected refresh** (4xx other than 408/429, or an invalid body): the store is cleared, then
+  `onSessionExpired` runs once, and waiting requests reject with the original 401 `ApiError`.
+  **Transient failures** (network, 5xx, 408, 429) leave the store alone and reject with that failure's `ApiError`.
+- Requests to `/api/v1/auth/*` are sent with `credentials: "include"` so the cookie is stored and sent.

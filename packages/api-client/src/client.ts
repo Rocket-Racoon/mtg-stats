@@ -13,6 +13,7 @@ import {
   apiErrorFromResponse,
   isAbortError,
 } from './errors';
+import { createAuthMiddleware, type TokenStore } from './auth';
 import type { paths } from './generated/schema';
 
 type HttpMethod = 'get' | 'put' | 'post' | 'delete' | 'options' | 'head' | 'patch' | 'trace';
@@ -73,6 +74,13 @@ export interface ApiClientOptions {
   fetch?: typeof globalThis.fetch;
   /** Headers sent with every request. */
   headers?: ClientOptions['headers'];
+  /**
+   * Supplies the access token (and, in body mode, the refresh token). Without it the client sends
+   * no Authorization header and never refreshes.
+   */
+  tokenStore?: TokenStore;
+  /** Called once when a refresh is rejected, after the store is cleared. Errors it throws are swallowed. */
+  onSessionExpired?: () => void;
 }
 
 type RawResult = { data?: unknown; error?: unknown; response: Response };
@@ -106,6 +114,15 @@ export function createApiClient<P extends object = paths>(options: ApiClientOpti
     headers: options.headers,
     fetch: (input: Request) => safeFetch(input),
   });
+
+  // Registered first so user middleware sees the Authorization header and the final response.
+  inner.use(
+    createAuthMiddleware({
+      baseUrl: options.baseUrl,
+      tokenStore: options.tokenStore,
+      onSessionExpired: options.onSessionExpired,
+    }),
+  );
 
   // The public ApiClient interface carries the strict typings; the bodies stay loosely typed.
   const method = (name: 'GET' | 'PUT' | 'POST' | 'PATCH' | 'DELETE') => {

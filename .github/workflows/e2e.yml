@@ -1,0 +1,141 @@
+# Web end-to-end smoke tests (S-1.8.5). Runs the real dev backend stack (infra/docker-compose.yml:
+# postgres, redis, migrate, api, worker), seeds a throwaway test account, builds the web app and
+# serves it with `vite preview` on http://localhost:5173 (the API's dev CORS origin), then runs the
+# Playwright suite in apps/web/e2e/ in Chromium. The same suite runs locally with
+# `pnpm --filter @mtg-stats/web e2e` against a running Compose stack (see apps/web/e2e/README.md).
+# It is not one of the required checks (`api` and `ts`, S-1.8.4); a red run still means don't merge
+# until it's understood. On failure, Playwright traces, screenshots and the HTML report are uploaded
+# as the `playwright-report` artifact, kept 7 days.
+name: E2E
+
+on:
+  pull_request:
+    paths:
+      - apps/web/**
+      - apps/api/**
+      - packages/**
+      - infra/**
+      - pnpm-lock.yaml
+      - .env.example
+      - .github/workflows/e2e.yml
+  push:
+    branches: [main]
+    paths:
+      - apps/web/**
+      - apps/api/**
+      - packages/**
+      - infra/**
+      - pnpm-lock.yaml
+      - .env.example
+      - .github/workflows/e2e.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  COMPOSE_FILE: infra/docker-compose.yml
+  E2E_USERNAME: e2e_smoke
+  CI: 'true'
+
+jobs:
+  e2e:
+    name: e2e
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # pnpm first (version from `packageManager`), so setup-node can cache its store.
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: package.json
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install TypeScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate secrets for this run
+        # A fresh JWT secret for the stack and a fresh password for the test account; both are
+        # masked in the log and exist only for this run.
+        run: |
+          [ -f .env ] || cp .env.example .env
+          JWT="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
+          PW="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
+          echo "::add-mask::$JWT"
+          echo "::add-mask::$PW"
+          grep -v '^JWT_SECRET=' .env > .env.tmp || true
+          printf 'JWT_SECRET=%s\n' "$JWT" >> .env.tmp
+          mv .env.tmp .env
+          echo "E2E_PASSWORD=$PW" >> "$GITHUB_ENV"
+
+      - name: Start the backend stack
+        run: |
+          docker compose up -d --build --wait api worker
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8000/api/v1/health/ready > /dev/null; then exit 0; fi
+            sleep 2
+          done
+          echo "API not ready after 120 s" >&2
+          exit 1
+
+      - name: Seed the test account
+        # The compose services run plain `python -m …` inside the image (as migrate and worker do).
+        # `exec` doesn't inherit the host environment, so the values are passed explicitly (the
+        # password is masked in the log).
+        run: >-
+          docker compose exec -T -e "E2E_USERNAME=$E2E_USERNAME" -e "E2E_PASSWORD=$E2E_PASSWORD" api
+          python -m app.scripts.seed_e2e_user
+
+      - name: Playwright version
+        id: pw
+        run: echo "version=$(pnpm --filter @mtg-stats/web exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the Playwright browser
+        id: pw-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}-chromium
+
+      - name: Install Chromium
+        if: ${{ steps.pw-cache.outputs.cache-hit != 'true' }}
+        run: pnpm --filter @mtg-stats/web exec playwright install --with-deps chromium
+
+      - name: Install Chromium's system dependencies
+        # The browser binary is cached; its OS packages are not.
+        if: ${{ steps.pw-cache.outputs.cache-hit == 'true' }}
+        run: pnpm --filter @mtg-stats/web exec playwright install-deps chromium
+
+      - name: Run the smoke suite
+        timeout-minutes: 12
+        run: pnpm --filter @mtg-stats/web e2e
+
+      - name: Upload Playwright traces and screenshots
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report/
+            apps/web/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Container logs
+        if: ${{ failure() }}
+        run: |
+          docker compose ps -a
+          docker compose logs --no-color --timestamps
+
+      - name: Tear down
+        if: ${{ always() }}
+        run: docker compose down -v --remove-orphans

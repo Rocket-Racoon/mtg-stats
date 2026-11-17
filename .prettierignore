@@ -5,6 +5,9 @@ coverage/
 .expo/
 pnpm-lock.yaml
 **/generated/
+playwright-report/
+test-results/
+blob-report/
 packages/api-client/openapi.json
 .claude/
 docs/

@@ -14,6 +14,9 @@ export default tseslint.config(
       '**/coverage/',
       '**/.expo/',
       '**/generated/',
+      '**/playwright-report/',
+      '**/test-results/',
+      '**/blob-report/',
     ],
   },
   js.configs.recommended,
@@ -57,6 +60,19 @@ export default tseslint.config(
         { name: '__dirname', message: 'Node-only global.' },
         { name: '__filename', message: 'Node-only global.' },
         { name: 'require', message: 'Node-only global.' },
+      ],
+    },
+  },
+  {
+    // The e2e suite targets elements by role and label, never by CSS or XPath (S-1.8.5 AC4).
+    files: ['apps/web/e2e/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        ...['locator', '$', '$$', '$eval', '$$eval', 'waitForSelector'].map((name) => ({
+          selector: `CallExpression[callee.property.name='${name}']`,
+          message: `S-1.8.5: no CSS/XPath selectors in e2e; use getByRole, getByLabel, getByText or getByTestId (not .${name}()).`,
+        })),
       ],
     },
   },

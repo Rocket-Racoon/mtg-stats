@@ -1,8 +1,11 @@
 """Create or reset the end-to-end test account (S-1.8.5), for dev and CI stacks only.
 
-Run from ``apps/api`` with ``uv run python -m app.scripts.seed_e2e_user``, or inside the Compose
-``api`` container with ``docker compose -f infra/docker-compose.yml exec -T api python -m
-app.scripts.seed_e2e_user`` (its working directory is ``/app`` and the venv is on ``PATH``).
+Run from ``apps/api`` with ``E2E_USERNAME=... E2E_PASSWORD=... uv run python -m
+app.scripts.seed_e2e_user``. Inside the Compose ``api`` container, run it through the image
+entrypoint, which builds ``DATABASE_URL`` for the ``postgres`` service (``exec`` skips it)::
+
+    docker compose -f infra/docker-compose.yml exec -T -e E2E_USERNAME=... -e E2E_PASSWORD=... \
+        api docker-entrypoint.sh python -m app.scripts.seed_e2e_user
 
 It reads ``E2E_USERNAME``, ``E2E_PASSWORD`` and the optional ``E2E_DISPLAY_NAME`` (default
 ``E2E Tester``). It exits 1 without touching the database when ``APP_ENV`` is ``prod`` or a
@@ -19,6 +22,7 @@ from contextlib import AbstractAsyncContextManager
 from typing import TextIO
 
 from pydantic import ValidationError
+from sqlalchemy.exc import InterfaceError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -96,6 +100,13 @@ async def run(
         )
     except DomainError as exc:
         print(f"seed failed: {exc.message}", file=err)
+        return 1
+    except (OperationalError, InterfaceError):
+        print(
+            "seed failed: could not connect to the database; check DATABASE_URL's host "
+            "(inside the api container run it through docker-entrypoint.sh).",
+            file=err,
+        )
         return 1
     except Exception as exc:
         # No str(exc): a database error would echo bound parameters, including the hash.

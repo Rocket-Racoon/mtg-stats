@@ -5,7 +5,9 @@
 # `pnpm --filter @mtg-stats/web e2e` against a running Compose stack (see apps/web/e2e/README.md).
 # It is not one of the required checks (`api` and `ts`, S-1.8.4); a red run still means don't merge
 # until it's understood. On failure, Playwright traces, screenshots and the HTML report are uploaded
-# as the `playwright-report` artifact, kept 7 days.
+# as the `playwright-report` artifact, kept 7 days. CI retries a failed test once; a test that
+# passes on its retry leaves the job green, so no artifact is uploaded for that flake (the run log
+# still shows the retry).
 name: E2E
 
 on:
@@ -16,6 +18,8 @@ on:
       - packages/**
       - infra/**
       - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - package.json
       - .env.example
       - .github/workflows/e2e.yml
   push:
@@ -26,6 +30,8 @@ on:
       - packages/**
       - infra/**
       - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - package.json
       - .env.example
       - .github/workflows/e2e.yml
 
@@ -88,12 +94,13 @@ jobs:
           exit 1
 
       - name: Seed the test account
-        # The compose services run plain `python -m …` inside the image (as migrate and worker do).
-        # `exec` doesn't inherit the host environment, so the values are passed explicitly (the
-        # password is masked in the log).
+        # `exec` skips the image entrypoint, and the entrypoint is what points DATABASE_URL at the
+        # postgres service (the root .env's own value is 127.0.0.1 for native dev), so the command
+        # runs through docker-entrypoint.sh explicitly. `exec` doesn't inherit the host
+        # environment either, so the values are passed with -e (the password is masked in the log).
         run: >-
           docker compose exec -T -e "E2E_USERNAME=$E2E_USERNAME" -e "E2E_PASSWORD=$E2E_PASSWORD" api
-          python -m app.scripts.seed_e2e_user
+          docker-entrypoint.sh python -m app.scripts.seed_e2e_user
 
       - name: Playwright version
         id: pw

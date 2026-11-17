@@ -17,12 +17,13 @@ const HEIGHT = 800;
 
 test('signs in with username and password and lands on Home', async ({ page }) => {
   await page.goto('/');
-  await expect(page).toHaveURL(/\/sign-in\?next=(%2F|\/)$/);
+  await expect(page).toHaveURL(/\/sign-in\?next=\/$/);
   await expect(page.getByRole('heading', { level: 2, name: 'Sign in' })).toBeVisible();
 
   await submitSignIn(page);
 
-  await expect(page).toHaveURL(/\/$/);
+  // The full URL, so `/sign-in?next=/` cannot match.
+  await expect(page).toHaveURL(/^http:\/\/localhost:5173\/$/);
   await expect(page.getByRole('heading', { level: 2, name: 'Home' })).toBeVisible();
 });
 
@@ -47,7 +48,10 @@ for (const width of VIEWPORTS) {
       }) => {
         await gotoViaNav(page, route.label);
 
-        await expect(page).toHaveURL(new RegExp(`${route.path}$`));
+        await expect(page).toHaveURL(new RegExp(`^http://localhost:5173${route.path}$`));
+        // The compact menu closes after a click; reopen it, since role queries skip hidden links.
+        await openNavIfCompact(page);
+        await expect(navLink(page, route.label)).toHaveAttribute('aria-current', 'page');
         await expect(page.getByRole('heading', { level: 2, name: route.heading })).toBeVisible();
 
         // Footer notices (S-1.6.6): the Wizards Fan Content Policy notice and the Scryfall credit.
@@ -135,6 +139,8 @@ for (const width of VIEWPORTS) {
       const hasOutline = ring.outlineStyle !== 'none' && ring.outlineWidth > 0;
       const hasShadow = ring.boxShadow !== 'none';
       expect(hasOutline || hasShadow).toBe(true);
+      // S-1.6.2 styles a 3px outline; Chromium's default 1px auto ring must not pass.
+      expect(ring.outlineWidth).toBeGreaterThanOrEqual(2);
     });
   });
 }

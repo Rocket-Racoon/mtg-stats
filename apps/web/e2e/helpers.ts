@@ -60,8 +60,8 @@ export async function submitSignIn(page: Page): Promise<void> {
  */
 export async function signIn(page: Page): Promise<void> {
   await page.goto('/');
-  // The router writes the next path as `/` (not percent-encoded); accept either form.
-  await expect(page).toHaveURL(/\/sign-in\?next=(%2F|\/)$/);
+  // The app deliberately keeps the next path's `/` literal.
+  await expect(page).toHaveURL(/\/sign-in\?next=\/$/);
   await submitSignIn(page);
   await expect(page.getByRole('heading', { level: 2, name: 'Home' })).toBeVisible();
 }

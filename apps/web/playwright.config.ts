@@ -18,6 +18,8 @@ if (!process.argv.includes('--list') && !(process.env.E2E_USERNAME && process.en
 
 export default defineConfig({
   testDir: './e2e',
+  // One pre-flight sign-in so bad credentials fail fast, once (skipped for `--list`).
+  globalSetup: process.argv.includes('--list') ? undefined : './e2e/global-setup.ts',
   outputDir: 'test-results',
   fullyParallel: false,
   workers: 1,

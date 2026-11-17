@@ -73,6 +73,24 @@ export default tseslint.config(
           selector: `CallExpression[callee.property.name='${name}']`,
           message: `S-1.8.5: no CSS/XPath selectors in e2e; use getByRole, getByLabel, getByText or getByTestId (not .${name}()).`,
         })),
+        {
+          // page.click('#x'), page.fill('.y', ...) and friends take a selector string.
+          selector:
+            "CallExpression[callee.object.name='page'][callee.property.name=/^(click|dblclick|fill|type|press|check|uncheck|hover|focus|tap|selectOption|setInputFiles|textContent|innerText|innerHTML|inputValue|getAttribute|isVisible|isHidden|isEnabled|isDisabled|isChecked|isEditable|dispatchEvent|dragAndDrop)$/]",
+          message:
+            'S-1.8.5: Page-level actions take a CSS selector; use a getByRole/getByLabel locator instead.',
+        },
+        {
+          selector:
+            'MemberExpression[computed=true][property.value=/^(locator|\\$|\\$\\$|frameLocator)$/]',
+          message: 'S-1.8.5: no computed access to locator/$/$$/frameLocator in e2e.',
+        },
+        {
+          selector:
+            'CallExpression[callee.property.name=/^(querySelector|querySelectorAll|getElementById|getElementsByClassName|getElementsByTagName|frameLocator)$/]',
+          message:
+            'S-1.8.5: no DOM queries or frameLocator in e2e; find elements by role or label.',
+        },
       ],
     },
   },

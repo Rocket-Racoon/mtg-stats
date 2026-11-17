@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.exc import OperationalError
 
 from app.core.db import AppSession
 from app.identity.models import Player, User
@@ -147,3 +148,21 @@ def test_module_exits_non_zero_for_prod_before_any_connection() -> None:
     assert result.returncode == 1
     assert "seed refused" in result.stderr
     assert FIRST_PASSWORD not in result.stdout + result.stderr
+
+
+async def test_connection_failure_prints_a_fixed_hint_without_secrets() -> None:
+    url = "postgresql+psycopg://user:s3cret-db-pw@127.0.0.1:5432/mtg"  # secrets-check: allow
+
+    @asynccontextmanager
+    async def factory() -> AsyncIterator[AppSession]:
+        raise OperationalError("SELECT 1", {"p": FIRST_PASSWORD}, Exception(url))
+        yield  # pragma: no cover
+
+    out, err = io.StringIO(), io.StringIO()
+    code = await run(env(), session_factory=factory, stdout=out, stderr=err)
+    assert code == 1
+    assert out.getvalue() == ""
+    assert "could not connect to the database" in err.getvalue()
+    assert "docker-entrypoint.sh" in err.getvalue()
+    for secret in (FIRST_PASSWORD, "s3cret-db-pw", "127.0.0.1", "postgresql"):
+        assert secret not in out.getvalue() + err.getvalue()

@@ -8,6 +8,9 @@ import { useSessionStore } from './store';
 export const memoryTokenStore: TokenStore = {
   getAccessToken: () => useSessionStore.getState().accessToken,
   setTokens: ({ accessToken }) => {
+    // A refresh that finishes after sign-out must not bring the token back. The startup restore
+    // runs while 'restoring', so it is unaffected.
+    if (useSessionStore.getState().status === 'signed_out') return;
     useSessionStore.getState().setAccessToken(accessToken);
   },
   clear: () => {

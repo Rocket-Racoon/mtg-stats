@@ -6,7 +6,8 @@ export const REFRESH_PATH = '/api/v1/auth/refresh';
 const LOGIN_PATH = '/api/v1/auth/login';
 const LOGOUT_PATH = '/api/v1/auth/logout';
 const AUTH_PREFIX = '/api/v1/auth/';
-const REFRESH_LOCK = 'mtgstats-auth-refresh';
+/** Web Lock name serialising cookie refreshes; exported so web logout can queue behind a refresh. */
+export const REFRESH_LOCK = 'mtgstats-auth-refresh';
 
 export interface AuthTokens {
   accessToken: string;
@@ -168,6 +169,9 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions): AuthMiddle
       await tokenStore.setTokens(
         bodyMode ? { accessToken, refreshToken: newRefresh as string } : { accessToken },
       );
+      // The store may refuse the token (a sign-out happened meanwhile): the session is over, so
+      // this is a rejection and the original request must not be retried with it.
+      if ((await tokenStore.getAccessToken()) !== accessToken) return { kind: 'rejected' };
       return { kind: 'ok', accessToken };
     };
 

@@ -152,6 +152,59 @@ button:focus-visible {
   background: var(--muted-bg);
 }
 
+.account-menu {
+  padding: 0.5rem 1rem;
+}
+
+.account-menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0.25rem 0 0;
+  padding: 0.25rem;
+  list-style: none;
+}
+
+.account-menu button,
+.dialog button {
+  padding: 0.5rem 0.75rem;
+  font: inherit;
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.account-menu-list,
+.dialog {
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.dialog {
+  min-width: min(20rem, 100%);
+  padding: 1.5rem;
+}
+
+/* The dim behind the modal. A filter, not a colour, so it works in both themes. */
+.dialog::backdrop {
+  backdrop-filter: brightness(0.5);
+}
+
+.dialog h2 {
+  margin-top: 0;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
 /* Below 768px: compact menu, hidden until the toggle opens it. */
 @media (width < 768px) {
   /* Tap targets: at least 44 x 44 px (S-1.6.5). */

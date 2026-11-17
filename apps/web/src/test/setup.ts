@@ -17,3 +17,15 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
 });
+
+// jsdom has no <dialog>.showModal()/close(): a minimal stand-in that toggles `open` (the real
+// top layer and inert background are covered by the Playwright e2e suite).
+if (typeof HTMLDialogElement !== 'undefined') {
+  const proto = HTMLDialogElement.prototype as Partial<HTMLDialogElement>;
+  proto.showModal ??= function (this: HTMLDialogElement) {
+    this.setAttribute('open', '');
+  };
+  proto.close ??= function (this: HTMLDialogElement) {
+    this.removeAttribute('open');
+  };
+}

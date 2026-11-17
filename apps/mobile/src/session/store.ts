@@ -19,6 +19,9 @@ interface SessionState {
   refreshToken: string | null;
   /** The protected link a signed-out user opened; memory only, used once after sign-in. */
   pendingHref: string | null;
+  /** A one-off message for the sign-in screen (S-2.1.12); cleared on sign-in. */
+  notice: 'session-expired' | null;
+  setNotice: (notice: 'session-expired' | null) => void;
   setStatus: (status: SessionStatus) => void;
   /** Memory, then the secure-store write, then `signed-in`. */
   signIn: (tokens: SessionTokens) => Promise<void>;
@@ -40,11 +43,15 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   accessToken: null,
   refreshToken: null,
   pendingHref: null,
+  notice: null,
+  setNotice: (notice) => {
+    set({ notice });
+  },
   setStatus: (status) => {
     set({ status });
   },
   signIn: async ({ accessToken, refreshToken }) => {
-    set({ accessToken, refreshToken });
+    set({ accessToken, refreshToken, notice: null });
     await writeTokens({ accessToken, refreshToken });
     set({ status: 'signed-in' });
   },

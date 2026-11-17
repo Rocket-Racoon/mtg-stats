@@ -1,5 +1,6 @@
 import { Navigate, Outlet, useLocation } from 'react-router';
 import { useSession } from './session';
+import { useSessionStore } from './store';
 import { SIGN_IN_PATH } from './sign-in';
 
 /**
@@ -10,6 +11,7 @@ import { SIGN_IN_PATH } from './sign-in';
 export function RequireSession() {
   const { status } = useSession();
   const { pathname, search, hash } = useLocation();
+  const reason = useSessionStore((s) => s.signOutReason);
 
   if (pathname === SIGN_IN_PATH) return <Outlet />; // safety net: never redirect to ourselves
   if (status === 'restoring') {
@@ -21,6 +23,9 @@ export function RequireSession() {
     );
   }
   if (status === 'signed_out') {
+    // The user chose to sign out (here or in another tab): plain /sign-in, never `next`, so the
+    // next person at this browser doesn't land on the previous user's page.
+    if (reason === 'user') return <Navigate replace to={SIGN_IN_PATH} />;
     // "/" is legal in a query, so keep it literal (AC1: /sign-in?next=/decks). & # + ? = and the
     // rest stay encoded, so the URLSearchParams round trip is exact.
     const next = encodeURIComponent(pathname + search + hash).replaceAll('%2F', '/');

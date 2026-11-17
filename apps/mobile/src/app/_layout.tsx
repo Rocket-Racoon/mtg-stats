@@ -4,6 +4,7 @@ import { StyleSheet, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { api } from '../api';
 import { AppProviders } from '../components/AppProviders';
+import { setCurrentPath } from '../session/expired';
 import { isPendingCandidate } from '../session/paths';
 import { restoreSession } from '../session/restore';
 import { SessionProvider, useSession } from '../session/SessionProvider';
@@ -26,6 +27,10 @@ export function RootNavigator() {
   // while restoring, so this is recorded here and not by opening the guard early. Only a launch
   // that starts in 'restoring' records anything.
   const pathname = usePathname();
+  // The open screen, for the session-expiry handler (S-2.1.12).
+  useEffect(() => {
+    setCurrentPath(pathname);
+  }, [pathname]);
   const [launch] = useState(() => ({ path: pathname, restoring }));
   const recorded = useRef(false);
   useEffect(() => {

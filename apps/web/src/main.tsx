@@ -7,6 +7,7 @@ import './theme/theme.css';
 import './App.css';
 import { AppRoot } from './providers/AppRoot';
 import { restoreSession } from './session/restore';
+import { startSignOutSync } from './session/sign-out';
 import { startThemeSync } from './theme/store';
 
 const container = document.getElementById('root');
@@ -15,6 +16,7 @@ if (!container) {
 }
 
 startThemeSync();
+startSignOutSync();
 
 // Resolve the 'restoring' session status once, before anything protected renders (S-2.1.6 AC5).
 void restoreSession(api);

@@ -79,6 +79,7 @@ describe('memoryTokenStore is an adapter over the session store', () => {
   });
 
   it('setTokens writes the token into the store', async () => {
+    useSessionStore.getState().setStatus('signed_in'); // setTokens is ignored once signed out
     await memoryTokenStore.setTokens({ accessToken: 'written' }); // secrets-check: allow
     expect(useSessionStore.getState().accessToken).toBe('written');
   });

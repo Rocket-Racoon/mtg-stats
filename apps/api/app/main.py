@@ -66,7 +66,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     # The jobs health endpoint (system) cannot import workers; the composition root hands it the
     # intervals derived from the schedule definitions (S-1.9.4).
-    app.state.job_intervals = scheduled_intervals()
+    app.state.job_intervals_provider = scheduled_intervals
     register_site_admin_checker(identity_services.is_site_admin)
     register_exception_handlers(app)
     # add_middleware puts the latest at the outermost position: request ID > CORS > 500 catcher.

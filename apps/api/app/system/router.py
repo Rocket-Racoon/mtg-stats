@@ -1,5 +1,7 @@
 """Health endpoints. Thin: parse, call a service, respond."""
 
+import asyncio
+
 from fastapi import APIRouter, Request, Response, status
 
 from app.core.auth import SiteAdminDep
@@ -39,5 +41,7 @@ async def jobs(request: Request, session: SessionDep, admin: SiteAdminDep) -> Jo
     Site admins only (others get 403 `forbidden`). A bounded report with one entry per
     scheduled job, so it is not paged.
     """
-    report = await services.jobs_health(session, request.app.state.job_intervals)
+    # Measured on first use (about a second of CPU), off the event loop and not at startup.
+    intervals = await asyncio.to_thread(request.app.state.job_intervals_provider)
+    report = await services.jobs_health(session, intervals)
     return JobsHealthResponse(jobs=[JobHealthItem(**vars(item)) for item in report])

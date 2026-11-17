@@ -294,6 +294,64 @@
         "title": "InvitePreviewRequest",
         "type": "object"
       },
+      "JobHealthItem": {
+        "description": "One scheduled job in ``GET /health/jobs``.",
+        "properties": {
+          "interval_seconds": {
+            "description": "Longest gap between two scheduled runs, from the schedule definition.",
+            "title": "Interval Seconds",
+            "type": "integer"
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the last successful run ended (UTC); null if none is on record.",
+            "title": "Last Success At"
+          },
+          "name": {
+            "description": "Canonical job name, `<owner>.<job>`.",
+            "title": "Name",
+            "type": "string"
+          },
+          "stale": {
+            "description": "True when the last success is older than twice `interval_seconds`, or when there is no successful run on record (a job that never ran is stale).",
+            "title": "Stale",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "interval_seconds",
+          "last_success_at",
+          "stale"
+        ],
+        "title": "JobHealthItem",
+        "type": "object"
+      },
+      "JobsHealthResponse": {
+        "description": "Body of ``GET /health/jobs``: every scheduled job, sorted by name.",
+        "properties": {
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/JobHealthItem"
+            },
+            "title": "Jobs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "jobs"
+        ],
+        "title": "JobsHealthResponse",
+        "type": "object"
+      },
       "LiveResponse": {
         "description": "Body of ``GET /health/live``.",
         "properties": {
@@ -1480,6 +1538,123 @@
         "summary": "Register with an invite link",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/api/v1/health/jobs": {
+      "get": {
+        "description": "List each scheduled job with its last successful run; `stale` when it is overdue.\n\nSite admins only (others get 403 `forbidden`). A bounded report with one entry per\nscheduled job, so it is not paged.",
+        "operationId": "system_jobs",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobsHealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Client error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Scheduled jobs health",
+        "tags": [
+          "system"
         ]
       }
     },

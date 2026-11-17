@@ -232,6 +232,34 @@ async def app_schema(db_session: AppSession) -> AppSession:
     return db_session
 
 
+@pytest.fixture
+def real_job_run_recording() -> None:
+    """Opt-in marker: a test that requests it gets the real ``job_runs`` recording (S-1.9.4).
+
+    The test must make sure ``job_runs`` exists in the database ``get_sessionmaker`` uses
+    (``mtg_stats_test`` is never migrated), for example by creating the table itself.
+    """
+
+
+@pytest.fixture(autouse=True)
+def _stub_job_run_recording(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Turn the job wrapper's ``job_runs`` write into a no-op, so wrapper tests need no table.
+
+    ``mtg_stats_test`` has no ``job_runs`` table, and a failed write would add an error log line
+    to every wrapper test. Request :func:`real_job_run_recording` to keep the real write.
+    """
+    if "real_job_run_recording" in request.fixturenames:
+        return
+    from app.system import services as system_services  # noqa: PLC0415
+
+    async def _no_record(**_kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(system_services, "record_job_run", _no_record)
+
+
 _REDIS_UNREACHABLE: list[bool] = []  # set once cleanup finds Redis down; later tests skip it
 
 

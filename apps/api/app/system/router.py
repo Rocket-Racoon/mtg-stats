@@ -1,9 +1,13 @@
 """Health endpoints. Thin: parse, call a service, respond."""
 
+import asyncio
+
 from fastapi import APIRouter, Request, Response, status
 
+from app.core.auth import SiteAdminDep
+from app.core.db import SessionDep
 from app.system import services
-from app.system.schemas import LiveResponse, ReadyResponse
+from app.system.schemas import JobHealthItem, JobsHealthResponse, LiveResponse, ReadyResponse
 
 router = APIRouter(prefix="/health", tags=["system"])
 
@@ -28,3 +32,16 @@ async def ready(request: Request, response: Response) -> ReadyResponse:
     if report.status != "ok":
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return report
+
+
+@router.get("/jobs", summary="Scheduled jobs health")
+async def jobs(request: Request, session: SessionDep, admin: SiteAdminDep) -> JobsHealthResponse:
+    """List each scheduled job with its last successful run; `stale` when it is overdue.
+
+    Site admins only (others get 403 `forbidden`). A bounded report with one entry per
+    scheduled job, so it is not paged.
+    """
+    # Measured on first use (about a second of CPU), off the event loop and not at startup.
+    intervals = await asyncio.to_thread(request.app.state.job_intervals_provider)
+    report = await services.jobs_health(session, intervals)
+    return JobsHealthResponse(jobs=[JobHealthItem(**vars(item)) for item in report])

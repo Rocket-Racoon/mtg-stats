@@ -24,6 +24,7 @@ import functools
 import logging
 import time
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from arq.worker import Function, Retry, func
@@ -45,6 +46,12 @@ ARQ_TIMEOUT_MARGIN_SECONDS = 5
 """arq's own timeout is the wrapper's plus this, a backstop that should never fire."""
 SHUTDOWN_SPARE_TRIES = 3
 """Extra arq tries beyond ``1 + max_retries`` for re-runs after shutdown or a crash."""
+RECORD_TIMEOUT_SECONDS = 3
+"""Longest the wrapper waits for the ``job_runs`` write; past it the run goes unrecorded.
+
+Must stay below ``ARQ_TIMEOUT_MARGIN_SECONDS``: a job that ends at the very end of its budget
+then still finishes recording before arq's backstop timeout could cancel the wrapper.
+"""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -65,6 +72,7 @@ JOBS: Mapping[str, JobSpec] = {
     "identity.cleanup_refresh_tokens": JobSpec(identity_services.cleanup_refresh_tokens_job),
     "system.heartbeat": JobSpec(system_services.heartbeat),
     "system.ping": JobSpec(system_services.ping),
+    "system.purge_job_runs": JobSpec(system_services.purge_job_runs_job),
 }
 
 
@@ -79,6 +87,52 @@ def _log_end(outcome: str, job_try: int, started: float, *, warning: bool = Fals
             "outcome": outcome,
         },
     )
+
+
+def _error_text(exc: BaseException | None, fallback: str = "") -> str:
+    if exc is None:
+        return fallback
+    message = str(exc)
+    return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
+
+
+async def _end(
+    name: str,
+    ctx: dict[str, Any],
+    outcome: str,
+    job_try: int,
+    started: float,
+    *,
+    started_at: datetime,
+    error: str = "",
+    warning: bool = False,
+) -> None:
+    """Log the attempt's one line and record it in ``job_runs`` (S-1.9.4).
+
+    Recording is best effort: any failure (including a hung database) is logged and swallowed,
+    so it never fails the job nor hides the job's own exception.
+    """
+    _log_end(outcome, job_try, started, warning=warning)
+    try:
+        await asyncio.wait_for(
+            system_services.record_job_run(
+                job_name=name,
+                job_id=ctx.get("job_id"),
+                started_at=started_at,
+                finished_at=datetime.now(UTC),
+                status=outcome,
+                error=error,
+            ),
+            RECORD_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:
+        # No traceback: it is huge for a SQL error, and the job's own outcome is already logged.
+        logger.error(
+            "could not record the job run in job_runs: %s: %s",
+            type(exc).__name__,
+            str(exc)[:200],
+            extra={"outcome": outcome},
+        )
 
 
 def wrap_job(name: str, spec: JobSpec) -> JobFunction:
@@ -98,44 +152,65 @@ def wrap_job(name: str, spec: JobSpec) -> JobFunction:
       one does anyway it obeys the same budget.
     - A job that has timed out is always failed and logged ``timeout``, even if it swallowed the
       cancellation, returned, or raised a retryable error from its cancel handler.
+    - Every attempt, whatever its outcome, is recorded in ``job_runs`` (S-1.9.4) with the same
+      outcome word, start and end time and an error summary (at most 2 KB). Recording happens
+      after the outcome is decided, is best effort (a failure is logged, never raised) and so
+      can neither fail the job nor replace its exception.
     """
 
     @functools.wraps(spec.fn)
     async def run(ctx: dict[str, Any], *args: Any, **kwargs: Any) -> Any:
         job_try = int(ctx.get("job_try", 1))
         started = time.perf_counter()
+        started_at = datetime.now(UTC)
         with log_context(job_id=ctx.get("job_id"), job=name):
+
+            async def end(outcome: str, error: str = "", *, warning: bool = True) -> None:
+                await _end(
+                    name,
+                    ctx,
+                    outcome,
+                    job_try,
+                    started,
+                    started_at=started_at,
+                    error=error,
+                    warning=warning,
+                )
+
             cm = asyncio.timeout(spec.timeout)
             try:
                 async with cm:
                     result = await spec.fn(ctx, *args, **kwargs)
             except asyncio.CancelledError as exc:
                 if cm.expired():  # our timeout fired and a later cancel (arq's backstop) arrived
-                    _log_end("timeout", job_try, started, warning=True)
+                    await end("timeout", f"timed out after {spec.timeout:g} s")
                     raise TimeoutError(f"job {name} timed out") from exc
-                _log_end("cancelled", job_try, started, warning=True)
+                await end("cancelled", "cancelled by worker shutdown")
                 raise
             except (Retry, RetryableJobError) as exc:
                 if cm.expired():  # a job that turns its cancellation into a retry still timed out
-                    _log_end("timeout", job_try, started, warning=True)
+                    await end("timeout", f"timed out after {spec.timeout:g} s")
                     raise TimeoutError(f"job {name} timed out") from exc
                 if job_try <= spec.max_retries:
-                    _log_end("retry", job_try, started, warning=True)
+                    await end("retry", _error_text(exc, "retry requested"))
                     if isinstance(exc, Retry):
                         raise
                     raise Retry(defer=retry_delay(job_try)) from exc
-                _log_end("failed", job_try, started, warning=True)
+                await end("failed", _error_text(exc, "retry requested, out of retries"))
                 if isinstance(exc, Retry):  # never hand arq a Retry we have no budget for
                     raise RetryableJobError(f"job {name} out of retries") from exc
                 raise
             except Exception as exc:
                 timed_out = isinstance(exc, TimeoutError) and cm.expired()
-                _log_end("timeout" if timed_out else "failed", job_try, started, warning=True)
+                if timed_out:
+                    await end("timeout", f"timed out after {spec.timeout:g} s")
+                else:
+                    await end("failed", _error_text(exc))
                 raise
             if cm.expired():  # the job swallowed the cancellation and returned
-                _log_end("timeout", job_try, started, warning=True)
+                await end("timeout", f"timed out after {spec.timeout:g} s")
                 raise TimeoutError(f"job {name} timed out")
-            _log_end("success", job_try, started)
+            await end("success", warning=False)
             return result
 
     return run

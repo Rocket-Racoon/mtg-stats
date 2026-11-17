@@ -23,7 +23,8 @@ The scheduler runs only when ``SCHEDULER_ENABLED`` is true and ``APP_ENV`` is no
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from functools import cache
 from typing import Any, cast
 
 from arq.cron import CronJob, cron, next_cron
@@ -88,7 +89,50 @@ def _describe(fields: Any) -> str:
 SCHEDULES: Mapping[str, Schedule] = {
     "identity.cleanup_refresh_tokens": Schedule(hour=4, minute=15),
     "system.heartbeat": Schedule(minute=set(range(0, 60, 5))),
+    "system.purge_job_runs": Schedule(hour=4, minute=45),
 }
+
+_INTERVAL_REFERENCE = datetime(2026, 1, 1, tzinfo=UTC)
+_INTERVAL_MAX_RUNS = 3_000
+_INTERVAL_MIN_SPAN = timedelta(days=8)
+_INTERVAL_MAX_SPAN = timedelta(days=366)
+
+
+def schedule_interval(schedule: Schedule) -> timedelta:
+    """Return the longest gap between two consecutive runs of ``schedule``.
+
+    "Interval" for S-1.9.4's stale check is the longest gap, so an irregular schedule (hour=3
+    and 15, say) is only called stale when it has missed more than twice its widest gap. It is
+    measured with arq's own ``next_cron`` from a fixed date, over up to a year of runs but at
+    most :data:`_INTERVAL_MAX_RUNS` of them. A dense schedule that hits that cap before covering
+    :data:`_INTERVAL_MIN_SPAN` (every minute on weekdays 09-17, say) raises ``ValueError`` rather
+    than understate its gap and make the job look stale every night.
+    """
+    gaps = []
+    previous = schedule.next_run(_INTERVAL_REFERENCE)
+    end = _INTERVAL_REFERENCE + _INTERVAL_MAX_SPAN
+    for _ in range(_INTERVAL_MAX_RUNS):
+        current = schedule.next_run(previous)
+        gaps.append(current - previous)
+        previous = current
+        if current >= end:
+            return max(gaps)
+    if previous - _INTERVAL_REFERENCE >= _INTERVAL_MIN_SPAN:
+        return max(gaps)
+    raise ValueError(
+        f"schedule has more than {_INTERVAL_MAX_RUNS} runs in under {_INTERVAL_MIN_SPAN.days} "
+        "days; its longest gap cannot be measured, so the stale check would be wrong"
+    )
+
+
+@cache
+def _scheduled_intervals() -> tuple[tuple[str, timedelta], ...]:
+    return tuple((name, schedule_interval(schedule)) for name, schedule in SCHEDULES.items())
+
+
+def scheduled_intervals() -> dict[str, timedelta]:
+    """Return each scheduled job's name and its :func:`schedule_interval` (measured once)."""
+    return dict(_scheduled_intervals())
 
 
 def scheduler_disabled_reason(settings: Settings) -> str | None:

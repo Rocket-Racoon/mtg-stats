@@ -204,6 +204,7 @@ Each row is a need from the backlog that would otherwise require an upward call.
 | Profile shows games played and win rate; "Former playgroups" lists the games played there | S-2.2.3, S-2.4.4 | **Client composition**: the profile view (`playgroups`) returns profile data only. The client adds the stats player summary (S-8.3.1) and `GET /players/me/games` (S-7.3.6). |
 | Playgroup delete confirmation shows how many games will be deleted | S-2.6.3 | **Ownership**: the delete preview is served by the `workflows/data_rights.py` router, which asks `games` for the count. |
 | Data export, account deletion, playgroup deletion | S-2.6.1–S-2.6.3 | **Workflow** `workflows/data_rights.py`. It calls each domain's `export_user_data` / `delete_user_data`. Playgroup deletion runs as the job `workflows.delete_playgroup`, which uses `games.delete_playgroup_data` (an audited event-log exception). |
+| Jobs health lists each scheduled job with its interval | S-1.9.4 | **Inverted call**: `main.py` puts `workers.schedule.scheduled_intervals` on `app.state.job_intervals_provider` (called on the first request, not at startup), and the router passes it to `system.jobs_health(session, intervals)`. `system` never imports `workers`. |
 
 **The five mechanisms** are a workflow, a job enqueued by name, an inverted call, a change of ownership and client composition. A new case needs a row here before any code is written. A plain downward call needs no mechanism; it gets a row only where a story's wording suggested an upward call.
 
@@ -302,7 +303,7 @@ Ending a game runs `game_ended`, then the host confirms the summary (which is au
 
 ## 7. Background jobs
 
-All jobs are **idempotent** and **enqueued by name**: `core.jobs.enqueue("<owner>.<job>", **kwargs)`, or `enqueue_after_commit` inside a transaction. Every run writes a `job_runs` row (S-1.9.4), and `/api/v1/health/ops` reports stale or failed jobs to the uptime monitor.
+All jobs are **idempotent** and **enqueued by name**: `core.jobs.enqueue("<owner>.<job>", **kwargs)`, or `enqueue_after_commit` inside a transaction. Every attempt writes a `job_runs` row (S-1.9.4; recorded by `wrap_job`, best effort, kept 30 days; `GET /api/v1/health/jobs` lets a site admin see each scheduled job's last success and whether it is `stale`: older than twice the longest gap of its schedule, or never succeeded), and `/api/v1/health/ops` reports stale or failed jobs to the uptime monitor.
 
 **The names below are canonical.** Stories that name a job differently are updated to these names (see the story-wording list on PR #448).
 
@@ -329,7 +330,8 @@ All jobs are **idempotent** and **enqueued by name**: `core.jobs.enqueue("<owner
 | `workflows.delete_playgroup` | owner deletes a playgroup | `workflows` | S-2.6.3 |
 | `identity.cleanup_refresh_tokens` | daily | `identity` | F-2.1 |
 | `system.ping`: a no-op job that proves the worker runs end to end | on demand | `system` | S-1.9.1 |
-| `system.purge_job_runs`, `system.heartbeat` | daily / every 5 minutes | `system` | S-1.9.x |
+| `system.purge_job_runs`: delete `job_runs` rows older than 30 days | daily, 04:45 UTC (cron) | `system` | S-1.9.4 |
+| `system.heartbeat` | every 5 minutes (cron) | `system` | S-1.9.3 |
 | `db_backup`: **external** job. It runs in the Compose `backup` service (pg_dump + GnuPG), not in the arq worker | daily | infra | S-11.3.2 |
 
 ## 8. Domain model (overview)

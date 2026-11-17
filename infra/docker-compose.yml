@@ -168,7 +168,8 @@ services:
     command: ['python', '-m', 'app.workers']
     restart: unless-stopped
     # init: a proper PID 1 so SIGTERM reaches the worker. The grace period must exceed
-    # WORKER_SHUTDOWN_GRACE_SECONDS (default 30), or Docker SIGKILLs running jobs.
+    # WORKER_SHUTDOWN_GRACE_SECONDS (default 30) plus the job_runs write budget
+    # (RECORD_TIMEOUT_SECONDS, 3), or Docker SIGKILLs running jobs.
     init: true
     stop_grace_period: 45s
     env_file:

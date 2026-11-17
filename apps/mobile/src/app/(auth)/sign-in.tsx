@@ -5,6 +5,8 @@ import { ScrollView, StyleSheet, Text } from 'react-native';
 import { SOMETHING_WENT_WRONG, formErrorMessage } from '../../auth/errors';
 import { AppButton } from '../../components/AppButton';
 import { FormError, TextField, type TextInputInstance } from '../../components/TextField';
+import { SESSION_EXPIRED_MESSAGE } from '../../session/expired';
+import { useSessionStore } from '../../session/store';
 import { useSession } from '../../session/SessionProvider';
 import { requireValue } from '../../session/validation';
 
@@ -15,6 +17,7 @@ import { requireValue } from '../../session/validation';
 export default function SignIn() {
   const { status, signIn } = useSession();
   const mutation = useSignIn();
+  const expired = useSessionStore((s) => s.notice === 'session-expired');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<{ username?: string; password?: string }>({});
@@ -58,6 +61,9 @@ export default function SignIn() {
       <Text accessibilityRole="header" style={styles.title}>
         Sign in
       </Text>
+      {expired ? (
+        <FormError message={SESSION_EXPIRED_MESSAGE} testID="sign-in-session-expired" />
+      ) : null}
       {formError ? <FormError message={formError} testID="sign-in-form-error" /> : null}
       <TextField
         label="Username"

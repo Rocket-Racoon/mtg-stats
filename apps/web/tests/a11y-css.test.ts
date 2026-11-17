@@ -91,6 +91,8 @@ const CONTEXT: Record<string, Context> = {
     background: 'accent',
     pair: ['onAccent', 'accent'],
   },
+  '.account-menu button, .dialog button': { color: 'fg', background: 'bg', pair: ['fg', 'bg'] },
+  '.account-menu-list, .dialog': { color: 'fg', background: 'bg', pair: ['fg', 'bg'] },
   '.toast': { color: 'fg', background: 'mutedBg', pair: ['fg', 'mutedBg'] },
   '.skip-link, .skip-link:visited': { color: 'fg', background: 'bg', pair: ['fg', 'bg'] },
 };

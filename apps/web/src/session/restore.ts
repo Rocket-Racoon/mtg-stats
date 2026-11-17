@@ -1,5 +1,7 @@
 import type { ApiClient } from '@mtg-stats/api-client';
 import { useSessionStore } from './store';
+import { clearLogoutPending, isLogoutPending } from './pending-logout';
+import { logoutCall } from './logout-hooks';
 
 let inFlight: Promise<void> | null = null;
 
@@ -15,7 +17,28 @@ export function restoreSession(client: ApiClient): Promise<void> {
   const run = (async () => {
     let restored = false;
     try {
-      restored = await client.refreshSession();
+      if (isLogoutPending()) {
+        // An earlier sign-out could not reach the server: finish it instead of refreshing, and
+        // stay signed out. The flag is cleared only once the server confirmed.
+        try {
+          await logoutCall(client);
+          clearLogoutPending();
+        } catch {
+          // Still pending: the next load retries.
+        }
+      } else {
+        restored = await client.refreshSession();
+        if (restored && isLogoutPending()) {
+          // A sign-out in another tab set the flag while this refresh was queued: honour it.
+          restored = false;
+          try {
+            await logoutCall(client);
+            clearLogoutPending();
+          } catch {
+            // Still pending: the next load retries.
+          }
+        }
+      }
     } catch {
       restored = false; // a transient failure: treat as signed out; the user can sign in again
     }

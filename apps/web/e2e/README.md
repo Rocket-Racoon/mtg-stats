@@ -25,4 +25,5 @@ API's dev CORS origin). If something already listens on 5173 it is reused outsid
 running stack. Output goes to `apps/web/playwright-report/` and `apps/web/test-results/` (traces and
 screenshots of failures); both are git-ignored.
 
-The sign-out test is `test.fixme` until web gets a sign-out control (S-2.1.12, #71).
+The sign-out test (S-2.1.12, #71) opens "Account menu", clicks "Sign out", expects `/sign-in`, then
+visits `/games` and expects another redirect to sign-in (the refresh cookie was revoked).

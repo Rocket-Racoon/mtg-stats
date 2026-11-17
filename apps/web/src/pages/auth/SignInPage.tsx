@@ -19,6 +19,7 @@ export function SignInPage() {
   const [params] = useSearchParams();
   const next = safeNext(params.get('next'));
   const signInMutation = useSignIn();
+  const signOutReason = useSessionStore((s) => s.signOutReason);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<Errors>({});
@@ -29,6 +30,12 @@ export function SignInPage() {
   useEffect(() => {
     document.title = 'Sign in · MTG Stats';
   }, []);
+
+  // After the user signed out, announce the page: focus its heading (S-2.1.12).
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (status === 'signed_out' && signOutReason === 'user') headingRef.current?.focus();
+  }, [status, signOutReason]);
 
   // A signed-in visitor has nothing to do here. Our own successful sign-in lands here too.
   if (status === 'signed_in') return <Navigate replace to={next} />;
@@ -77,7 +84,14 @@ export function SignInPage() {
 
   return (
     <section aria-labelledby="page-title" className="auth-page">
-      <h2 id="page-title">Sign in</h2>
+      <h2 id="page-title" ref={headingRef} tabIndex={-1}>
+        Sign in
+      </h2>
+      {signOutReason === 'expired' ? (
+        <p role="alert" className="form-error">
+          Your session has expired
+        </p>
+      ) : null}
       <form onSubmit={onSubmit} noValidate>
         {formError ? (
           <p id="form-error" role="alert" className="form-error">

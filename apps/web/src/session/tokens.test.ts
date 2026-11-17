@@ -1,10 +1,15 @@
 // S-1.5.3 / decision B3: on web the access token lives in memory and the refresh token is the
 // HttpOnly cookie, so the store has no getRefreshToken (cookie mode).
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { REFRESH_PATH } from '@mtg-stats/api-client';
 import { api } from '../api';
 import { memoryTokenStore, setAccessToken } from './tokens';
 import { useSessionStore } from './store';
+
+// setTokens is ignored once signed out (S-2.1.12), so these tests start signed in.
+beforeEach(() => {
+  useSessionStore.getState().setStatus('signed_in');
+});
 
 afterEach(async () => {
   await memoryTokenStore.clear();

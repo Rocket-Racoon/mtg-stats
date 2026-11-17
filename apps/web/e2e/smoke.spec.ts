@@ -27,10 +27,27 @@ test('signs in with username and password and lands on Home', async ({ page }) =
   await expect(page.getByRole('heading', { level: 2, name: 'Home' })).toBeVisible();
 });
 
-// Web has no sign-out control yet; it lands with S-2.1.12 (#71). Enable this then.
-test.fixme('signs out and returns to the sign-in page', async ({ page }) => {
+test('Escape in the sign-out-everywhere dialog returns focus to the account menu', async ({
+  page,
+}) => {
   await signIn(page);
-  await page.getByRole('button', { name: 'Sign out' }).click();
+  await openNavIfCompact(page);
+  await page.getByRole('button', { name: 'Account menu' }).click();
+  await page.getByRole('button', { name: 'Sign out everywhere' }).click();
+  await expect(page.getByRole('dialog', { name: 'Sign out everywhere?' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Account menu' })).toBeFocused();
+});
+
+test('signs out and returns to the sign-in page', async ({ page }) => {
+  await signIn(page);
+  await openNavIfCompact(page);
+  await page.getByRole('button', { name: 'Account menu' }).click();
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await expect(page).toHaveURL(/\/sign-in/);
+  // The session is gone: a protected route sends us back to sign-in.
+  await page.goto('/games');
   await expect(page).toHaveURL(/\/sign-in/);
 });
 

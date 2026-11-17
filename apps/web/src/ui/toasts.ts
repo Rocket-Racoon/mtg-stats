@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { registerUserStateReset } from '../session/user-state';
 
 export type ToastKind = 'info' | 'error';
 export type PauseReason = 'hover' | 'focus';
@@ -89,8 +90,11 @@ export const useToastStore = create<ToastState>()((set, get) => ({
   },
 }));
 
-/** Clears every toast and timer. For tests. */
+/** Clears every toast and timer. Runs on sign-out; also used by tests. */
 export function resetToasts(): void {
   for (const id of [...timers.keys()]) clearTimer(id);
   useToastStore.setState({ toasts: [] });
 }
+
+// Toasts may name the user's data or actions: clear them on every local sign-out.
+registerUserStateReset(resetToasts);

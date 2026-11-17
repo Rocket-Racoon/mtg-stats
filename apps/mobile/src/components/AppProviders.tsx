@@ -4,9 +4,10 @@ import {
   createQueryClient,
   type QueryClient,
 } from '@mtg-stats/api-client';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../api';
 import { env } from '../env';
+import { registerStoreReset } from '../session/storeRegistry';
 import { ConfigErrorScreen } from './ConfigErrorScreen';
 
 /**
@@ -24,6 +25,15 @@ export function AppProviders({
   queryClient?: QueryClient;
 }) {
   const [queryClient] = useState<QueryClient>(() => injected ?? createQueryClient());
+  // The query cache is user-scoped: sign-out clears it through the store registry (S-2.1.12).
+  useEffect(
+    () =>
+      registerStoreReset(() => {
+        void queryClient.cancelQueries();
+        queryClient.clear();
+      }),
+    [queryClient],
+  );
   if (!env.ok || api === null) {
     return <ConfigErrorScreen problem={env.ok ? 'missing' : env.problem} />;
   }

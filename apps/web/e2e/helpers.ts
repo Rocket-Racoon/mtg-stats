@@ -33,7 +33,7 @@ export function primaryNav(page: Page): Locator {
 }
 
 export function menuToggle(page: Page): Locator {
-  return page.getByRole('button', { name: 'Menu' });
+  return page.getByRole('button', { name: 'Menu', exact: true });
 }
 
 export function navLink(page: Page, label: string): Locator {

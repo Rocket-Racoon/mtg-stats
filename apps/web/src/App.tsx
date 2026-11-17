@@ -2,6 +2,7 @@ import { useRef, useState, type KeyboardEvent } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import { NAV_ITEMS } from './nav';
 import { Footer } from './Footer';
+import { AccountMenu } from './AccountMenu';
 
 /**
  * Root layout. Navigation is a sidebar at >= 1024px, a top bar of links
@@ -68,6 +69,8 @@ export function App() {
             </li>
           ))}
         </ul>
+        {/* Last in the tab order, after the page links; only rendered while signed in. */}
+        <AccountMenu />
       </nav>
       <main id="main" tabIndex={-1} className="shell-main">
         <Outlet />

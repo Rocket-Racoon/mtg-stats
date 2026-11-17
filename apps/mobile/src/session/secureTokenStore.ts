@@ -1,5 +1,6 @@
 import type { TokenStore } from '@mtg-stats/api-client';
 import { deleteTokens } from './secureStorage';
+import { handleSessionExpired } from './expired';
 import { useSessionStore } from './store';
 
 /**
@@ -21,5 +22,5 @@ export const secureTokenStore: TokenStore = {
 
 /** Called by the client once a refresh is rejected, after `clear()`. */
 export function onSessionExpired(): void {
-  void useSessionStore.getState().signOut();
+  handleSessionExpired();
 }

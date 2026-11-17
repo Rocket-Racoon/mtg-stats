@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { MutationCache, type QueryClient } from '@tanstack/react-query';
 import {
   ApiClientProvider,
@@ -9,6 +9,7 @@ import {
 import { api } from '../api';
 import { errorMessage } from '../errors/message';
 import { ErrorBoundary } from '../errors/ErrorBoundary';
+import { registerUserStateReset } from '../session/user-state';
 import { Toaster } from '../ui/Toaster';
 import { useToastStore } from '../ui/toasts';
 
@@ -35,9 +36,19 @@ interface AppProvidersProps {
 
 export function AppProviders({ children, queryClient, apiClient }: AppProvidersProps) {
   const [created] = useState(createAppQueryClient);
+  const client = queryClient ?? created;
+  // Sign-out drops every cached server response: they belong to the user who just left.
+  useEffect(
+    () =>
+      registerUserStateReset(() => {
+        void client.cancelQueries();
+        client.clear();
+      }),
+    [client],
+  );
   return (
     <ErrorBoundary>
-      <QueryClientProvider client={queryClient ?? created}>
+      <QueryClientProvider client={client}>
         <ApiClientProvider client={apiClient ?? api}>
           {children}
           <Toaster />

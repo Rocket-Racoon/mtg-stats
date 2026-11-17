@@ -156,6 +156,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/health/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Scheduled jobs health
+         * @description List each scheduled job with its last successful run; `stale` when it is overdue.
+         *
+         *     Site admins only (others get 403 `forbidden`). A bounded report with one entry per
+         *     scheduled job, so it is not paged.
+         */
+        get: operations["system_jobs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health/live": {
         parameters: {
             query?: never;
@@ -431,6 +454,40 @@ export interface components {
              * @description The invite token.
              */
             token: string;
+        };
+        /**
+         * JobHealthItem
+         * @description One scheduled job in ``GET /health/jobs``.
+         */
+        JobHealthItem: {
+            /**
+             * Interval Seconds
+             * @description Longest gap between two scheduled runs, from the schedule definition.
+             */
+            interval_seconds: number;
+            /**
+             * Last Success At
+             * @description When the last successful run ended (UTC); null if none is on record.
+             */
+            last_success_at: string | null;
+            /**
+             * Name
+             * @description Canonical job name, `<owner>.<job>`.
+             */
+            name: string;
+            /**
+             * Stale
+             * @description True when the last success is older than twice `interval_seconds`, or when there is no successful run on record (a job that never ran is stale).
+             */
+            stale: boolean;
+        };
+        /**
+         * JobsHealthResponse
+         * @description Body of ``GET /health/jobs``: every scheduled job, sorted by name.
+         */
+        JobsHealthResponse: {
+            /** Jobs */
+            jobs: components["schemas"]["JobHealthItem"][];
         };
         /**
          * LiveResponse
@@ -1173,6 +1230,107 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TokenResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    system_jobs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Client error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobsHealthResponse"];
                 };
             };
             /** @description Unauthorized */

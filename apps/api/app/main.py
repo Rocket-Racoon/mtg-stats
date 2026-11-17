@@ -20,6 +20,7 @@ from app.identity import services as identity_services
 from app.identity.router import router as identity_router
 from app.playgroups.router import router as playgroups_router
 from app.system.router import router as system_router
+from app.workers.schedule import scheduled_intervals
 from app.workflows.registration import router as registration_router
 
 API_PREFIX = "/api/v1"
@@ -63,6 +64,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         swagger_ui_oauth2_redirect_url=f"{API_PREFIX}/docs/oauth2-redirect",
     )
     app.state.settings = settings
+    # The jobs health endpoint (system) cannot import workers; the composition root hands it the
+    # intervals derived from the schedule definitions (S-1.9.4).
+    app.state.job_intervals = scheduled_intervals()
     register_site_admin_checker(identity_services.is_site_admin)
     register_exception_handlers(app)
     # add_middleware puts the latest at the outermost position: request ID > CORS > 500 catcher.

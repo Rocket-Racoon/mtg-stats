@@ -37,6 +37,7 @@ ios/
 # Playwright / Maestro output
 playwright-report/
 test-results/
+blob-report/
 
 # OS / editor
 .DS_Store

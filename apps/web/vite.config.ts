@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { loadEnv } from 'vite';
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 // One .env at the repo root is shared by every workspace.
 const envDir = fileURLToPath(new URL('../..', import.meta.url));
@@ -46,6 +46,8 @@ export default defineConfig(({ command, mode }) => {
     server: { port: 5173, strictPort: true },
     test: {
       include: ['src/**/*.test.{ts,tsx}', 'tests/**/*.test.ts'],
+      // Playwright specs live in e2e/ and run with `pnpm e2e`, never under vitest (S-1.8.5).
+      exclude: [...configDefaults.exclude, 'e2e/**', 'playwright-report/**', 'test-results/**'],
       environment: 'jsdom',
       setupFiles: ['./src/test/setup.ts'],
       css: false,

@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 // Placeholder: the Stats feature is not built yet.
 export default function Stats() {
   return (
-    <View style={styles.container}>
+    <View style={styles.container} testID="stats-screen">
       <Text accessibilityRole="header" style={styles.title}>
         Stats
       </Text>

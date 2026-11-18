@@ -9,6 +9,8 @@
     "lint": "eslint .",
     "format": "prettier --write --ignore-path ../../.prettierignore .",
     "format:check": "prettier --check --ignore-path ../../.prettierignore .",
+    "e2e:build": "node scripts/e2e-build.js",
+    "e2e": "maestro test e2e --format junit --output e2e-output/report.xml --test-output-dir e2e-output --debug-output e2e-output/debug",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.tooling.json",
     "test": "jest"
   },

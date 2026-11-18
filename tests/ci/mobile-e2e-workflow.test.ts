@@ -109,12 +109,15 @@ describe('mobile e2e workflow (S-1.8.6)', () => {
       }
     });
 
-    it('uses the Android emulator runner, pinned', () => {
+    it('uses the Android emulator runner, every use pinned', () => {
       const runner = uses.filter((m) =>
         /^reactivecircus\/android-emulator-runner@/i.test(m[1] ?? ''),
       );
-      expect(runner).toHaveLength(1);
-      expect(runner[0]?.[1]).toMatch(/@[0-9a-f]{40}$/);
+      expect(runner.length).toBeGreaterThanOrEqual(1);
+      for (const m of runner) {
+        expect(m[1]).toMatch(/@[0-9a-f]{40}$/);
+        expect(m[2]).toMatch(/#\s*v\d/);
+      }
     });
   });
 
@@ -137,11 +140,16 @@ describe('mobile e2e workflow (S-1.8.6)', () => {
       expect(stepWith(/pnpm --filter @mtg-stats\/mobile e2e:build/)).not.toBe('');
     });
 
-    it('runs the flows inside the emulator-runner script', () => {
-      const runner = stepWith(/uses:\s*reactivecircus\/android-emulator-runner@/i);
-      expect(runner).toMatch(/^\s*script:/m);
-      const script = runner.slice(runner.search(/^\s*script:/m));
-      expect(script).toMatch(/pnpm --filter @mtg-stats\/mobile e2e(?!:)/);
+    it('runs the flows in exactly one always-running emulator-runner step', () => {
+      const runners = steps().filter((s) =>
+        /uses:\s*reactivecircus\/android-emulator-runner@/i.test(s),
+      );
+      const running = runners.filter((r) => {
+        const at = r.search(/^\s*script:/m);
+        return at !== -1 && /pnpm --filter @mtg-stats\/mobile e2e(?!:)/.test(r.slice(at));
+      });
+      expect(running).toHaveLength(1);
+      expect(running[0]).not.toMatch(/^\s*(?:- )?if:/m);
     });
 
     it('points the app at 10.0.2.2:8000 (or leaves the script default), never localhost', () => {
@@ -156,15 +164,30 @@ describe('mobile e2e workflow (S-1.8.6)', () => {
   });
 
   describe('the Maestro CLI install', () => {
-    const install = steps().filter((s) => /2\.12\.1/.test(s));
+    // The version and checksum may sit in a workflow-level env block (MAESTRO_VERSION, MAESTRO_SHA256)
+    // that the install step references, or be written inline in the step.
+    const install = nonComment(
+      steps()
+        .filter((s) => /maestro\.zip|releases\/download\/cli-/i.test(s))
+        .join('\n'),
+    );
+    const all = nonComment(workflow);
 
-    it('pins version 2.12.1', () => {
-      expect(install.length).toBeGreaterThan(0);
-      expect(nonComment(install.join('\n'))).toMatch(/2\.12\.1/);
+    it('downloads the pinned version 2.12.1', () => {
+      expect(install).not.toBe('');
+      const literal = /cli-2\.12\.1/.test(install);
+      const viaEnv =
+        /cli-\$\{?(\w+)\}?/.test(install) &&
+        new RegExp(
+          `^\\s*${/cli-\$\{?(\w+)\}?/.exec(install)?.[1] ?? '_'}:\\s*['"]?2\\.12\\.1['"]?\\s*$`,
+          'm',
+        ).test(all);
+      expect(literal || viaEnv).toBe(true);
     });
 
-    it('verifies a sha256 checksum', () => {
-      expect(nonComment(install.join('\n'))).toMatch(/sha256sum|shasum\s+-a\s+256|sha256/i);
+    it('verifies a sha256 checksum of the download', () => {
+      expect(install).toMatch(/sha256sum\s+-c|shasum\s+-a\s+256\s+-c/);
+      expect(all).toMatch(/\b[0-9a-f]{64}\b/);
     });
   });
 

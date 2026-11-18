@@ -38,7 +38,7 @@ function Notice({ segments, testID }: { segments: readonly AttributionSegment[];
  */
 export function AboutScreen() {
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView contentContainerStyle={styles.container} testID="about-screen">
       <Stack.Screen options={{ title: 'About' }} />
       <Text accessibilityRole="header" style={styles.title}>
         About

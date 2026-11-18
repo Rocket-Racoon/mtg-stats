@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 // Placeholder: the Decks feature is not built yet.
 export default function Decks() {
   return (
-    <View style={styles.container}>
+    <View style={styles.container} testID="decks-screen">
       <Text accessibilityRole="header" style={styles.title}>
         Decks
       </Text>

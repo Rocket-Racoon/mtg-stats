@@ -31,9 +31,27 @@ const env = {
   EXPO_NO_GIT_STATUS: '1',
 };
 
+// From an Android emulator, localhost is the emulator itself, not the host running the API.
+const apiHost = (() => {
+  try {
+    return new URL(apiBaseUrl).hostname;
+  } catch {
+    return '';
+  }
+})();
+if (['localhost', '127.0.0.1', '[::1]', '::1'].includes(apiHost)) {
+  console.warn(
+    `[e2e-build] WARNING: EXPO_PUBLIC_API_BASE_URL host "${apiHost}" is the emulator itself, not your machine; use ${DEFAULT_API_BASE_URL} (or adb reverse).`,
+  );
+}
+
+/** Runs `command` with `args`; with no `args` it is one command line run through a shell. */
 function run(label, command, args, options = {}) {
-  console.log(`\n[e2e-build] ${label}: ${command} ${args.join(' ')}`);
-  const result = spawnSync(command, args, { stdio: 'inherit', env, ...options });
+  console.log(`\n[e2e-build] ${label}: ${[command, ...(args ?? [])].join(' ')}`);
+  // `shell: true` with an args array triggers Node's DEP0190, so shell runs pass one string.
+  const result = args
+    ? spawnSync(command, args, { stdio: 'inherit', env, ...options })
+    : spawnSync(command, { stdio: 'inherit', env, shell: true, ...options });
   if (result.error || result.status !== 0) {
     console.error(
       `[e2e-build] ${label} failed: ${result.error?.message ?? `exit ${result.status}`}`,
@@ -54,12 +72,11 @@ run('prebuild', process.execPath, [
 ]);
 
 // gradlew.bat needs a shell on Windows; elsewhere `sh` avoids depending on the executable bit.
-run(
-  'gradle',
-  isWindows ? 'gradlew.bat' : 'sh',
-  isWindows ? ['assembleRelease'] : ['gradlew', 'assembleRelease'],
-  { cwd: androidDir, shell: isWindows },
-);
+if (isWindows) {
+  run('gradle', 'gradlew.bat assembleRelease', undefined, { cwd: androidDir });
+} else {
+  run('gradle', 'sh', ['gradlew', 'assembleRelease'], { cwd: androidDir });
+}
 
 const apk = path.join(androidDir, 'app', 'build', 'outputs', 'apk', 'release', 'app-release.apk');
 console.log(`\n[e2e-build] APK: ${apk}`);

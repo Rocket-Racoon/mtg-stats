@@ -37,6 +37,19 @@ describe('Maestro smoke flow (S-1.8.6)', () => {
     for (const v of inputs) expect(v).toMatch(/^\$\{MAESTRO_E2E_(USERNAME|PASSWORD)\}$/);
   });
 
+  it('submits sign-in with Enter, never by tapping the keyboard-covered button', () => {
+    expect(code).not.toMatch(/- tapOn:\s*\n\s+id:\s*sign-in-submit/);
+    const password = code.indexOf('${MAESTRO_E2E_PASSWORD}');
+    const enter = code.search(/- pressKey:\s*Enter\b/);
+    expect(password).toBeGreaterThan(-1);
+    expect(enter).toBeGreaterThan(password);
+    expect(code.slice(enter, enter + 200)).toMatch(/id:\s*play-screen/);
+  });
+
+  it('scrolls to the last About notice instead of assuming it is on screen', () => {
+    expect(code).toMatch(/- scrollUntilVisible:\s*\n\s+element:\s*\n\s+id:\s*scryfall-credit/);
+  });
+
   it('does not use coordinate taps', () => {
     expect(code).not.toMatch(/\bpoint:/);
   });
@@ -61,7 +74,8 @@ describe('Maestro smoke flow (S-1.8.6)', () => {
     const steps: [string, RegExp][] = [
       ['sign in: username', /id:\s*sign-in-username/],
       ['sign in: password', /id:\s*sign-in-password/],
-      ['sign in: submit', /id:\s*sign-in-submit/],
+      ['sign in: submit with Enter', /pressKey:\s*Enter\b/],
+      ['signed in: play-screen', /id:\s*play-screen/],
       ['tab-play', /id:\s*tab-play/],
       ['tab-decks', /id:\s*tab-decks/],
       ['tab-stats', /id:\s*tab-stats/],

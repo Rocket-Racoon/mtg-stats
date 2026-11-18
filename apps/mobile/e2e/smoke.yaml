@@ -22,12 +22,12 @@ name: Mobile smoke (S-1.8.6)
 - tapOn:
     id: sign-in-password
 - inputText: ${MAESTRO_E2E_PASSWORD}
-# No hideKeyboard: on Android in Maestro cli-2.12.1 it is an unconditional Back key press, which
-# would background the app if the keyboard were not showing. The submit button is tapped
-# directly instead; the form is centered and the window resizes for the keyboard, so the button
-# stays visible, and a tap on a non-interactive label would add a step that can itself miss.
-- tapOn:
-    id: sign-in-submit
+# Submit with the Enter key, not by tapping sign-in-submit: on the 320x640 dp CI emulator the soft
+# keyboard covers the button and the window does not resize, so the tap would hit the keyboard.
+# The password field has returnKeyType="go" and onSubmitEditing={submit}, so Enter is a real user
+# path. No hideKeyboard either: on Android in Maestro cli-2.12.1 it is an unconditional Back press,
+# which would background the app if the keyboard were not showing.
+- pressKey: Enter
 - extendedWaitUntil:
     visible:
       id: play-screen
@@ -58,6 +58,10 @@ name: Mobile smoke (S-1.8.6)
     id: about-screen
 - assertVisible:
     id: fan-content-notice
+# About is a ScrollView on a small screen: scroll until the last notice is on screen.
+- scrollUntilVisible:
+    element:
+      id: scryfall-credit
 - assertVisible:
     id: scryfall-credit
 - back

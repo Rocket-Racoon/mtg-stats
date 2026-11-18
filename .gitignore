@@ -38,6 +38,7 @@ ios/
 playwright-report/
 test-results/
 blob-report/
+apps/mobile/e2e-output/
 
 # OS / editor
 .DS_Store

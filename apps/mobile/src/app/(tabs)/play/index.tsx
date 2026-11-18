@@ -5,7 +5,7 @@ import { linkedPackages } from '../../../linkedPackages';
 
 export default function Play() {
   return (
-    <View style={styles.container}>
+    <View style={styles.container} testID="play-screen">
       <Text accessibilityRole="header" style={styles.title}>
         MTG Stats
       </Text>

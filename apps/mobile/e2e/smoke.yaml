@@ -1,0 +1,99 @@
+appId: app.mtgstats
+name: Mobile smoke (S-1.8.6)
+---
+# Sign in, visit the four tabs, open About, open a join deep link, sign out.
+# Credentials come from the shell: MAESTRO_E2E_USERNAME and MAESTRO_E2E_PASSWORD.
+# Elements are found by testID (`id:`), never by coordinates.
+
+# Clean start. `clearState` runs `pm clear` on Android, which also wipes the secure-storage
+# tokens; `clearKeychain` is a no-op on Android and only matters on iOS.
+- launchApp:
+    clearState: true
+    clearKeychain: true
+
+# 1. Sign in. A cold release start on a CI emulator is slow, hence the long waits.
+- extendedWaitUntil:
+    visible:
+      id: sign-in-submit
+    timeout: 90000
+- tapOn:
+    id: sign-in-username
+- inputText: ${MAESTRO_E2E_USERNAME}
+- tapOn:
+    id: sign-in-password
+- inputText: ${MAESTRO_E2E_PASSWORD}
+# Submit with the Enter key, not by tapping sign-in-submit: on the 320x640 dp CI emulator the soft
+# keyboard covers the button and the window does not resize, so the tap would hit the keyboard.
+# The password field has returnKeyType="go" and onSubmitEditing={submit}, so Enter is a real user
+# path. No hideKeyboard either: on Android in Maestro cli-2.12.1 it is an unconditional Back press,
+# which would background the app if the keyboard were not showing.
+- pressKey: Enter
+- extendedWaitUntil:
+    visible:
+      id: play-screen
+    timeout: 60000
+
+# 2. All four tabs, ending on More (About and Sign out live there).
+- tapOn:
+    id: tab-play
+- assertVisible:
+    id: play-screen
+- tapOn:
+    id: tab-decks
+- assertVisible:
+    id: decks-screen
+- tapOn:
+    id: tab-stats
+- assertVisible:
+    id: stats-screen
+- tapOn:
+    id: tab-more
+- assertVisible:
+    id: more-screen
+
+# 3. About (S-1.7.5), opened from More.
+- tapOn:
+    id: more-about
+- assertVisible:
+    id: about-screen
+- assertVisible:
+    id: fan-content-notice
+# About is a ScrollView on a small screen: scroll until the last notice is on screen.
+- scrollUntilVisible:
+    element:
+      id: scryfall-credit
+- assertVisible:
+    id: scryfall-credit
+- back
+- assertVisible:
+    id: more-screen
+
+# 4. Join deep link while signed in.
+- openLink: mtgstats://join/SMOKE42
+- extendedWaitUntil:
+    visible:
+      id: join-screen
+    timeout: 30000
+# The value is asserted by text: a nested <Text testID> is not its own Android view, so the
+# code is read from the line "Code: SMOKE42".
+- assertVisible:
+    text: '.*SMOKE42.*'
+- tapOn: Back to app
+# Back to app returns to More or to the app root, depending on history; the tab bar is
+# visible either way, so go to More explicitly.
+- extendedWaitUntil:
+    visible:
+      id: tab-more
+    timeout: 30000
+- tapOn:
+    id: tab-more
+- assertVisible:
+    id: more-screen
+
+# 5. Sign out. "Sign out everywhere" is not used: it opens a native Alert.
+- tapOn:
+    id: sign-out
+- extendedWaitUntil:
+    visible:
+      id: sign-in-submit
+    timeout: 60000

@@ -43,7 +43,7 @@ export default function More() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} testID="more-screen">
       <Text accessibilityRole="header" style={styles.title}>
         More
       </Text>

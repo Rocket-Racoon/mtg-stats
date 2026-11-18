@@ -41,10 +41,16 @@ describe('Maestro smoke flow (S-1.8.6)', () => {
     expect(code).not.toMatch(/\bpoint:/);
   });
 
-  it('bounds the network waits with a timeout', () => {
-    const waits = [...code.matchAll(/extendedWaitUntil:[\s\S]*?timeout:\s*(\d+)/g)];
+  it('bounds every extendedWaitUntil with its own timeout', () => {
+    // Top-level commands start with "- " at column 0.
+    const commands = code.split(/^(?=- )/m);
+    const waits = commands.filter((c) => c.startsWith('- extendedWaitUntil:'));
     expect(waits.length).toBeGreaterThanOrEqual(3);
-    for (const w of waits) expect(Number(w[1])).toBeLessThanOrEqual(120_000);
+    for (const w of waits) {
+      const timeout = /^\s+timeout:\s*(\d+)\s*$/m.exec(w);
+      expect(timeout, w).not.toBeNull();
+      expect(Number(timeout?.[1])).toBeLessThanOrEqual(120_000);
+    }
   });
 
   it('does not use Sign out everywhere (it opens a native Alert)', () => {
@@ -98,10 +104,10 @@ describe('Maestro smoke flow (S-1.8.6)', () => {
     expect(code.slice(lastSignOut)).toMatch(/id:\s*sign-in-submit/);
   });
 
-  it('has no other top-level flow that maestro would also run, and no hard-coded password', () => {
-    const topLevel = readdirSync(dir).filter((f) => /\.ya?ml$/.test(f));
-    expect(topLevel).toContain('smoke.yaml');
-    for (const f of topLevel) {
+  it('is the only top-level flow file, with no hard-coded password', () => {
+    const topLevel = readdirSync(dir).filter((f) => /\.ya?ml$/.test(f) && f !== 'config.yaml');
+    expect(topLevel).toEqual(['smoke.yaml']);
+    for (const f of readdirSync(dir).filter((f) => /\.ya?ml$/.test(f))) {
       expect(read(f), f).not.toMatch(/password:\s*\S|inputText:\s*(?!\$\{MAESTRO_E2E_)\S{8,}/i);
     }
   });

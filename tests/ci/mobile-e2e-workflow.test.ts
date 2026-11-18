@@ -54,7 +54,37 @@ const nonComment = (text: string) =>
     .filter((l) => !l.trim().startsWith('#'))
     .join('\n');
 
+const mobilePackage = JSON.parse(readFileSync(join(root, 'apps/mobile/package.json'), 'utf8')) as {
+  scripts: Record<string, string>;
+};
+
 describe('mobile e2e workflow (S-1.8.6)', () => {
+  it('ties the e2e script output folder to the artifact upload path', () => {
+    const script = mobilePackage.scripts.e2e ?? '';
+    expect(script).toMatch(/^maestro test e2e(\s|$)/);
+    expect(script).toMatch(/--test-output-dir\s+e2e-output(\s|$)/);
+    const upload = stepWith(/uses:\s*actions\/upload-artifact@/);
+    expect(upload).toMatch(/^\s*(?:path:\s*)?apps\/mobile\/e2e-output\/?\s*$/m);
+  });
+
+  it('runs the flows from one single-line runner script with a logcat fallback', () => {
+    const runner = steps().filter(
+      (s) =>
+        /uses:\s*reactivecircus\/android-emulator-runner@/i.test(s) &&
+        /pnpm --filter @mtg-stats\/mobile e2e(?!:)/.test(s),
+    )[0];
+    const scriptLine = /^\s*script:[ \t]*(.*)$/m.exec(runner ?? '')?.[1] ?? '';
+    // A block scalar (| or >) would be run line by line with sh -c.
+    expect(scriptLine).not.toMatch(/^[|>]/);
+    expect(scriptLine).toMatch(/pnpm --filter @mtg-stats\/mobile e2e(?!:)/);
+    expect(scriptLine).toMatch(/adb logcat/);
+    expect(scriptLine).toMatch(/exit 1/);
+  });
+
+  it('has no continue-on-error anywhere', () => {
+    expect(nonComment(workflow)).not.toMatch(/continue-on-error/);
+  });
+
   it('has least-privilege permissions: contents read only', () => {
     expect(
       block(workflow, 'permissions', 0)

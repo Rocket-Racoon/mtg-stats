@@ -1,0 +1,186 @@
+# Mobile end-to-end smoke tests (S-1.8.6). Runs the real dev backend stack (infra/docker-compose.yml:
+# postgres, redis, migrate, api, worker), seeds a throwaway test account, builds a release APK of
+# the mobile app pointing at the stack (http://10.0.2.2:8000 is the host's loopback as seen from the
+# emulator), boots an Android emulator and runs the Maestro flows in apps/mobile/e2e/. The same
+# flows run locally against an emulator build (see apps/mobile/e2e/README.md).
+#
+# It runs nightly, on demand, and on pull requests that change the flows, the e2e build or this
+# file. It is not one of the required checks (`api` and `ts`, S-1.8.4). On failure, Maestro's
+# screenshots and debug output plus the emulator's logcat are uploaded as the `maestro-output`
+# artifact (kept 7 days), and the run shows as failed on the Actions page.
+name: Mobile E2E
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - apps/mobile/e2e/**
+      - apps/mobile/scripts/e2e-build.js
+      - apps/mobile/app.config.ts
+      - .github/workflows/mobile-e2e.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  COMPOSE_FILE: infra/docker-compose.yml
+  MAESTRO_E2E_USERNAME: e2e_smoke
+  MAESTRO_VERSION: 2.12.1
+  # sha256 of maestro.zip, from the release's checksums_sha256.txt.
+  MAESTRO_SHA256: 54dbb0716425626604973cbb374c585ca30272375d9ce15177a1152765ddd9d7
+  MAESTRO_CLI_NO_ANALYTICS: '1'
+  MAESTRO_CLI_ANALYTICS_NOTIFICATION_DISABLED: 'true'
+  EXPO_PUBLIC_API_BASE_URL: http://10.0.2.2:8000
+  ANDROID_API_LEVEL: 34
+  CI: 'true'
+
+jobs:
+  mobile-e2e:
+    name: mobile-e2e
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # pnpm first (version from `packageManager`), so setup-node can cache its store.
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: package.json
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install TypeScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate secrets for this run
+        # A fresh JWT secret for the stack and a fresh password for the test account; both are
+        # masked in the log and exist only for this run.
+        run: |
+          [ -f .env ] || cp .env.example .env
+          JWT="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
+          PW="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
+          echo "::add-mask::$JWT"
+          echo "::add-mask::$PW"
+          grep -v '^JWT_SECRET=' .env > .env.tmp || true
+          printf 'JWT_SECRET=%s\n' "$JWT" >> .env.tmp
+          mv .env.tmp .env
+          echo "MAESTRO_E2E_PASSWORD=$PW" >> "$GITHUB_ENV"
+
+      - name: Start the backend stack
+        run: |
+          docker compose up -d --build --wait api worker
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8000/api/v1/health/ready > /dev/null; then exit 0; fi
+            sleep 2
+          done
+          echo "API not ready after 120 s" >&2
+          exit 1
+
+      - name: Seed the test account
+        # Runs through docker-entrypoint.sh, which points DATABASE_URL at the postgres service
+        # (`exec` skips the entrypoint); the values are passed with -e (the password is masked).
+        run: >-
+          docker compose exec -T -e "E2E_USERNAME=$MAESTRO_E2E_USERNAME"
+          -e "E2E_PASSWORD=$MAESTRO_E2E_PASSWORD" api
+          docker-entrypoint.sh python -m app.scripts.seed_e2e_user
+
+      - name: Cache Gradle
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'apps/mobile/app.json') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Build the release APK
+        # Prebuild (CNG) plus `gradlew assembleRelease`, with cleartext HTTP allowed for this e2e
+        # build only (MTG_E2E_BUILD, set by the script).
+        run: pnpm --filter @mtg-stats/mobile e2e:build
+
+      - name: Install the Maestro CLI
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/maestro.zip" \
+            "https://github.com/mobile-dev-inc/maestro/releases/download/cli-${MAESTRO_VERSION}/maestro.zip"
+          echo "${MAESTRO_SHA256}  $RUNNER_TEMP/maestro.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/maestro.zip" -d "$HOME"
+          echo "$HOME/maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Maestro version
+        run: maestro --version
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Cache the AVD
+        id: avd-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-${{ env.ANDROID_API_LEVEL }}-google_apis-x86_64
+
+      - name: Create the AVD and a snapshot to cache
+        if: ${{ steps.avd-cache.outputs.cache-hit != 'true' }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: ${{ env.ANDROID_API_LEVEL }}
+          target: google_apis
+          arch: x86_64
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: false
+          script: echo "Generated the AVD snapshot for caching."
+
+      - name: Run the Maestro smoke flows
+        # The runner runs each `script` line on its own, so this is one line. On failure the
+        # emulator's logcat is saved next to Maestro's output (native crashes show up there).
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: ${{ env.ANDROID_API_LEVEL }}
+          target: google_apis
+          arch: x86_64
+          force-avd-creation: false
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: adb install -r apps/mobile/android/app/build/outputs/apk/release/app-release.apk && pnpm --filter @mtg-stats/mobile e2e || { mkdir -p apps/mobile/e2e-output; adb logcat -d > apps/mobile/e2e-output/logcat.txt; exit 1; }
+
+      - name: Upload Maestro screenshots and debug output
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: maestro-output
+          path: |
+            apps/mobile/e2e-output/
+            ~/.maestro/tests/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Container logs
+        if: ${{ failure() }}
+        run: |
+          docker compose ps -a
+          docker compose logs --no-color --timestamps
+
+      - name: Tear down
+        if: ${{ always() }}
+        run: docker compose down -v --remove-orphans

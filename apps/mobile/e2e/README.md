@@ -50,5 +50,9 @@ screenshot of the failing step automatically.
 ## CI
 
 `.github/workflows/mobile-e2e.yml` runs the same flow on an emulator nightly (03:00 UTC), on demand,
-and on pull requests that touch `apps/mobile/e2e/**`. When the run fails it uploads
+and on pull requests that touch `apps/mobile/e2e/**`, `apps/mobile/scripts/e2e-build.js`,
+`apps/mobile/app.config.ts`, `apps/mobile/package.json` or the workflow file. When the run fails it uploads
 `apps/mobile/e2e-output/` as the `maestro-output` artifact.
+
+After a local e2e build, `apps/mobile/android/` keeps cleartext traffic enabled. Run
+`expo prebuild --clean` (or delete `android/`) before any other local release build.

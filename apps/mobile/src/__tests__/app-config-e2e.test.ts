@@ -53,6 +53,7 @@ describe('app.config.ts e2e cleartext switch (S-1.8.6)', () => {
   it('has no Android manifest mod and keeps plugins as passed in when MTG_E2E_BUILD is unset', async () => {
     delete process.env.MTG_E2E_BUILD;
     const config = build();
+    expect(manifestMod(config)).toBeUndefined();
     expect(config.plugins).toEqual([existingPlugin]);
     expect((await runManifestMod(config))?.$['android:usesCleartextTraffic']).toBeUndefined();
   });
@@ -60,6 +61,7 @@ describe('app.config.ts e2e cleartext switch (S-1.8.6)', () => {
   it('has no Android manifest mod and keeps plugins as passed in when MTG_E2E_BUILD is 0', async () => {
     process.env.MTG_E2E_BUILD = '0';
     const config = build();
+    expect(manifestMod(config)).toBeUndefined();
     expect(config.plugins).toEqual([existingPlugin]);
     expect((await runManifestMod(config))?.$['android:usesCleartextTraffic']).toBeUndefined();
   });

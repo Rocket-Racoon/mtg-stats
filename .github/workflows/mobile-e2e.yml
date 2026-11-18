@@ -19,6 +19,7 @@ on:
       - apps/mobile/e2e/**
       - apps/mobile/scripts/e2e-build.js
       - apps/mobile/app.config.ts
+      - apps/mobile/package.json
       - .github/workflows/mobile-e2e.yml
 
 permissions:
@@ -107,7 +108,10 @@ jobs:
 
       - name: Build the release APK
         # Prebuild (CNG) plus `gradlew assembleRelease`, with cleartext HTTP allowed for this e2e
-        # build only (MTG_E2E_BUILD, set by the script).
+        # build only (MTG_E2E_BUILD, set by the script). Only the emulator's ABI is built: the
+        # template's four ABIs would compile the native modules four times.
+        env:
+          ORG_GRADLE_PROJECT_reactNativeArchitectures: x86_64
         run: pnpm --filter @mtg-stats/mobile e2e:build
 
       - name: Install the Maestro CLI
@@ -166,6 +170,8 @@ jobs:
           script: adb install -r apps/mobile/android/app/build/outputs/apk/release/app-release.apk && pnpm --filter @mtg-stats/mobile e2e || { mkdir -p apps/mobile/e2e-output; adb logcat -d > apps/mobile/e2e-output/logcat.txt; exit 1; }
 
       - name: Upload Maestro screenshots and debug output
+        # Maestro's commands.json records the typed password. That password exists only for this
+        # run, on a stack that is torn down below, so it's harmless in the artifact.
         if: ${{ failure() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

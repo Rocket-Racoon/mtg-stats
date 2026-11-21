@@ -225,9 +225,12 @@ async def app_schema(db_session: AppSession) -> AppSession:
 
     ``mtg_stats_test`` is never migrated, so this builds the schema from the model registry.
     """
+    from app.cards.models import create_search_support  # noqa: PLC0415
     from app.model_registry import metadata  # noqa: PLC0415
 
     connection = await db_session.connection()
+    # Extensions and the immutable_unaccent wrapper must exist before the cards tables (S-3.1.1).
+    await connection.run_sync(create_search_support)
     await connection.run_sync(metadata.create_all)
     return db_session
 

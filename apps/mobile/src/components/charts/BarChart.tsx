@@ -1,12 +1,13 @@
 import { DashPathEffect, Line as SkiaLine, vec } from '@shopify/react-native-skia';
 import { useMemo } from 'react';
-import { Bar, CartesianChart, useChartPressState } from 'victory-native';
+import { Bar, CartesianChart } from 'victory-native';
 import { ChartFrame } from './ChartFrame';
-import { defaultFormatValue, sampleText, summarize } from './format';
+import { axisLabel, defaultFormatValue, drawnValue, rowText, summarize } from './format';
+import { SmallSampleOutline } from './SmallSampleOutline';
 import { useChartTheme } from './theme';
 import type { ChartCommonProps, ChartRow } from './types';
 import { useChartFont } from './useChartFont';
-import { useSelectedIndex } from './useSelectedIndex';
+import { useTapSelection } from './useTapSelection';
 
 export interface ReferenceLine {
   value: number;
@@ -15,16 +16,19 @@ export interface ReferenceLine {
 
 export interface BarChartProps extends ChartCommonProps {
   rows: readonly ChartRow[];
-  /** A dashed horizontal line at `value`, named by `label` in the legend and the summary. */
+  /**
+   * A dashed horizontal line at `value`, named by `label` in the legend, summary and list. A
+   * negative value is drawn at zero (its real number stays in the text); a non-finite value
+   * draws no line.
+   */
   referenceLine?: ReferenceLine;
   formatValue?: (value: number) => string;
 }
 
-function rowText(row: ChartRow, formatValue: (v: number) => string): string {
-  return [`${row.label}: ${formatValue(row.value)}`, sampleText(row)].filter(Boolean).join(', ');
-}
-
-/** Bar chart with an optional reference line. Low-sample bars are faded and marked with "*". */
+/**
+ * Bar chart with an optional reference line. Small-sample bars are faded, outlined with a dashed
+ * border and marked with "*". Tapping a bar shows its value and "n games" and keeps it selected.
+ */
 export function BarChart({
   title,
   rows,
@@ -33,21 +37,25 @@ export function BarChart({
   emptyMessage,
   height = 220,
   testID,
+  onSelect,
 }: BarChartProps) {
   const theme = useChartTheme();
   const font = useChartFont();
-  const { state } = useChartPressState({ x: 0, y: { value: 0 } });
-  const selected = useSelectedIndex(state);
-  const data = useMemo(() => rows.map((r, index) => ({ index, value: r.value })), [rows]);
+  const { selected, gesture, reportGeometry, clear } = useTapSelection(rows.length, onSelect);
+  const data = useMemo(
+    () => rows.map((r, index) => ({ index, value: drawnValue(r.value) })),
+    [rows],
+  );
   const ticks = useMemo(() => rows.map((_, i) => i), [rows]);
-  const labelFor = (index: number) => {
-    const row = rows[index];
-    return row ? `${row.label}${row.low_sample ? '*' : ''}` : '';
-  };
   const row = selected === null ? undefined : rows[selected];
-  const referenceText = referenceLine
-    ? `${referenceLine.label} ${formatValue(referenceLine.value)}`
-    : null;
+  const reference =
+    referenceLine && Number.isFinite(referenceLine.value) ? referenceLine : undefined;
+  const referenceText = reference ? `${reference.label} ${formatValue(reference.value)}` : null;
+  const yMax = Math.max(
+    1,
+    reference ? Math.max(reference.value, 0) : 0,
+    ...data.map((d) => d.value ?? 0),
+  );
 
   return (
     <ChartFrame
@@ -55,9 +63,13 @@ export function BarChart({
       testID={testID}
       height={height}
       emptyMessage={emptyMessage}
-      isEmpty={rows.length === 0}
+      isEmpty={!rows.some((r) => Number.isFinite(r.value))}
       summary={
-        summarize(title, rows, formatValue) + (referenceText ? ` Reference: ${referenceText}.` : '')
+        summarize(
+          title,
+          rows.map((r) => ({ label: r.label, value: r.value, small: r.low_sample })),
+          formatValue,
+        ) + (referenceText ? ` Reference: ${referenceText}.` : '')
       }
       items={[
         ...rows.map((r, i) => ({ key: `${i}-${r.label}`, text: rowText(r, formatValue) })),
@@ -65,19 +77,34 @@ export function BarChart({
       ]}
       tooltip={row ? rowText(row, formatValue) : null}
       hasLowSample={rows.some((r) => r.low_sample)}
-      legend={referenceText ? [`Dashed line: ${referenceText}`] : []}
+      legend={
+        referenceText
+          ? [
+              {
+                text: `Dashed line: ${referenceText}`,
+                swatch: { color: theme.referenceLine, dashed: true },
+              },
+            ]
+          : []
+      }
+      gesture={gesture}
+      onShowList={clear}
     >
       <CartesianChart
         data={data}
         xKey="index"
         yKeys={['value']}
-        domain={{ y: [0, Math.max(referenceLine?.value ?? 0, ...rows.map((r) => r.value), 1)] }}
+        domain={{ y: [0, yMax] }}
         domainPadding={{ left: 24, right: 24, top: 8 }}
-        chartPressState={state}
         xAxis={{
           font,
+          // tickCount defaults to 5 and Victory thins the labels to that; keep every row's.
+          tickCount: Math.max(rows.length, 1),
           tickValues: ticks,
-          formatXLabel: (v) => labelFor(Number(v)),
+          formatXLabel: (v) => {
+            const r = rows[Number(v)];
+            return r ? axisLabel(r.label, r.low_sample, rows.length) : '';
+          },
           labelColor: theme.text,
           lineColor: theme.grid,
         }}
@@ -92,13 +119,21 @@ export function BarChart({
         frame={{ lineWidth: 0 }}
       >
         {({ points, chartBounds, yScale }) => {
-          const barWidth = Math.max(
-            4,
-            ((chartBounds.right - chartBounds.left) / Math.max(rows.length, 1)) * 0.6,
+          const slot = (chartBounds.right - chartBounds.left) / Math.max(rows.length, 1);
+          const barWidth = Math.max(4, slot * 0.6);
+          reportGeometry(
+            points.value.map((p) => p.x),
+            chartBounds.left,
+            chartBounds.right,
           );
-          const solid = points.value.filter((_, i) => !rows[i]?.low_sample);
-          const faded = points.value.filter((_, i) => rows[i]?.low_sample);
-          const refY = referenceLine ? yScale(referenceLine.value) : null;
+          const drawn = points.value.filter((p) => p.y !== null && p.y !== undefined);
+          const isSmall = (p: (typeof drawn)[number]) => {
+            const idx = points.value.indexOf(p);
+            return rows[idx]?.low_sample === true;
+          };
+          const solid = drawn.filter((p) => !isSmall(p));
+          const faded = drawn.filter(isSmall);
+          const refY = reference ? yScale(Math.max(reference.value, 0)) : null;
           return (
             <>
               <Bar
@@ -116,13 +151,23 @@ export function BarChart({
                 opacity={0.35}
                 roundedCorners={{ topLeft: 3, topRight: 3 }}
               />
+              {faded.map((p) => (
+                <SmallSampleOutline
+                  key={p.x}
+                  x={p.x - barWidth / 2}
+                  y={p.y ?? chartBounds.bottom}
+                  width={barWidth}
+                  height={chartBounds.bottom - (p.y ?? chartBounds.bottom)}
+                  color={theme.border}
+                />
+              ))}
               {refY === null ? null : (
                 <SkiaLine
                   p1={vec(chartBounds.left, refY)}
                   p2={vec(chartBounds.right, refY)}
                   color={theme.referenceLine}
                   style="stroke"
-                  strokeWidth={2}
+                  strokeWidth={3}
                 >
                   <DashPathEffect intervals={[8, 6]} />
                 </SkiaLine>

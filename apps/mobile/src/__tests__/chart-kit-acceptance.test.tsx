@@ -5,6 +5,7 @@
 // "*" axis marker and stacked-bar fading comes from the kit's code and not from the mock.
 import { fireEvent, render, screen, within } from '@testing-library/react-native';
 import type { ReactElement, ReactNode } from 'react';
+import { tapMark } from './chart-tap';
 import {
   BarChart,
   chartThemeFor,
@@ -14,7 +15,7 @@ import {
   type StackedRow,
 } from '../components/charts';
 
-const mockState = { pressed: -1, scheme: 'light' as 'light' | 'dark' };
+const mockState = { scheme: 'light' as 'light' | 'dark' };
 
 jest.mock('react-native/Libraries/Utilities/useColorScheme', () => ({
   __esModule: true,
@@ -27,27 +28,25 @@ jest.mock('@shopify/react-native-skia', () => {
     matchFont: () => ({}),
     vec: (x: number, y: number) => ({ x, y }),
     Line: (props: object) => <View testID="skia-line" {...props} />,
+    Rect: (props: object) => <View testID="skia-rect" {...props} />,
+    Paint: (props: object) => <View testID="skia-paint" {...props} />,
     DashPathEffect: () => null,
-  };
-});
-
-jest.mock('react-native-reanimated', () => {
-  const actual = jest.requireActual('react-native-reanimated');
-  const { useEffect } = require('react');
-  return {
-    ...actual,
-    useAnimatedReaction: (prepare: () => number, react: (v: number, p: number | null) => void) => {
-      useEffect(() => {
-        react(prepare(), null);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-      }, []);
-    },
   };
 });
 
 jest.mock('victory-native', () => {
   const { View, Text } = require('react-native');
   const point = (x: number, y: number) => ({ x, xValue: x, y, yValue: y });
+  // Victory keeps only `tickCount` x labels (default 5), thinned like its downsampleTicks.
+  const thin = (ticks: number[], count = 5) =>
+    ticks.length <= count
+      ? ticks
+      : count === 1
+        ? [ticks[0] as number]
+        : Array.from(
+            { length: count },
+            (_, i) => ticks[Math.round((i * (ticks.length - 1)) / (count - 1))] as number,
+          );
   const Part = (testID: string) =>
     function MockPart(props: {
       points: unknown;
@@ -66,19 +65,10 @@ jest.mock('victory-native', () => {
       );
     };
   return {
-    useChartPressState: (init: { y: Record<string, number> }) => ({
-      state: {
-        isActive: { get: () => mockState.pressed >= 0 },
-        matchedIndex: { get: () => mockState.pressed },
-        x: {},
-        y: Object.fromEntries(Object.keys(init.y).map((k) => [k, {}])),
-      },
-      isActive: false,
-    }),
     CartesianChart: (props: {
       data: Record<string, number>[];
       yKeys: string[];
-      xAxis: { tickValues: number[]; formatXLabel: (v: number) => string };
+      xAxis: { tickCount?: number; tickValues: number[]; formatXLabel: (v: number) => string };
       children: (a: unknown) => ReactNode;
     }) => {
       const points = Object.fromEntries(
@@ -86,7 +76,7 @@ jest.mock('victory-native', () => {
       );
       return (
         <View testID="victory-chart">
-          {props.xAxis.tickValues.map((t) => (
+          {thin(props.xAxis.tickValues, props.xAxis.tickCount).map((t) => (
             <Text key={t} testID="x-label">
               {props.xAxis.formatXLabel(t)}
             </Text>
@@ -158,11 +148,12 @@ const charts = {
 type ChartName = keyof typeof charts;
 const chartNames = Object.keys(charts) as ChartName[];
 
-const childrenOf = (id: string) => screen.getByTestId(id).props.children as string;
+// The empty tooltip is hidden from screen readers on purpose, so it is read with hidden elements included.
+const childrenOf = (id: string) =>
+  screen.getByTestId(id, { includeHiddenElements: true }).props.children as string;
 const xLabels = () => screen.getAllByTestId('x-label').map((l) => l.props.children);
 
 beforeEach(() => {
-  mockState.pressed = -1;
   mockState.scheme = 'light';
 });
 
@@ -313,20 +304,22 @@ describe('criterion 2: low-sample marks are de-emphasised', () => {
 
   it('explains the marker in text when any row is low-sample', async () => {
     await render(<BarChart title="T" rows={rows} />);
-    expect(screen.getByText(/low sample/i)).toBeTruthy();
+    expect(screen.getByText(/small sample/i)).toBeTruthy();
   });
 
-  it('says "low sample" in the list entry of a low-sample row only', async () => {
+  it('says "Small sample" in the list entry of a low-sample row only', async () => {
     await render(<BarChart title="T" rows={rows} />);
     await fireEvent.press(screen.getByRole('button', { name: 'Show as list' }));
     const list = screen.getByTestId('chart-list');
-    expect(within(list).getByText(/^Blue: 55.*3 games.*low sample/)).toBeTruthy();
-    expect(within(list).getByText(/^Red: 60.*20 games/).props.children).not.toMatch(/low sample/);
+    expect(within(list).getByText(/^Blue: 55.*Small sample: 3 games/)).toBeTruthy();
+    expect(within(list).getByText(/^Red: 60.*20 games/).props.children).not.toMatch(
+      /small sample/i,
+    );
   });
 
   it('shows the value and "n games" when a bar is tapped', async () => {
-    mockState.pressed = 1;
     await render(<BarChart title="T" rows={rows} />);
+    await tapMark(1);
     const tip = childrenOf('chart-tooltip');
     expect(tip).toContain('Blue');
     expect(tip).toContain('55');
@@ -334,8 +327,8 @@ describe('criterion 2: low-sample marks are de-emphasised', () => {
   });
 
   it('shows the value and "n games" when a line point is tapped', async () => {
-    mockState.pressed = 1;
     await render(<LineChart title="T" rows={rows} />);
+    await tapMark(1);
     const tip = childrenOf('chart-tooltip');
     expect(tip).toContain('Blue');
     expect(tip).toContain('55');
@@ -343,8 +336,8 @@ describe('criterion 2: low-sample marks are de-emphasised', () => {
   });
 
   it('shows each segment and "n games" when a stacked bar is tapped', async () => {
-    mockState.pressed = 1;
     await render(<StackedBarChart title="T" series={series} rows={stackedRows} />);
+    await tapMark(1);
     const tip = childrenOf('chart-tooltip');
     expect(tip).toContain('Deck B');
     expect(tip).toContain('Red 25%');
@@ -358,18 +351,18 @@ describe('criterion 2: low-sample marks are de-emphasised', () => {
   });
 
   it('uses the plural form for zero games', async () => {
-    mockState.pressed = 0;
     await render(<BarChart title="T" rows={[{ label: 'A', value: 1, games: 0 }]} />);
+    await tapMark(0);
     expect(childrenOf('chart-tooltip')).toContain('0 games');
   });
 
   // AMBIGUOUS: the criterion says "n games"; natural English says "1 game". This test accepts both
   // and the report flags the choice to the orchestrator.
   it('words a single game as "1 game" or "1 games" (criterion versus English)', async () => {
-    mockState.pressed = 0;
     await render(
       <BarChart title="T" rows={[{ label: 'A', value: 5, games: 1, low_sample: true }]} />,
     );
+    await tapMark(0);
     expect(childrenOf('chart-tooltip')).toMatch(/1 games?\b/);
   });
 });
@@ -530,7 +523,7 @@ describe('criterion 5: phase 1 data without games or low_sample', () => {
     expect(screen.getByRole('image').props.accessibilityLabel).toBe(
       'Mana curve. Top values: 2 12, 3 9, 1 7.',
     );
-    expect(screen.queryByText(/low sample/i)).toBeNull();
+    expect(screen.queryByText(/small sample/i)).toBeNull();
     expect(screen.queryByText(/\bgames?\b/i)).toBeNull();
     expect(screen.queryByText(/\*/)).toBeNull();
   });
@@ -554,8 +547,8 @@ describe('criterion 5: phase 1 data without games or low_sample', () => {
   });
 
   it('shows only the value when a mana-curve bar is tapped', async () => {
-    mockState.pressed = 1;
     await render(<BarChart title="Mana curve" rows={manaCurve} />);
+    await tapMark(1);
     expect(childrenOf('chart-tooltip')).toBe('2: 12');
   });
 
@@ -565,7 +558,7 @@ describe('criterion 5: phase 1 data without games or low_sample', () => {
     const columns = screen.getAllByTestId('stacked-column');
     expect(columns).toHaveLength(2);
     for (const c of columns) expect(c.props.opacity ?? 1).toBe(1);
-    expect(screen.queryByText(/low sample/i)).toBeNull();
+    expect(screen.queryByText(/small sample/i)).toBeNull();
     expect(screen.queryByText(/\bgames?\b/i)).toBeNull();
     await fireEvent.press(screen.getByRole('button', { name: 'Show as list' }));
     const list = screen.getByTestId('chart-list');
@@ -578,7 +571,7 @@ describe('criterion 5: phase 1 data without games or low_sample', () => {
 
   it('draws the line chart too when rows carry no sample info', async () => {
     await render(<LineChart title="Trend" rows={manaCurve} />);
-    expect(screen.queryByText(/low sample/i)).toBeNull();
+    expect(screen.queryByText(/small sample/i)).toBeNull();
     expect(screen.queryByText(/\bgames?\b/i)).toBeNull();
   });
 

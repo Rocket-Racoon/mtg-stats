@@ -167,6 +167,29 @@ class Seat(_Frozen):
     eliminated_round: NonNegativeInt | None
     elimination_cause: WinCondition | None
 
+    @model_validator(mode="after")
+    def _elimination_invariant(self) -> Seat:
+        """Enforce the section 3.3 rule: eliminated if and only if ``eliminated_at_seq`` is set.
+
+        While the seat is in the game (``eliminated_at_seq`` is ``None``) all five elimination
+        fields are ``None``. Once eliminated, ``elimination_reason``, ``eliminated_at_seq`` and
+        ``eliminated_round`` are non-null; ``eliminated_by`` and ``elimination_cause`` may be.
+        """
+        if self.eliminated_at_seq is None:
+            others = (
+                self.elimination_reason,
+                self.eliminated_by,
+                self.eliminated_round,
+                self.elimination_cause,
+            )
+            if any(value is not None for value in others):
+                raise ValueError("a seat in the game has no elimination fields (section 3.3)")
+        elif self.elimination_reason is None or self.eliminated_round is None:
+            raise ValueError(
+                "an eliminated seat needs elimination_reason and eliminated_round (section 3.3)"
+            )
+        return self
+
 
 class GameState(_Frozen):
     """The game state (section 3.1). Every key is always present; "no value" is ``None``."""

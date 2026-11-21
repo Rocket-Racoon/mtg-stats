@@ -237,11 +237,6 @@ def test_the_seat_model_rejects_values_outside_the_contract_enumerations(
         Seat.model_validate({**SEAT, **update})
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CONTRACT.md 3.3: eliminated iff eliminated_at_seq is not null, and in the game "
-    "all five fields are null. The Seat model does not enforce the invariant (review finding).",
-)
 @pytest.mark.parametrize(
     "update",
     [

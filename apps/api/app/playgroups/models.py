@@ -66,6 +66,8 @@ class Membership(IdMixin, Base):
             unique=True,
             postgresql_where=text("left_at IS NULL"),
         ),
+        # Covers every row (the two above are partial): former-member lists and the cascade.
+        Index("ix_memberships_playgroup_id", "playgroup_id"),
         # Serves "my playgroups" (keyset by joined_at, id) and the player FK.
         Index("ix_memberships_player_id_joined_at_id", "player_id", "joined_at", "id"),
     )

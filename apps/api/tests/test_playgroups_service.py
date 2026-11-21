@@ -182,8 +182,36 @@ async def test_admins_and_the_owner_can_update_but_members_cannot(
     assert (renamed.name, renamed.description) == ("Renamed", "New")
     only_name = await services.update_playgroup(app_schema, owner, name="Again")
     assert (only_name.name, only_name.description) == ("Again", "New")
+    member = await services.get_membership(app_schema, playgroup_id=group_id, user_id=member_user)
+    assert member is not None
     got = await services.get_playgroup(app_schema, member)
     assert (got.name, got.role) == ("Again", "member")
+
+
+async def test_a_demotion_after_the_dependency_ran_blocks_the_update(
+    app_schema: AppSession,
+) -> None:
+    group_id, _ = await _membership(app_schema, "owner")
+    admin_user, admin_player, _ = await make_user(app_schema)
+    await join(app_schema, group_id, admin_player, "admin")
+    stale = await services.get_membership(app_schema, playgroup_id=group_id, user_id=admin_user)
+    assert stale is not None
+    assert stale.is_admin
+    await app_schema.execute(
+        text("update memberships set role = 'member' where player_id = :p"), {"p": admin_player}
+    )
+    with pytest.raises(PermissionDeniedError):
+        await services.update_playgroup(app_schema, stale, name="Stale Edit")
+
+
+async def test_getting_a_playgroup_costs_no_statement_after_the_dependency(
+    app_schema: AppSession,
+    count_statements: Callable[[], AbstractContextManager[StatementCounter]],
+) -> None:
+    _, owner = await _membership(app_schema, "owner")
+    with count_statements() as counter:
+        await services.get_playgroup(app_schema, owner)
+    assert counter.count == 0
 
 
 async def test_updating_after_leaving_is_a_404(app_schema: AppSession) -> None:
@@ -191,8 +219,6 @@ async def test_updating_after_leaving_is_a_404(app_schema: AppSession) -> None:
     await app_schema.execute(text("update memberships set left_at = now()"))
     with pytest.raises(NotFoundError):
         await services.update_playgroup(app_schema, owner, name="Too Late")
-    with pytest.raises(NotFoundError):
-        await services.get_playgroup(app_schema, owner)
 
 
 async def test_list_pages_by_cursor_with_roles_and_excludes_former_memberships(

@@ -27,13 +27,7 @@ from app.identity.services import (
     get_player_for_user,
     get_players,
 )
-from tests.factories import (
-    GuestPlayerFactory,
-    PlayerFactory,
-    PlaygroupFactory,
-    UserFactory,
-    create,
-)
+from tests.factories import GuestPlayerFactory, PlayerFactory, UserFactory, create
 from tests.statement_counter import StatementCounter
 
 PASSWORD = "correct horse battery"
@@ -357,13 +351,12 @@ async def test_get_players_with_no_ids_runs_no_statement(
     assert counter.count == 0
 
 
-async def test_merged_into_id_and_home_playgroup_id_round_trip(
+async def test_merged_into_id_round_trips_and_home_playgroup_has_no_foreign_key(
     db_session: AppSession,
 ) -> None:
     keep = await create_guest_player(db_session, display_name="Keep")
     merged = await create(db_session, GuestPlayerFactory, merged_into_id=keep.id)
-    group = await create(db_session, PlaygroupFactory)
-    home = group.id
+    home = uuid7()  # no FK yet: any uuid is accepted
     other = await create(db_session, GuestPlayerFactory, home_playgroup_id=home)
     merged_info = await get_player(db_session, merged.id)
     other_info = await get_player(db_session, other.id)

@@ -25,6 +25,16 @@ from app.playgroups.models import ROLE_ADMIN, ROLE_OWNER
 
 
 @dataclass(frozen=True)
+class PlaygroupSnapshot:
+    """A playgroup's own fields as of the dependency's query."""
+
+    name: str
+    description: str
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
 class MembershipInfo:
     """The caller's active membership of one playgroup."""
 
@@ -33,6 +43,8 @@ class MembershipInfo:
     user_id: UUID
     role: str
     joined_at: datetime
+    playgroup: "PlaygroupSnapshot"
+    """The playgroup as read by the dependency's query, so reading it needs no second query."""
 
     @property
     def is_admin(self) -> bool:
@@ -69,6 +81,12 @@ async def get_membership(
         user_id=user_id,
         role=row.role,
         joined_at=row.joined_at,
+        playgroup=PlaygroupSnapshot(
+            name=row.playgroup.name,
+            description=row.playgroup.description,
+            created_at=row.playgroup.created_at,
+            updated_at=row.playgroup.updated_at,
+        ),
     )
 
 

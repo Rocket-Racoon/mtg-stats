@@ -69,8 +69,7 @@ def test_upgrade_creates_users_and_players_with_their_constraints(
     assert any("UNIQUE" in d and "lower(" in d and "username" in d for d in indexes)
     assert "['user_id']->users" in fks
     assert "['merged_into_id']->players" in fks
-    # S-2.4.1 added the playgroups table and the foreign key with it.
-    assert "['home_playgroup_id']->playgroups" in fks
+    assert not any("home_playgroup_id" in fk for fk in fks)
 
 
 def test_head_has_no_model_drift_after_the_identity_migration(

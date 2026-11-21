@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import NotFoundError, PermissionDeniedError
 from app.core.paging import PageParams, Sort, SortKey, paginate
 from app.playgroups import repository
-from app.playgroups.models import ROLE_OWNER, Membership, Playgroup
+from app.playgroups.models import ROLE_ADMIN, ROLE_OWNER, Membership, Playgroup
 from app.playgroups.services.access import MembershipInfo, player_id_for_user
 
 _MY_PLAYGROUPS_SORT = Sort((SortKey(Membership.joined_at, True), SortKey(Membership.id, True)))
@@ -71,13 +71,20 @@ async def create_playgroup(
 
 
 async def get_playgroup(session: AsyncSession, access: MembershipInfo) -> PlaygroupInfo:
-    """The playgroup of a membership obtained from a ``require_*`` dependency."""
-    membership = await repository.get_active_membership(
-        session, access.playgroup_id, access.player_id
+    """The playgroup of a membership obtained from a ``require_*`` dependency.
+
+    The dependency's query already read the playgroup, so this runs no statement of its own.
+    """
+    group = access.playgroup
+    return PlaygroupInfo(
+        id=access.playgroup_id,
+        name=group.name,
+        description=group.description,
+        role=access.role,
+        created_at=group.created_at,
+        updated_at=group.updated_at,
+        joined_at=access.joined_at,
     )
-    if membership is None:  # left between the dependency and now
-        raise NotFoundError
-    return info_of(membership)
 
 
 async def update_playgroup(
@@ -89,16 +96,17 @@ async def update_playgroup(
 ) -> PlaygroupInfo:
     """Rename and/or re-describe a playgroup. Flushes; the caller commits.
 
-    ``access`` must come from ``require_playgroup_admin`` (owner or admin); a plain member is
-    rejected here as well, so the rule holds for any caller.
+    ``access`` identifies the caller (from ``require_playgroup_admin``). The role is checked
+    again on the membership row read here, not on ``access``, so a demotion between the
+    dependency and this call cannot authorise the edit.
     """
-    if not access.is_admin:
-        raise PermissionDeniedError
     membership = await repository.get_active_membership(
         session, access.playgroup_id, access.player_id
     )
     if membership is None:
         raise NotFoundError
+    if membership.role not in (ROLE_OWNER, ROLE_ADMIN):
+        raise PermissionDeniedError
     group = membership.playgroup
     if name is not None:
         group.name = name

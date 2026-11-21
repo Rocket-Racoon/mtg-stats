@@ -5,7 +5,7 @@
 // "*" axis marker and stacked-bar fading comes from the kit's code and not from the mock.
 import { fireEvent, render, screen, within } from '@testing-library/react-native';
 import type { ReactElement, ReactNode } from 'react';
-import { tapMark } from './chart-tap';
+import { failedTouch, tapMark, tapOutside } from './chart-tap';
 import {
   BarChart,
   chartThemeFor,
@@ -53,6 +53,7 @@ jest.mock('victory-native', () => {
       opacity?: number;
       radius?: number;
       color?: string;
+      style?: string;
     }) {
       return (
         <View
@@ -61,6 +62,7 @@ jest.mock('victory-native', () => {
           opacity={props.opacity}
           radius={props.radius}
           color={props.color}
+          paintStyle={props.style}
         />
       );
     };
@@ -148,9 +150,8 @@ const charts = {
 type ChartName = keyof typeof charts;
 const chartNames = Object.keys(charts) as ChartName[];
 
-// The empty tooltip is hidden from screen readers on purpose, so it is read with hidden elements included.
-const childrenOf = (id: string) =>
-  screen.getByTestId(id, { includeHiddenElements: true }).props.children as string;
+// Reads only what a screen reader can reach, so a tooltip must be exposed once it has content.
+const childrenOf = (id: string) => screen.getByTestId(id).props.children as string;
 const xLabels = () => screen.getAllByTestId('x-label').map((l) => l.props.children);
 
 beforeEach(() => {
@@ -347,7 +348,9 @@ describe('criterion 2: low-sample marks are de-emphasised', () => {
 
   it('shows nothing in the tooltip until a mark is tapped', async () => {
     await render(<BarChart title="T" rows={rows} />);
-    expect(childrenOf('chart-tooltip')).toBe(' ');
+    const tip = screen.getByTestId('chart-tooltip', { includeHiddenElements: true });
+    expect(tip.props.children).toBe(' ');
+    expect(screen.queryByTestId('chart-tooltip')).toBeNull();
   });
 
   it('uses the plural form for zero games', async () => {
@@ -356,14 +359,10 @@ describe('criterion 2: low-sample marks are de-emphasised', () => {
     expect(childrenOf('chart-tooltip')).toContain('0 games');
   });
 
-  // AMBIGUOUS: the criterion says "n games"; natural English says "1 game". This test accepts both
-  // and the report flags the choice to the orchestrator.
-  it('words a single game as "1 game" or "1 games" (criterion versus English)', async () => {
-    await render(
-      <BarChart title="T" rows={[{ label: 'A', value: 5, games: 1, low_sample: true }]} />,
-    );
+  it('words a single game as exactly "1 game"', async () => {
+    await render(<BarChart title="T" rows={[{ label: 'A', value: 5, games: 1 }]} />);
     await tapMark(0);
-    expect(childrenOf('chart-tooltip')).toMatch(/1 games?\b/);
+    expect(childrenOf('chart-tooltip')).toBe('A: 5, 1 game');
   });
 });
 
@@ -589,5 +588,261 @@ describe('criterion 3: the list view is announced as a list', () => {
     const list = screen.getByTestId('chart-list');
     expect(list.props.accessibilityRole).toBe('list');
     expect(list.props.accessibilityLabel).toContain('Win rate');
+  });
+});
+
+const onSelect = jest.fn();
+
+describe('criterion 2: tap lifecycle', () => {
+  it('keeps the tooltip after the touch has ended', async () => {
+    await render(<BarChart title="T" rows={rows} />);
+    await tapMark(0);
+    expect(childrenOf('chart-tooltip')).toBe('Red: 60, 20 games');
+    // No touch is held any more, and the tooltip is still there.
+    expect(childrenOf('chart-tooltip')).toBe('Red: 60, 20 games');
+  });
+
+  it.each([
+    ['bar', () => <BarChart title="T" rows={rows} />],
+    ['line', () => <LineChart title="T" rows={rows} />],
+  ] as const)('moves the %s selection when another mark is tapped', async (_n, make) => {
+    await render(make());
+    await tapMark(0);
+    await tapMark(2);
+    expect(childrenOf('chart-tooltip')).toBe('Green: 40, 12 games');
+  });
+
+  it('moves the stacked selection when another bar is tapped', async () => {
+    await render(<StackedBarChart title="T" series={series} rows={stackedRows} />);
+    await tapMark(0);
+    expect(childrenOf('chart-tooltip')).toContain('Deck A');
+    await tapMark(1);
+    expect(childrenOf('chart-tooltip')).toContain('Deck B');
+    expect(childrenOf('chart-tooltip')).not.toContain('Deck A');
+  });
+
+  it('clears the selection when the selected mark is tapped again', async () => {
+    await render(<BarChart title="T" rows={rows} />);
+    await tapMark(1);
+    await tapMark(1);
+    expect(screen.queryByTestId('chart-tooltip')).toBeNull();
+  });
+
+  it('selects the mark nearest to the tap', async () => {
+    await render(<BarChart title="T" rows={rows} />);
+    await tapMark(2);
+    expect(childrenOf('chart-tooltip')).toContain('Green');
+  });
+
+  it('ignores a tap outside the plot area and a touch that moved (a scroll)', async () => {
+    await render(<BarChart title="T" rows={rows} />);
+    await tapMark(0);
+    await tapOutside();
+    await failedTouch(3);
+    expect(childrenOf('chart-tooltip')).toBe('Red: 60, 20 games');
+  });
+
+  it('drops the selection when switching to the list and back', async () => {
+    await render(<BarChart title="T" rows={rows} />);
+    await tapMark(0);
+    await fireEvent.press(screen.getByRole('button', { name: 'Show as list' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Show as chart' }));
+    expect(screen.queryByTestId('chart-tooltip')).toBeNull();
+  });
+
+  it.each([
+    ['bar', () => <BarChart title="T" rows={rows} onSelect={onSelect} />],
+    ['line', () => <LineChart title="T" rows={rows} onSelect={onSelect} />],
+  ] as const)('reports the %s selection through onSelect', async (_n, make) => {
+    onSelect.mockClear();
+    await render(make());
+    await tapMark(1);
+    await tapMark(1);
+    expect(onSelect.mock.calls).toEqual([[1], [null]]);
+  });
+
+  it('reports the stacked selection through onSelect', async () => {
+    onSelect.mockClear();
+    await render(
+      <StackedBarChart title="T" series={series} rows={stackedRows} onSelect={onSelect} />,
+    );
+    await tapMark(1);
+    expect(onSelect.mock.calls).toEqual([[1]]);
+  });
+
+  it('words a small-sample tooltip as the value plus "Small sample: n games"', async () => {
+    await render(<BarChart title="T" rows={rows} />);
+    await tapMark(1);
+    expect(childrenOf('chart-tooltip')).toBe('Blue: 55, Small sample: 3 games');
+  });
+
+  it('words a single small-sample game as "Small sample: 1 game"', async () => {
+    await render(
+      <LineChart title="T" rows={[{ label: 'A', value: 5, games: 1, low_sample: true }]} />,
+    );
+    await tapMark(0);
+    expect(childrenOf('chart-tooltip')).toBe('A: 5, Small sample: 1 game');
+  });
+
+  it('words a small-sample stacked tooltip with the series shares and the sample', async () => {
+    await render(<StackedBarChart title="T" series={series} rows={stackedRows} />);
+    await tapMark(1);
+    expect(childrenOf('chart-tooltip')).toBe(
+      'Deck B: Red 25%, Blue 25%, Green 50%, Small sample: 2 games',
+    );
+  });
+
+  it('flags a small-sample top value in the screen-reader summary', async () => {
+    await render(<BarChart title="Win rate" rows={rows} />);
+    expect(screen.getByRole('image').props.accessibilityLabel).toContain('Blue 55 (small sample)');
+  });
+});
+
+describe('criterion 2: small-sample marks carry a cue that is neither opacity nor colour', () => {
+  it('outlines small-sample bars with a dashed stroke, and only those', async () => {
+    await render(<BarChart title="T" rows={rows} />);
+    const outlines = screen.getAllByTestId('skia-rect');
+    expect(outlines).toHaveLength(1);
+    expect(outlines[0]?.props.style).toBe('stroke');
+  });
+
+  it('draws no outline when no row is a small sample', async () => {
+    await render(<BarChart title="T" rows={manaCurve} />);
+    expect(screen.queryByTestId('skia-rect')).toBeNull();
+  });
+
+  it('outlines small-sample stacked columns and only those', async () => {
+    await render(<StackedBarChart title="T" series={series} rows={stackedRows} />);
+    expect(screen.getAllByTestId('skia-rect')).toHaveLength(1);
+  });
+
+  it('draws small-sample line points as smaller hollow rings', async () => {
+    await render(<LineChart title="T" rows={rows} />);
+    const [solid, small] = screen.getAllByTestId('victory-scatter');
+    expect(solid?.props.paintStyle).not.toBe('stroke');
+    expect(small?.props.paintStyle).toBe('stroke');
+    expect(small?.props.radius).toBeLessThan(solid?.props.radius as number);
+  });
+
+  it('names the marker in text under the chart', async () => {
+    await render(<BarChart title="T" rows={rows} />);
+    expect(screen.getByTestId('chart-low-sample-note')).toBeTruthy();
+  });
+});
+
+describe('every row keeps its x-axis label', () => {
+  const eight: ChartRow[] = Array.from({ length: 8 }, (_, i) => ({
+    label: `W${i + 1}`,
+    value: i + 1,
+    games: 10,
+    low_sample: i === 2 || i === 5,
+  }));
+  const expected = ['W1', 'W2', 'W3*', 'W4', 'W5', 'W6*', 'W7', 'W8'];
+
+  it('shows all 8 labels on the bar chart, with a star on each small-sample row', async () => {
+    await render(<BarChart title="T" rows={eight} />);
+    expect(xLabels()).toEqual(expected);
+  });
+
+  it('shows all 8 labels on the line chart, with a star on each small-sample row', async () => {
+    await render(<LineChart title="T" rows={eight} />);
+    expect(xLabels()).toEqual(expected);
+  });
+
+  it('shows all 8 labels on the stacked chart, with a star on each small-sample row', async () => {
+    const stacked: StackedRow[] = eight.map((r, i) => ({
+      label: r.label,
+      segments: { r: i + 1, u: 1, g: 1 },
+      games: 10,
+      low_sample: r.low_sample,
+    }));
+    await render(<StackedBarChart title="T" series={series} rows={stacked} />);
+    expect(xLabels()).toEqual(expected);
+  });
+
+  it('keeps the star on a long small-sample label that is truncated on the axis', async () => {
+    await render(
+      <BarChart
+        title="T"
+        rows={[
+          { label: 'A very long deck name', value: 1, games: 2, low_sample: true },
+          { label: 'B', value: 2 },
+        ]}
+      />,
+    );
+    const first = xLabels()[0] as string;
+    expect(first.endsWith('*')).toBe(true);
+    expect(first.length).toBeLessThan('A very long deck name'.length);
+  });
+
+  it('keeps the full label in the tooltip', async () => {
+    await render(<BarChart title="T" rows={[{ label: 'A very long deck name', value: 1 }]} />);
+    await tapMark(0);
+    expect(childrenOf('chart-tooltip')).toBe('A very long deck name: 1');
+  });
+});
+
+describe('criterion 4: an all-zero stacked chart', () => {
+  it('shows the empty message instead of empty axes', async () => {
+    await render(
+      <StackedBarChart
+        title="Colors"
+        series={series}
+        rows={[
+          { label: 'A', segments: { r: 0, u: 0, g: 0 } },
+          { label: 'B', segments: {} },
+        ]}
+      />,
+    );
+    expect(childrenOf('chart-empty')).toBe('No data to show yet.');
+    expect(screen.queryByTestId('victory-chart')).toBeNull();
+    expect(screen.queryByRole('image')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Show as list' })).toBeNull();
+  });
+
+  it('still draws a stacked chart when only some rows are zero', async () => {
+    await render(
+      <StackedBarChart
+        title="Colors"
+        series={series}
+        rows={[
+          { label: 'A', segments: { r: 1, u: 1, g: 2 } },
+          { label: 'B', segments: { r: 0, u: 0, g: 0 } },
+        ]}
+      />,
+    );
+    expect(screen.getByTestId('victory-chart')).toBeTruthy();
+  });
+
+  it('shows displayed percentages that add up to 100', async () => {
+    await render(
+      <StackedBarChart
+        title="T"
+        series={series}
+        rows={[{ label: 'A', segments: { r: 1, u: 1, g: 1 } }]}
+      />,
+    );
+    await fireEvent.press(screen.getByRole('button', { name: 'Show as list' }));
+    const text = screen.getByText(/^A:/).props.children as string;
+    const sum = [...text.matchAll(/(\d+)%/g)].reduce((n, m) => n + Number(m[1]), 0);
+    expect(sum).toBe(100);
+  });
+});
+
+describe('criterion 5: no sample wording leaks when games and low_sample are absent', () => {
+  it.each([
+    ['bar', () => <BarChart title="Curve" rows={manaCurve} />],
+    ['line', () => <LineChart title="Curve" rows={manaCurve} />],
+    ['stacked', () => <StackedBarChart title="Share" series={series} rows={colorShare} />],
+  ] as const)('keeps it out of the %s summary, tooltip, list and note', async (_n, make) => {
+    await render(make());
+    expect(screen.getByRole('image').props.accessibilityLabel).not.toMatch(/sample|games?\b|\*/i);
+    expect(screen.queryByTestId('chart-low-sample-note')).toBeNull();
+    await tapMark(0);
+    expect(childrenOf('chart-tooltip')).not.toMatch(/sample|games?\b/i);
+    await fireEvent.press(screen.getByRole('button', { name: 'Show as list' }));
+    for (const t of screen.getAllByRole('text')) {
+      expect(t.props.children).not.toMatch(/sample|games?\b/i);
+    }
   });
 });

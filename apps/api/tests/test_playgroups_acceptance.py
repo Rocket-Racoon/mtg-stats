@@ -17,7 +17,8 @@ from sqlalchemy import select
 
 from app.core.db import AppSession
 from app.playgroups.models import Membership
-from tests.factories import PlaygroupFactory, create
+from tests.auth_support import issue
+from tests.factories import PlayerFactory, PlaygroupFactory, UserFactory, create
 from tests.playgroup_support import join, make_user
 from tests.statement_counter import StatementCounter
 
@@ -560,3 +561,120 @@ async def test_a_user_who_belongs_to_25_playgroups_can_be_added_to_another_and_c
     assert len(items) == 27
     assert {UUID(i["id"]) for i in items} >= {joined, UUID(created.json()["id"])}
     assert (await client.get(f"{URL}/{joined}", headers=headers)).status_code == 200
+
+
+# ------------------------------------------------------------- AC3 follow-ups and input hardening
+
+
+@pytest.mark.parametrize("method", ["GET", "PATCH"])
+async def test_a_former_member_gets_404_indistinguishable_from_a_nonexistent_id(
+    client: httpx.AsyncClient, app_schema: AppSession, method: str
+) -> None:
+    _, owner_player, _ = await make_user(app_schema)
+    _, former_player, former = await make_user(app_schema)
+    group_id = await _group_for(app_schema, [(owner_player, "owner")])
+    await join(app_schema, group_id, former_player, "member", left=True)
+    body = {"name": "Hijacked"} if method == "PATCH" else None
+
+    real = await client.request(method, f"{URL}/{group_id}", json=body, headers=former)
+    missing = await client.request(method, f"{URL}/{uuid.uuid4()}", json=body, headers=former)
+
+    assert real.status_code == 404
+    assert real.json()["error"]["code"] == "not_found"
+    assert _shape(real) == _shape(missing)
+
+
+async def test_a_former_admin_cannot_edit_and_the_playgroup_is_not_in_their_list(
+    client: httpx.AsyncClient, app_schema: AppSession
+) -> None:
+    _, owner_player, owner = await make_user(app_schema)
+    _, former_player, former = await make_user(app_schema)
+    group_id = await _group_for(app_schema, [(owner_player, "owner")])
+    await join(app_schema, group_id, former_player, "admin", left=True)
+
+    assert (await _all_items(client, former)) == []
+    denied = await client.patch(f"{URL}/{group_id}", json={"name": "Hijacked"}, headers=former)
+    assert denied.status_code == 404
+    unchanged = (await client.get(f"{URL}/{group_id}", headers=owner)).json()
+    assert unchanged["name"] != "Hijacked"
+
+
+async def test_the_list_omits_only_the_playgroups_the_user_has_left(
+    client: httpx.AsyncClient, app_schema: AppSession
+) -> None:
+    _, me, headers = await make_user(app_schema)
+    _, other, _ = await make_user(app_schema)
+    kept = await _group_for(app_schema, [(other, "owner"), (me, "member")])
+    left = await _group_for(app_schema, [(other, "owner")])
+    await join(app_schema, left, me, "member", left=True)
+    assert {UUID(i["id"]) for i in await _all_items(client, headers)} == {kept}
+
+
+@pytest.mark.parametrize("method", ["GET", "PATCH"])
+async def test_a_site_admin_who_is_not_a_member_gets_404_not_found(
+    client: httpx.AsyncClient, app_schema: AppSession, method: str
+) -> None:
+    _, owner_player, owner = await make_user(app_schema)
+    group_id = await _group_for(app_schema, [(owner_player, "owner")])
+    admin = await create(app_schema, UserFactory, is_site_admin=True)
+    await create(app_schema, PlayerFactory, user_id=admin.id)
+    await app_schema.commit()
+    headers = {"Authorization": f"Bearer {issue(admin.id)}"}
+    body = {"name": "Hijacked"} if method == "PATCH" else None
+
+    real = await client.request(method, f"{URL}/{group_id}", json=body, headers=headers)
+    missing = await client.request(method, f"{URL}/{uuid.uuid4()}", json=body, headers=headers)
+
+    assert real.status_code == 404
+    assert real.json()["error"]["code"] == "not_found"
+    assert _shape(real) == _shape(missing)
+    assert (await client.get(f"{URL}/{group_id}", headers=owner)).json()["name"] != "Hijacked"
+
+
+@pytest.mark.parametrize("field", ["name", "description"])
+async def test_a_nul_character_is_422_validation_error_on_create_and_stores_nothing(
+    client: httpx.AsyncClient, app_schema: AppSession, field: str
+) -> None:
+    _, _, headers = await make_user(app_schema)
+    body = {"name": "Friday Night"}
+    body[field] = "bad\x00value"
+    response = await client.post(URL, json=body, headers=headers)
+    assert response.status_code == 422
+    error = response.json()["error"]
+    assert error["code"] == "validation_error"
+    assert error["details"]
+    assert await _all_items(client, headers) == []
+
+
+@pytest.mark.parametrize("field", ["name", "description"])
+async def test_a_nul_character_is_422_validation_error_on_edit_and_changes_nothing(
+    client: httpx.AsyncClient, app_schema: AppSession, field: str
+) -> None:
+    _, _, headers = await make_user(app_schema)
+    created = (await _create(client, headers, description="keep")).json()
+    response = await client.patch(
+        f"{URL}/{created['id']}", json={field: "bad\x00value"}, headers=headers
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+    assert response.json()["error"]["details"]
+    fetched = (await client.get(f"{URL}/{created['id']}", headers=headers)).json()
+    assert (fetched["name"], fetched["description"]) == ("Friday Night", "keep")
+
+
+async def test_a_description_with_newlines_and_tabs_is_accepted_unchanged(
+    client: httpx.AsyncClient, app_schema: AppSession
+) -> None:
+    _, _, headers = await make_user(app_schema)
+    text_value = "Line one\nLine two\r\n\tindented"
+    created = await _create(client, headers, description=text_value)
+    assert created.status_code == 201
+    assert created.json()["description"] == text_value
+    group_id = created.json()["id"]
+    fetched = (await client.get(f"{URL}/{group_id}", headers=headers)).json()
+    assert fetched["description"] == text_value
+    edited = await client.patch(
+        f"{URL}/{group_id}", json={"description": "a\tb\nc"}, headers=headers
+    )
+    assert edited.status_code == 200
+    assert edited.json()["description"] == "a\tb\nc"

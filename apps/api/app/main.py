@@ -16,6 +16,7 @@ from app.core.logging import configure_logging
 from app.core.openapi import generate_operation_id
 from app.core.redis import close_redis, get_redis
 from app.core.request_id import RequestIDMiddleware
+from app.core.user_agent import api_version
 from app.identity import services as identity_services
 from app.identity.router import router as identity_router
 from app.playgroups.router import router as playgroups_router
@@ -56,6 +57,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(
         responses=ERROR_RESPONSES,
         title="MTG Stats API",
+        version=api_version(),
         generate_unique_id_function=generate_operation_id,
         lifespan=lifespan,
         openapi_url=f"{API_PREFIX}/openapi.json",

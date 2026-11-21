@@ -25,7 +25,7 @@ def upgrade() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
     op.execute("CREATE EXTENSION IF NOT EXISTS unaccent")
     op.execute(
-        "CREATE OR REPLACE FUNCTION immutable_unaccent(text) RETURNS text "
+        "CREATE OR REPLACE FUNCTION public.immutable_unaccent(text) RETURNS text "
         "LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT "
         "AS $$ SELECT public.unaccent('public.unaccent'::regdictionary, $1) $$"
     )
@@ -37,14 +37,14 @@ def upgrade() -> None:
             "search_name",
             sa.Text(),
             sa.Computed(
-                "btrim(regexp_replace(regexp_replace(lower(immutable_unaccent(name)), "
+                "btrim(regexp_replace(regexp_replace(lower(public.immutable_unaccent(name)), "
                 "'[''\u2019]', '', 'g'), '[^[:alnum:]]+', ' ', 'g'))",
                 persisted=True,
             ),
             nullable=False,
         ),
         sa.Column("mana_cost", sa.String(length=128), server_default="", nullable=False),
-        sa.Column("cmc", sa.Numeric(precision=8, scale=2), server_default="0", nullable=False),
+        sa.Column("cmc", sa.Numeric(precision=10, scale=2), server_default="0", nullable=False),
         sa.Column("type_line", sa.String(length=255), server_default="", nullable=False),
         sa.Column("oracle_text", sa.Text(), server_default="", nullable=False),
         sa.Column(
@@ -159,4 +159,4 @@ def downgrade() -> None:
     op.drop_index("ix_cards_commander_legality", table_name="cards")
     op.drop_table("cards")
     # The extensions stay: other objects may use them, and CREATE ... IF NOT EXISTS is idempotent.
-    op.execute("DROP FUNCTION IF EXISTS immutable_unaccent(text)")
+    op.execute("DROP FUNCTION IF EXISTS public.immutable_unaccent(text)")

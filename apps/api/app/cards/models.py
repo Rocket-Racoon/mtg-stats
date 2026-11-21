@@ -28,24 +28,23 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base, UtcDateTime, _utcnow
 
-EXTRA_LAYOUTS = ("art_series",)
-
-# Run before the tables exist, by the migration and by the test schema fixture. ``unaccent`` is
-# only STABLE, so index and generated-column expressions need this IMMUTABLE wrapper.
+# Used by ``create_search_support`` (the test schema fixture). The migration keeps its own frozen
+# copy of this SQL on purpose; ``tests/test_cards_schema_parity.py`` fails if the two diverge.
+# ``unaccent`` is only STABLE, so index and generated-column expressions need this IMMUTABLE
+# wrapper, always schema-qualified so it never depends on ``search_path``.
 EXTENSIONS_SQL = (
     "CREATE EXTENSION IF NOT EXISTS pg_trgm",
     "CREATE EXTENSION IF NOT EXISTS unaccent",
 )
 IMMUTABLE_UNACCENT_SQL = """
-CREATE OR REPLACE FUNCTION immutable_unaccent(text) RETURNS text
+CREATE OR REPLACE FUNCTION public.immutable_unaccent(text) RETURNS text
 LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT
 AS $$ SELECT public.unaccent('public.unaccent'::regdictionary, $1) $$
 """
-DROP_IMMUTABLE_UNACCENT_SQL = "DROP FUNCTION IF EXISTS immutable_unaccent(text)"
 
 # lower-case, accents removed, apostrophes dropped, other punctuation folded to single spaces.
 SEARCH_NAME_SQL = (
-    "btrim(regexp_replace(regexp_replace(lower(immutable_unaccent(name)), "
+    "btrim(regexp_replace(regexp_replace(lower(public.immutable_unaccent(name)), "
     "'[''\u2019]', '', 'g'), '[^[:alnum:]]+', ' ', 'g'))"
 )
 COMMANDER_LEGALITY_SQL = "coalesce(legalities ->> 'commander', '')"
@@ -76,7 +75,7 @@ class Card(Base):
     name: Mapped[str] = mapped_column(String(255), default="", server_default="")
     search_name: Mapped[str] = mapped_column(Text, Computed(SEARCH_NAME_SQL, persisted=True))
     mana_cost: Mapped[str] = mapped_column(String(128), default="", server_default="")
-    cmc: Mapped[Decimal] = mapped_column(Numeric(8, 2), default=Decimal(0), server_default="0")
+    cmc: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal(0), server_default="0")
     type_line: Mapped[str] = mapped_column(String(255), default="", server_default="")
     oracle_text: Mapped[str] = mapped_column(Text, default="", server_default="")
     colors: Mapped[list[str]] = mapped_column(
@@ -134,6 +133,11 @@ class Printing(Base):
     finishes: Mapped[list[str]] = mapped_column(
         ARRAY(String(16)), default=list, server_default=text("'{}'")
     )
+    # Shape: a single-faced printing stores Scryfall's ``image_uris`` object as is, for example
+    # ``{"small": url, "normal": url, "large": url, "png": url, "art_crop": url,
+    # "border_crop": url}``. A multi-faced printing (``image_uris`` absent at the top level on
+    # Scryfall) stores ``{"faces": [<image_uris of face 0>, <image_uris of face 1>, ...]}``,
+    # in ``card_faces`` order. An empty ``{}`` means no images.
     image_uris: Mapped[dict[str, Any]] = mapped_column(
         JSONB, default=dict, server_default=text("'{}'::jsonb")
     )

@@ -219,18 +219,41 @@ async def job_queue(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[JobQueue]:
         get_settings.cache_clear()
 
 
+@pytest.fixture(scope="session")
+def search_support_ready() -> None:
+    """Create ``pg_trgm``, ``unaccent`` and ``public.immutable_unaccent`` once per test session.
+
+    They are committed (extensions and a function hold no data, so test isolation is unchanged)
+    instead of being created inside every rolled-back test transaction, which cost 5-15 ms per
+    test and took catalog locks. When Postgres is unreachable this does nothing: the
+    ``db_session`` fixture then skips or fails the test with the usual message.
+    """
+    import psycopg  # noqa: PLC0415
+    from sqlalchemy.engine import make_url  # noqa: PLC0415
+
+    from app.cards.models import EXTENSIONS_SQL, IMMUTABLE_UNACCENT_SQL  # noqa: PLC0415
+
+    url = make_url(TEST_DATABASE_URL).set(drivername="postgresql")
+    try:
+        connection = psycopg.connect(url.render_as_string(hide_password=False), connect_timeout=5)
+    except psycopg.OperationalError:
+        return
+    with connection:
+        for statement in (*EXTENSIONS_SQL, IMMUTABLE_UNACCENT_SQL):
+            connection.execute(statement)
+
+
 @pytest.fixture
-async def app_schema(db_session: AppSession) -> AppSession:
+async def app_schema(db_session: AppSession, search_support_ready: None) -> AppSession:
     """``db_session`` with every real app table created inside its (rolled-back) transaction.
 
-    ``mtg_stats_test`` is never migrated, so this builds the schema from the model registry.
+    ``mtg_stats_test`` is never migrated, so this builds the schema from the model registry. The
+    extensions and the ``immutable_unaccent`` wrapper that the ``cards`` tables need come from
+    the session-scoped ``search_support_ready`` fixture (S-3.1.1).
     """
-    from app.cards.models import create_search_support  # noqa: PLC0415
     from app.model_registry import metadata  # noqa: PLC0415
 
     connection = await db_session.connection()
-    # Extensions and the immutable_unaccent wrapper must exist before the cards tables (S-3.1.1).
-    await connection.run_sync(create_search_support)
     await connection.run_sync(metadata.create_all)
     return db_session
 

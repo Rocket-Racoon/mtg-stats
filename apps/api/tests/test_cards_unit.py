@@ -133,3 +133,14 @@ async def test_find_cards_by_names_ignores_case_accents_and_punctuation(
     found = await services.find_cards_by_names(app_schema, ["jotun  grunt", "URZAS TOWER"])
     assert [c.name for c in found] == ["Jötun Grunt", "Urza's Tower"]
     assert await services.find_cards_by_names(app_schema, []) == []
+
+
+async def test_find_cards_by_names_never_matches_an_empty_folded_name(
+    app_schema: AppSession,
+) -> None:
+    underscores = await create(app_schema, CardFactory, name="_____")
+    await app_schema.refresh(underscores)
+    assert underscores.search_name == ""
+
+    assert await services.find_cards_by_names(app_schema, ["!!"]) == []
+    assert await services.find_cards_by_names(app_schema, ["_____"]) == []

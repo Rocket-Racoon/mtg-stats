@@ -295,6 +295,8 @@ Anything that looks like time or chance arrives **inside an event payload**: `ga
 
 Shared vectors live in `packages/game-core/vectors/*.json`, one case or case group per file. Both reducers must run every file. A file is a JSON object with `format` (the integer 1), `kind`, `name` (the file name without `.json`) and `description`.
 
+Vector files are test data, not wire data. A runner loads them with a plain JSON parser, without the wire reader's number checks (5.6), and passes the parsed events to `apply` as they are. That is how a vector can hold a value the wire reader would refuse, such as an integer outside the safe range, and expect the reducer's own code for it (`invalid_payload`).
+
 ### 8.1 `kind: "reducer"`
 
 ```json

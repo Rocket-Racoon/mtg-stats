@@ -301,3 +301,55 @@ def test_services_interface_exposes_the_core() -> None:
     assert services.apply is apply
     assert services.canonical_json is canonical_json
     assert set(services.__all__) == set(core.__all__)
+
+
+def test_version_outside_the_safe_range_is_invalid_event_not_unsupported() -> None:
+    assert _code(apply(_state(), _event(v=2**53))) == "invalid_event"
+    assert _code(apply(_state(), _event(v=-(2**53)))) == "invalid_event"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"a": 1.0},
+        {"a": 1.5},
+        {"a": float("nan")},
+        {"a": 2**53},
+        {"a": -(2**53)},
+        {"a": "\ud800"},
+        {"\udc00": 1},
+        {"a": (1, 2)},
+        {"a": {1: 2}},
+        {"a": object()},
+    ],
+)
+def test_payload_that_is_not_a_canonical_value_is_invalid_payload(payload: dict[str, Any]) -> None:
+    assert _code(apply(_state(), _event(payload=payload))) == "invalid_payload"
+
+
+def test_payload_is_checked_before_game_mismatch_and_out_of_order() -> None:
+    bad = {"a": 1.5}
+    assert _code(apply(_state(), _event(payload=bad, game_id="other"))) == "invalid_payload"
+    assert _code(apply(_state(), _event(payload=bad, seq=7))) == "invalid_payload"
+
+
+def test_malformed_envelope_wins_over_a_bad_payload() -> None:
+    assert _code(apply(_state(), _event(payload=[1.5]))) == "invalid_event"
+
+
+def _nested_payload(containers: int) -> dict[str, Any]:
+    node: dict[str, Any] = {}
+    for _ in range(containers - 1):
+        node = {"a": node}
+    return node
+
+
+def test_payload_nesting_counts_the_payload_as_the_top_level_value() -> None:
+    assert isinstance(apply(_state(), _event(payload=_nested_payload(65))), ApplyOk)
+    result = apply(_state(), _event(payload=_nested_payload(66)))
+    assert _code(result) == "invalid_payload"
+
+
+def test_closed_game_is_not_checked_by_apply_yet() -> None:
+    finished = _state().model_copy(update={"phase": "finished"})
+    assert isinstance(apply(finished, _event()), ApplyOk)

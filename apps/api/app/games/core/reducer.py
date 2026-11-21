@@ -13,6 +13,7 @@ from typing import Any, Final
 
 from pydantic import ValidationError
 
+from app.games.core.canonical import MAX_SAFE_INTEGER, CanonicalJsonError, canonical_json
 from app.games.core.contract import (
     EVENT_TYPES,
     SUPPORTED_VERSIONS,
@@ -84,7 +85,7 @@ def _reject(code: ReducerErrorCode) -> ApplyError:
 
 
 def _is_integer(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool)
+    return isinstance(value, int) and not isinstance(value, bool) and abs(value) <= MAX_SAFE_INTEGER
 
 
 def apply(state: GameState, event: Any) -> ApplyResult:
@@ -106,6 +107,10 @@ def apply(state: GameState, event: Any) -> ApplyResult:
         envelope = EventEnvelope.model_validate(event)
     except ValidationError:
         return _reject("invalid_event")
+    try:
+        canonical_json(envelope.payload)  # the payload is the top-level value (0 ancestors)
+    except CanonicalJsonError:
+        return _reject("invalid_payload")
     if envelope.game_id != state.game_id:
         return _reject("game_mismatch")
     expected_seq = state.last_seq + 1

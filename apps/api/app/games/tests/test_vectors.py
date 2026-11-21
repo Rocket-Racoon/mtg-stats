@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Callable
 from pathlib import Path
@@ -17,7 +18,6 @@ from app.games.core import (
     apply,
     canonical_json,
     initial_state,
-    loads_wire,
 )
 
 # apps/api/app/games/tests/test_vectors.py -> repository root
@@ -37,7 +37,9 @@ FILES = _vector_files()
 
 
 def _load(path: Path) -> dict[str, Any]:
-    loaded = loads_wire(path.read_text(encoding="utf-8"))
+    # Vector files are test data, not wire data: events reach apply as already-parsed values, so
+    # a payload integer above 2^53 - 1 stays an int and apply must answer invalid_payload.
+    loaded = json.loads(path.read_text(encoding="utf-8"))
     assert isinstance(loaded, dict)
     return loaded
 
@@ -53,6 +55,14 @@ def _build_invalid(kind: str, value: str | None) -> object:
     return builders[kind]()
 
 
+def _chain(kind: str, count: int) -> object:
+    """``count`` nested containers (arrays, or objects keyed ``"a"``), empty at the bottom."""
+    node: Any = [] if kind == "deep_array" else {}
+    for _ in range(count - 1):
+        node = [node] if kind == "deep_array" else {"a": node}
+    return node
+
+
 def _run_canonical(vector: dict[str, Any]) -> None:
     for case in vector["cases"]:
         if "input" in case:
@@ -60,9 +70,13 @@ def _run_canonical(vector: dict[str, Any]) -> None:
             assert canonical_json(case["input"]).encode("utf-8")  # encodable
         else:
             invalid = case["invalid"]
-            value = _build_invalid(invalid["kind"], invalid.get("value"))
+            kind = invalid["kind"]
+            if kind in {"deep_array", "deep_object"}:
+                value = _chain(kind, int(invalid["value"]))  # not wrapped in [value]
+            else:
+                value = [_build_invalid(kind, invalid.get("value"))]
             with pytest.raises(CanonicalJsonError) as raised:
-                canonical_json([value])
+                canonical_json(value)
             assert raised.value.code == case["error"], case["name"]
 
 

@@ -1,0 +1,63 @@
+"""Public interface of the ``games`` domain; other code imports only from here.
+
+For now this is the pure game core (S-6.1.1): the reducer, the contract models and canonical
+JSON. Service functions that touch the database arrive with S-6.3.x.
+"""
+
+from app.games.core import (
+    EVENT_TYPES,
+    REDUCER_ERROR_CODES,
+    SCHEMA_VERSION,
+    Actor,
+    ApplyError,
+    ApplyOk,
+    ApplyResult,
+    CanonicalJsonError,
+    Commander,
+    Elimination,
+    EventEnvelope,
+    GameState,
+    ReducerError,
+    ReplayError,
+    ReplayOk,
+    ReplayResult,
+    Seat,
+    Settings,
+    WireParseError,
+    apply,
+    canonical_bytes,
+    canonical_json,
+    initial_state,
+    loads_wire,
+    reduce,
+    replay,
+)
+
+__all__ = [
+    "EVENT_TYPES",
+    "REDUCER_ERROR_CODES",
+    "SCHEMA_VERSION",
+    "Actor",
+    "ApplyError",
+    "ApplyOk",
+    "ApplyResult",
+    "CanonicalJsonError",
+    "Commander",
+    "Elimination",
+    "EventEnvelope",
+    "GameState",
+    "ReducerError",
+    "ReplayError",
+    "ReplayOk",
+    "ReplayResult",
+    "Seat",
+    "Settings",
+    "WireParseError",
+    "apply",
+    "canonical_bytes",
+    "canonical_json",
+    "initial_state",
+    "loads_wire",
+    "reduce",
+    "replay",
+]

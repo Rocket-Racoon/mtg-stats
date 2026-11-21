@@ -6,6 +6,7 @@ default in code.
 """
 
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal, Self
@@ -16,6 +17,8 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 WORKSPACE_MARKER = "pnpm-workspace.yaml"
 DEV_WEB_ORIGIN = "http://localhost:5173"
+DEFAULT_REPO_SLUG = "Rocket-Racoon/mtg-stats"
+REPO_SLUG_PATTERN = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 DATABASE_URL_PREFIX = "postgresql+psycopg://"
 REDIS_URL_SCHEMES = ("redis://", "rediss://")
 JWT_SECRET_MIN_LENGTH = 32
@@ -85,6 +88,10 @@ class Settings(BaseSettings):
     rate_limit_key_prefix: str = Field(
         default="mtgstats:rl", min_length=1, validation_alias="RATE_LIMIT_KEY_PREFIX"
     )
+    repo_slug: str = Field(default=DEFAULT_REPO_SLUG, validation_alias="REPO_SLUG")
+    scryfall_min_interval_ms: int = Field(
+        default=100, ge=100, validation_alias="SCRYFALL_MIN_INTERVAL_MS"
+    )
 
     @field_validator("database_url")
     @classmethod
@@ -95,6 +102,19 @@ class Settings(BaseSettings):
     @classmethod
     def _check_redis_url(cls, value: str) -> str:
         return _check_url(value, REDIS_URL_SCHEMES, "must start with redis:// or rediss://")
+
+    @field_validator("repo_slug")
+    @classmethod
+    def _check_repo_slug(cls, value: str) -> str:
+        value = value.strip()
+        if not REPO_SLUG_PATTERN.fullmatch(value):
+            raise ValueError("REPO_SLUG must look like owner/repo")
+        return value
+
+    @property
+    def repo_url(self) -> str:
+        """The GitHub repository URL sent in the User-Agent of external API calls."""
+        return f"https://github.com/{self.repo_slug}"
 
     @field_validator("public_web_url")
     @classmethod

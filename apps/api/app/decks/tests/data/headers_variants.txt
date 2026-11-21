@@ -1,0 +1,8 @@
+COMMANDER (1):
+Atraxa, Praetors' Voice
+
+deck:
+2 Sol Ring
+
+Sideboard (2)
+2 Rhystic Study

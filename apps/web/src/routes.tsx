@@ -10,6 +10,7 @@ import { PlaceholderPage } from './pages/Placeholder';
 import { InvitePage } from './pages/auth/InvitePage';
 import { SignInPage } from './pages/auth/SignInPage';
 import { AccountPage } from './pages/AccountPage';
+import { PlaygroupsPage } from './pages/PlaygroupsPage';
 import { SharedLinkPage } from './pages/SharedLinkPage';
 import { RequireSession } from './session/RequireSession';
 import { SIGN_IN_PATH } from './session/sign-in';
@@ -49,6 +50,7 @@ export const routes: RouteObject[] = [
             element: <RequireSession />,
             children: [
               { index: true, element: <HomePage /> },
+              { path: 'playgroups', element: <PlaygroupsPage /> },
               { path: 'games', element: <PlaceholderPage title="Games" /> },
               { path: 'decks', element: <PlaceholderPage title="Decks" /> },
               { path: 'stats', element: <PlaceholderPage title="Stats" /> },

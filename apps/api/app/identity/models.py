@@ -62,7 +62,9 @@ class Player(IdMixin, Base):
     is_guest: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     display_name: Mapped[str] = mapped_column(String(DISPLAY_NAME_MAX_LENGTH))
     avatar_color: Mapped[str] = mapped_column(String(16))
-    # No foreign key yet: the ``playgroups`` table does not exist. The playgroups story adds it.
+    # No foreign key to ``playgroups``: ``identity`` is the lower domain and cannot import it, so a
+    # ``ForeignKey`` here would make every ``Player`` flush need ``playgroups`` in the metadata,
+    # which the CLI and workers never load. Deferred until a mechanism exists (a later story).
     home_playgroup_id: Mapped[UUID | None] = mapped_column(default=None)
     merged_into_id: Mapped[UUID | None] = mapped_column(ForeignKey("players.id"), default=None)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_utcnow)

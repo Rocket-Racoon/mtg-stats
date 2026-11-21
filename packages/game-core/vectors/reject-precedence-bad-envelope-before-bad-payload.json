@@ -1,0 +1,35 @@
+{
+  "format": 1,
+  "kind": "reducer",
+  "name": "reject-precedence-bad-envelope-before-bad-payload",
+  "description": "An extra envelope key and a float payload: the envelope check (step 4) comes before the payload check (step 5).",
+  "game_id": "018f0000-0000-7000-8000-000000000001",
+  "settings": {
+    "starting_life": 40,
+    "commander_damage_threshold": 21,
+    "poison_threshold": 10,
+    "trust_mode": "casual"
+  },
+  "events": [
+    {
+      "event_id": "00000000-0000-4000-8000-000000000001",
+      "type": "turn_passed",
+      "payload": {
+        "a": 1.5
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1,
+      "extra_key": 1
+    }
+  ],
+  "expect": {
+    "error": {
+      "index": 0,
+      "code": "invalid_event"
+    }
+  }
+}

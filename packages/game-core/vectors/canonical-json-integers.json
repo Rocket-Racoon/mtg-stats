@@ -1,0 +1,77 @@
+{
+  "format": 1,
+  "kind": "canonical_json",
+  "name": "canonical-json-integers",
+  "description": "Integers are base 10 with no sign or leading zeros, within +-(2^53-1). The -0 case holds a raw -0 token: JSON.parse reads it as negative zero, Python's json as 0; both write 0.",
+  "cases": [
+    {
+      "name": "zero",
+      "input": 0,
+      "output": "0"
+    },
+    {
+      "name": "negative zero (raw -0 token) is written 0",
+      "input": -0,
+      "output": "0"
+    },
+    {
+      "name": "negative zero inside containers",
+      "input": [
+        -0,
+        {
+          "a": -0
+        }
+      ],
+      "output": "[0,{\"a\":0}]"
+    },
+    {
+      "name": "one and minus one",
+      "input": [1, -1],
+      "output": "[1,-1]"
+    },
+    {
+      "name": "largest safe integer",
+      "input": 9007199254740991,
+      "output": "9007199254740991"
+    },
+    {
+      "name": "smallest safe integer",
+      "input": -9007199254740991,
+      "output": "-9007199254740991"
+    },
+    {
+      "name": "one below the largest",
+      "input": 9007199254740990,
+      "output": "9007199254740990"
+    },
+    {
+      "name": "powers of two around 32 bits",
+      "input": [2147483647, 2147483648, -2147483648, 4294967295, 4294967296],
+      "output": "[2147483647,2147483648,-2147483648,4294967295,4294967296]"
+    },
+    {
+      "name": "powers of ten",
+      "input": [10, 100, 1000000, 1000000000000, 100000000000000],
+      "output": "[10,100,1000000,1000000000000,100000000000000]"
+    },
+    {
+      "name": "2^52 and 2^53 - 2",
+      "input": [4503599627370496, 9007199254740990],
+      "output": "[4503599627370496,9007199254740990]"
+    },
+    {
+      "name": "integers as object values",
+      "input": {
+        "a": 9007199254740991,
+        "b": -9007199254740991,
+        "c": 0
+      },
+      "output": "{\"a\":9007199254740991,\"b\":-9007199254740991,\"c\":0}"
+    },
+    {
+      "name": "booleans are not numbers",
+      "input": [true, 1, false, 0],
+      "output": "[true,1,false,0]"
+    }
+  ]
+}

@@ -161,6 +161,14 @@ def test_game_state_vector_inputs_are_valid_states_and_serialize_to_their_output
         assert canonical_json(case["input"]) == case["output"], case["name"]
 
 
+# 3.5 allows partial settings; 8.1 says a vector has all four, so these opt out on purpose.
+PARTIAL_SETTINGS_VECTORS = {
+    "initial-state-partial-settings",
+    "initial-state-partial-settings-trust-mode-only",
+    "initial-state-empty-settings",
+}
+
+
 def test_every_vector_file_is_well_formed() -> None:
     files = sorted(require(VECTORS_DIR).glob("*.json"))
     assert len(files) >= 90
@@ -172,12 +180,15 @@ def test_every_vector_file_is_well_formed() -> None:
         assert vector["description"]
         if vector["kind"] == "reducer":
             assert len(vector["expect"]) == 1
-            assert set(vector["settings"]) == {
+            names_of_settings = {
                 "starting_life",
                 "commander_damage_threshold",
                 "poison_threshold",
                 "trust_mode",
             }
+            assert set(vector["settings"]) <= names_of_settings
+            if path.stem not in PARTIAL_SETTINGS_VECTORS:  # 8.1: all four, except on purpose
+                assert set(vector["settings"]) == names_of_settings
         else:
             names = [c["name"] for c in vector["cases"]]
             assert len(names) == len(set(names)), f"{path.stem} repeats a case name"

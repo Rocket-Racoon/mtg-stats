@@ -1,0 +1,45 @@
+{
+  "format": 1,
+  "kind": "reducer",
+  "name": "initial-state-astral-game-id",
+  "description": "A game_id with astral characters is well-formed: the state keeps it.",
+  "game_id": "g-\ud83d\ude00\udbff\udfff",
+  "settings": {
+    "starting_life": 40,
+    "commander_damage_threshold": 21,
+    "poison_threshold": 10,
+    "trust_mode": "casual"
+  },
+  "events": [],
+  "expect": {
+    "state": {
+      "v": 1,
+      "game_id": "g-\ud83d\ude00\udbff\udfff",
+      "phase": "lobby",
+      "resume_phase": null,
+      "settings": {
+        "starting_life": 40,
+        "commander_damage_threshold": 21,
+        "poison_threshold": 10,
+        "trust_mode": "casual"
+      },
+      "control_mode": "own_seat",
+      "seats": [],
+      "order": [],
+      "active_seat": null,
+      "turn": 0,
+      "round": 0,
+      "monarch": null,
+      "initiative": null,
+      "commander_damage": {},
+      "no_winner": false,
+      "winner_seat": null,
+      "win_condition": null,
+      "win_condition_note": "",
+      "started_at": null,
+      "voided": [],
+      "reverted": [],
+      "last_seq": 0
+    }
+  }
+}

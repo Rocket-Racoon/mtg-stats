@@ -41,3 +41,5 @@ export {
   useSignIn,
 } from './hooks/auth';
 export type { InvitePreview, TokenResponse } from './hooks/auth';
+export { playgroupKeys, useCreatePlaygroup, usePlaygroups } from './hooks/playgroups';
+export type { Playgroup, PlaygroupPage, PlaygroupRole } from './hooks/playgroups';

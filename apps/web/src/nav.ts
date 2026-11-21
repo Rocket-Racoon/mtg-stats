@@ -6,6 +6,7 @@ export interface NavItem {
 
 export const NAV_ITEMS: readonly NavItem[] = [
   { to: '/', label: 'Home', end: true },
+  { to: '/playgroups', label: 'Playgroups' },
   { to: '/games', label: 'Games' },
   { to: '/decks', label: 'Decks' },
   { to: '/stats', label: 'Stats' },

@@ -26,7 +26,7 @@ function renderAt(path: string) {
   return router;
 }
 
-const NAV = ['Home', 'Games', 'Decks', 'Stats', 'Collection', 'Leagues'] as const;
+const NAV = ['Home', 'Playgroups', 'Games', 'Decks', 'Stats', 'Collection', 'Leagues'] as const;
 
 describe('routes exist (S-1.6.2 AC1)', () => {
   it.each([
@@ -124,6 +124,7 @@ describe('keyboard navigation (S-1.6.2 AC3)', () => {
     await user.tab(); // skip link
     await user.tab(); // Menu toggle
     await user.tab(); // Home
+    await user.tab(); // Playgroups
     await user.tab(); // Games
     await user.tab(); // Decks
     expect(within(nav).getByRole('link', { name: 'Decks' })).toHaveFocus();
@@ -257,6 +258,7 @@ describe('compact menu toggle (S-1.6.2 AC2/AC3)', () => {
     const toggle = screen.getByRole('button', { name: 'Menu' });
     await user.click(toggle);
     await user.tab(); // Home
+    await user.tab(); // Playgroups
     await user.tab(); // Games
     await user.keyboard('{Enter}');
     expect(screen.getByRole('heading', { level: 2, name: 'Games' })).toBeInTheDocument();

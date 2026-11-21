@@ -357,7 +357,8 @@ button:focus-visible {
   flex-direction: column;
   gap: 0.25rem;
 }
-.field input {
+.field input,
+.field textarea {
   min-height: 44px;
   padding: 0.5rem;
 }

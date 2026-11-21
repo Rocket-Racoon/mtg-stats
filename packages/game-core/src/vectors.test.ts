@@ -32,6 +32,12 @@ interface ReducerVector {
 const dir = new URL('../vectors/', import.meta.url);
 const files = readdirSync(dir).filter((f) => f.endsWith('.json'));
 
+function chain(count: number, kind: 'array' | 'object'): unknown {
+  let value: unknown = kind === 'array' ? [] : {};
+  for (let i = 1; i < count; i++) value = kind === 'array' ? [value] : { a: value };
+  return value;
+}
+
 function invalidValue(spec: { kind: string; value?: string }): unknown {
   switch (spec.kind) {
     case 'float':
@@ -41,6 +47,9 @@ function invalidValue(spec: { kind: string; value?: string }): unknown {
       return Number.NaN;
     case 'infinity':
       return Number.POSITIVE_INFINITY;
+    case 'deep_array':
+    case 'deep_object':
+      return chain(Number(spec.value), spec.kind === 'deep_array' ? 'array' : 'object');
     case 'lone_surrogate':
       return String.fromCharCode(parseInt(spec.value ?? '', 16));
     default:
@@ -61,7 +70,9 @@ describe('seed vectors', () => {
       it.each(vector.cases)('$name', (c) => {
         if (c.invalid) {
           try {
-            canonicalJson([invalidValue(c.invalid)]);
+            const value = invalidValue(c.invalid);
+            // Deep chains are serialized as they are, every other kind inside a one-element array.
+            canonicalJson(c.invalid.kind.startsWith('deep_') ? value : [value]);
             expect.unreachable('expected a CanonicalJsonError');
           } catch (e) {
             expect(e).toBeInstanceOf(CanonicalJsonError);

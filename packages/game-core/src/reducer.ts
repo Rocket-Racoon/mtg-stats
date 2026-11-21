@@ -1,3 +1,4 @@
+import { CanonicalJsonError, canonicalJson } from './canonical-json';
 import { EVENT_TYPES, MAX_SEATS, SUPPORTED_VERSIONS } from './types';
 import type {
   ApplyResult,
@@ -49,6 +50,24 @@ const ENVELOPE_KEYS: ReadonlySet<string> = new Set([
   'v',
 ]);
 
+function isActorValid(actor: unknown): boolean {
+  if (!isRecord(actor)) return false;
+  const keys = Object.keys(actor);
+  if (keys.length !== 2 || !('kind' in actor) || !('player_id' in actor)) return false;
+  if (actor.kind === 'player') return typeof actor.player_id === 'string' && actor.player_id !== '';
+  return actor.kind === 'system' && actor.player_id === null;
+}
+
+function isCanonicalValue(value: unknown): boolean {
+  try {
+    canonicalJson(value);
+    return true;
+  } catch (e) {
+    if (e instanceof CanonicalJsonError) return false;
+    throw e;
+  }
+}
+
 function isEnvelopeValid(e: Record<string, unknown>): boolean {
   if (Object.keys(e).some((key) => !ENVELOPE_KEYS.has(key))) return false;
   if (typeof e.event_id !== 'string' || !UUID_V4.test(e.event_id)) return false;
@@ -56,10 +75,7 @@ function isEnvelopeValid(e: Record<string, unknown>): boolean {
   if (e.seq !== undefined && (!isInt(e.seq) || e.seq < 1)) return false;
   if (e.ts !== undefined && typeof e.ts !== 'string') return false;
   if (!isRecord(e.payload)) return false;
-  const actor = e.actor;
-  if (!isRecord(actor)) return false;
-  if (actor.kind !== 'player' && actor.kind !== 'system') return false;
-  if (actor.player_id !== null && typeof actor.player_id !== 'string') return false;
+  if (!isActorValid(e.actor)) return false;
   const seat = e.on_behalf_of_seat;
   return seat === null || (isInt(seat) && seat >= 1 && seat <= MAX_SEATS);
 }
@@ -72,7 +88,8 @@ function isEventType(type: string): type is EventType {
  * Apply one event to a state. Pure: never mutates `state` or `event`, never reads a clock,
  * randomness or I/O. A rejected event returns an error and the caller keeps the old state.
  *
- * Check order (CONTRACT.md section 6): `v`, `type`, envelope shape, `game_id`, `seq`, handler.
+ * Check order (CONTRACT.md section 6.2): `v`, `type`, envelope shape, payload is canonical,
+ * `game_id`, `seq`, handler.
  * An event without `seq` is an optimistic (not yet acked) event and is applied as `last_seq + 1`.
  */
 export function apply(state: GameState, event: EventEnvelope): ApplyResult {
@@ -82,6 +99,7 @@ export function apply(state: GameState, event: EventEnvelope): ApplyResult {
   if (typeof raw.type !== 'string') return fail('invalid_event');
   if (!isEventType(raw.type)) return fail('unknown_event_type');
   if (!isEnvelopeValid(raw)) return fail('invalid_event');
+  if (!isCanonicalValue(raw.payload)) return fail('invalid_payload');
   if (raw.game_id !== state.game_id) return fail('game_mismatch');
   const expected = state.last_seq + 1;
   const seq = typeof raw.seq === 'number' ? raw.seq : expected;

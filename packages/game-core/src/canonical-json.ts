@@ -20,7 +20,7 @@ export class CanonicalJsonError extends Error {
 
 /** Largest integer magnitude allowed: 2^53 - 1 (JavaScript's Number.MAX_SAFE_INTEGER). */
 export const MAX_SAFE_INTEGER = 9007199254740991;
-/** Containers nested deeper than this many ancestors are rejected. */
+/** A container with more than this many ancestors is rejected; with this many or fewer it is allowed. */
 export const MAX_DEPTH = 64;
 
 /** A value the canonical serializer accepts. */

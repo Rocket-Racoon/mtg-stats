@@ -18,6 +18,13 @@ function event(over: Record<string, unknown> = {}): EventEnvelope {
   } as EventEnvelope;
 }
 
+/** A payload object chain with `count` nested objects, the payload itself included. */
+function deep(count: number): Record<string, unknown> {
+  let value: Record<string, unknown> = {};
+  for (let i = 1; i < count; i++) value = { a: value };
+  return value;
+}
+
 const codeFor = (e: unknown): ReducerErrorCode | 'ok' => {
   const r = apply(initialState(GAME_ID), e as EventEnvelope);
   return r.ok ? 'ok' : r.error.code;
@@ -49,10 +56,57 @@ describe('apply', () => {
     ['missing actor', event({ actor: undefined })],
     ['actor kind', event({ actor: { kind: 'bot', player_id: null } })],
     ['on_behalf_of_seat missing', event({ on_behalf_of_seat: undefined })],
+    ['v true', event({ v: true })],
+    ['v null', event({ v: null })],
+    ['seq negative', event({ seq: -3 })],
+    ['ts null', event({ ts: null })],
+    ['player actor with empty id', event({ actor: { kind: 'player', player_id: '' } })],
+    ['player actor with null id', event({ actor: { kind: 'player', player_id: null } })],
+    ['system actor with an id', event({ actor: { kind: 'system', player_id: 'p1' } })],
+    ['actor with an extra key', event({ actor: { kind: 'system', player_id: null, x: 1 } })],
+    ['actor missing player_id', event({ actor: { kind: 'system' } })],
     ['unknown envelope key', event({ extra: 1 })],
     ['on_behalf_of_seat 9', event({ on_behalf_of_seat: 9 })],
   ])('rejects a malformed envelope: %s', (_name, e) => {
     expect(codeFor(e)).toBe('invalid_event');
+  });
+
+  it('accepts a system actor with a null id and any ts string', () => {
+    const e = event({ actor: { kind: 'system', player_id: null }, ts: 'not a timestamp' });
+    expect(codeFor(e)).toBe('ok');
+  });
+
+  it.each([
+    ['fraction', { seat: 1.5 }],
+    ['NaN', { seat: Number.NaN }],
+    ['unsafe integer', { seat: 9007199254740992 }],
+    ['lone surrogate', { name: String.fromCharCode(0xd800) }],
+    ['undefined value', { seat: undefined }],
+    ['too deep', deep(66)],
+  ])('rejects a non-canonical payload (%s) with invalid_payload', (_name, payload) => {
+    expect(codeFor(event({ payload }))).toBe('invalid_payload');
+  });
+
+  it('accepts a payload at the nesting limit', () => {
+    expect(codeFor(event({ payload: deep(65) }))).toBe('ok');
+  });
+
+  it('checks the payload after the envelope and before game_id and seq', () => {
+    const bad = { seat: 1.5 };
+    expect(codeFor(event({ payload: bad, game_id: 'other', seq: 7 }))).toBe('invalid_payload');
+    expect(codeFor(event({ payload: bad, actor: null }))).toBe('invalid_event');
+    expect(codeFor(event({ payload: bad, type: 'nope' }))).toBe('unknown_event_type');
+  });
+
+  it('does not check game_closed: no-op handlers accept events in any phase', () => {
+    for (const phase of ['finished', 'abandoned'] as const) {
+      const r = apply({ ...initialState(GAME_ID), phase }, event());
+      expect(r.ok).toBe(true);
+    }
+  });
+
+  it('does not validate settings ranges in initialState', () => {
+    expect(initialState(GAME_ID, { starting_life: 0 }).settings.starting_life).toBe(0);
   });
 
   it('rejects another game and out-of-order seq', () => {

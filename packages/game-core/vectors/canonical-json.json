@@ -4,8 +4,16 @@
   "name": "canonical-json",
   "description": "Canonical JSON serialization: key order, whitespace, string escaping and rejected numbers.",
   "cases": [
-    { "name": "empty object", "input": {}, "output": "{}" },
-    { "name": "empty array", "input": [], "output": "[]" },
+    {
+      "name": "empty object",
+      "input": {},
+      "output": "{}"
+    },
+    {
+      "name": "empty array",
+      "input": [],
+      "output": "[]"
+    },
     {
       "name": "scalars",
       "input": [null, true, false, 0, -7, 9007199254740991],
@@ -13,22 +21,53 @@
     },
     {
       "name": "keys are sorted",
-      "input": { "b": 1, "a": { "d": 2, "c": [3, { "z": 1, "y": 2 }] } },
+      "input": {
+        "b": 1,
+        "a": {
+          "d": 2,
+          "c": [
+            3,
+            {
+              "z": 1,
+              "y": 2
+            }
+          ]
+        }
+      },
       "output": "{\"a\":{\"c\":[3,{\"y\":2,\"z\":1}],\"d\":2},\"b\":1}"
     },
-    { "name": "array order is kept", "input": [3, 1, 2], "output": "[3,1,2]" },
+    {
+      "name": "array order is kept",
+      "input": [3, 1, 2],
+      "output": "[3,1,2]"
+    },
     {
       "name": "uppercase sorts before lowercase",
-      "input": { "a": 1, "B": 2, "_": 3 },
+      "input": {
+        "a": 1,
+        "B": 2,
+        "_": 3
+      },
       "output": "{\"B\":2,\"_\":3,\"a\":1}"
     },
     {
       "name": "keys sort by code point, not UTF-16 code unit (U+FF5E before U+10000)",
-      "input": { "𐀀": 1, "～": 2 },
+      "input": {
+        "𐀀": 1,
+        "～": 2
+      },
       "output": "{\"～\":2,\"𐀀\":1}"
     },
-    { "name": "quote and backslash are escaped", "input": "a\"b\\c", "output": "\"a\\\"b\\\\c\"" },
-    { "name": "short control escapes", "input": "\b\t\n\f\r", "output": "\"\\b\\t\\n\\f\\r\"" },
+    {
+      "name": "quote and backslash are escaped",
+      "input": "a\"b\\c",
+      "output": "\"a\\\"b\\\\c\""
+    },
+    {
+      "name": "short control escapes",
+      "input": "\b\t\n\f\r",
+      "output": "\"\\b\\t\\n\\f\\r\""
+    },
     {
       "name": "other control characters use lowercase \\u00xx",
       "input": "\u0000\u001f\u000b",
@@ -36,41 +75,353 @@
     },
     {
       "name": "DEL, slash and U+2028 are written raw",
-      "input": "\u007f/ ",
-      "output": "\"\u007f/ \""
+      "input": "/ ",
+      "output": "\"/ \""
     },
     {
       "name": "non-ASCII is written raw, never escaped",
       "input": "Zoë 日本 😀",
       "output": "\"Zoë 日本 😀\""
     },
-    { "name": "no Unicode normalization", "input": ["é", "é"], "output": "[\"é\",\"é\"]" },
+    {
+      "name": "no Unicode normalization",
+      "input": ["é", "é"],
+      "output": "[\"é\",\"é\"]"
+    },
     {
       "name": "string keys are escaped like values",
-      "input": { "a\"b": 1 },
+      "input": {
+        "a\"b": 1
+      },
       "output": "{\"a\\\"b\":1}"
     },
     {
       "name": "a fractional number is rejected",
-      "invalid": { "kind": "float", "value": "1.5" },
+      "invalid": {
+        "kind": "float",
+        "value": "1.5"
+      },
       "error": "non_integer"
     },
-    { "name": "NaN is rejected", "invalid": { "kind": "nan" }, "error": "non_integer" },
-    { "name": "Infinity is rejected", "invalid": { "kind": "infinity" }, "error": "non_integer" },
+    {
+      "name": "NaN is rejected",
+      "invalid": {
+        "kind": "nan"
+      },
+      "error": "non_integer"
+    },
+    {
+      "name": "Infinity is rejected",
+      "invalid": {
+        "kind": "infinity"
+      },
+      "error": "non_integer"
+    },
     {
       "name": "an integer above 2^53 - 1 is rejected",
-      "invalid": { "kind": "integer", "value": "9007199254740992" },
+      "invalid": {
+        "kind": "integer",
+        "value": "9007199254740992"
+      },
       "error": "integer_out_of_range"
     },
     {
       "name": "an integer below -(2^53 - 1) is rejected",
-      "invalid": { "kind": "integer", "value": "-9007199254740992" },
+      "invalid": {
+        "kind": "integer",
+        "value": "-9007199254740992"
+      },
       "error": "integer_out_of_range"
     },
     {
       "name": "a lone surrogate is rejected",
-      "invalid": { "kind": "lone_surrogate", "value": "d800" },
+      "invalid": {
+        "kind": "lone_surrogate",
+        "value": "d800"
+      },
       "error": "lone_surrogate"
+    },
+    {
+      "name": "65 nested arrays pass (innermost has 64 ancestors)",
+      "input": [
+        [
+          [
+            [
+              [
+                [
+                  [
+                    [
+                      [
+                        [
+                          [
+                            [
+                              [
+                                [
+                                  [
+                                    [
+                                      [
+                                        [
+                                          [
+                                            [
+                                              [
+                                                [
+                                                  [
+                                                    [
+                                                      [
+                                                        [
+                                                          [
+                                                            [
+                                                              [
+                                                                [
+                                                                  [
+                                                                    [
+                                                                      [
+                                                                        [
+                                                                          [
+                                                                            [
+                                                                              [
+                                                                                [
+                                                                                  [
+                                                                                    [
+                                                                                      [
+                                                                                        [
+                                                                                          [
+                                                                                            [
+                                                                                              [
+                                                                                                [
+                                                                                                  [
+                                                                                                    [
+                                                                                                      [
+                                                                                                        [
+                                                                                                          [
+                                                                                                            [
+                                                                                                              [
+                                                                                                                [
+                                                                                                                  [
+                                                                                                                    [
+                                                                                                                      [
+                                                                                                                        [
+                                                                                                                          [
+                                                                                                                            [
+                                                                                                                              [
+                                                                                                                                [
+                                                                                                                                  [
+                                                                                                                                    [
+                                                                                                                                      []
+                                                                                                                                    ]
+                                                                                                                                  ]
+                                                                                                                                ]
+                                                                                                                              ]
+                                                                                                                            ]
+                                                                                                                          ]
+                                                                                                                        ]
+                                                                                                                      ]
+                                                                                                                    ]
+                                                                                                                  ]
+                                                                                                                ]
+                                                                                                              ]
+                                                                                                            ]
+                                                                                                          ]
+                                                                                                        ]
+                                                                                                      ]
+                                                                                                    ]
+                                                                                                  ]
+                                                                                                ]
+                                                                                              ]
+                                                                                            ]
+                                                                                          ]
+                                                                                        ]
+                                                                                      ]
+                                                                                    ]
+                                                                                  ]
+                                                                                ]
+                                                                              ]
+                                                                            ]
+                                                                          ]
+                                                                        ]
+                                                                      ]
+                                                                    ]
+                                                                  ]
+                                                                ]
+                                                              ]
+                                                            ]
+                                                          ]
+                                                        ]
+                                                      ]
+                                                    ]
+                                                  ]
+                                                ]
+                                              ]
+                                            ]
+                                          ]
+                                        ]
+                                      ]
+                                    ]
+                                  ]
+                                ]
+                              ]
+                            ]
+                          ]
+                        ]
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ]
+        ]
+      ],
+      "output": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]"
+    },
+    {
+      "name": "65 nested objects pass (innermost has 64 ancestors)",
+      "input": {
+        "a": {
+          "a": {
+            "a": {
+              "a": {
+                "a": {
+                  "a": {
+                    "a": {
+                      "a": {
+                        "a": {
+                          "a": {
+                            "a": {
+                              "a": {
+                                "a": {
+                                  "a": {
+                                    "a": {
+                                      "a": {
+                                        "a": {
+                                          "a": {
+                                            "a": {
+                                              "a": {
+                                                "a": {
+                                                  "a": {
+                                                    "a": {
+                                                      "a": {
+                                                        "a": {
+                                                          "a": {
+                                                            "a": {
+                                                              "a": {
+                                                                "a": {
+                                                                  "a": {
+                                                                    "a": {
+                                                                      "a": {
+                                                                        "a": {
+                                                                          "a": {
+                                                                            "a": {
+                                                                              "a": {
+                                                                                "a": {
+                                                                                  "a": {
+                                                                                    "a": {
+                                                                                      "a": {
+                                                                                        "a": {
+                                                                                          "a": {
+                                                                                            "a": {
+                                                                                              "a": {
+                                                                                                "a": {
+                                                                                                  "a": {
+                                                                                                    "a": {
+                                                                                                      "a": {
+                                                                                                        "a": {
+                                                                                                          "a": {
+                                                                                                            "a": {
+                                                                                                              "a": {
+                                                                                                                "a": {
+                                                                                                                  "a": {
+                                                                                                                    "a": {
+                                                                                                                      "a": {
+                                                                                                                        "a": {
+                                                                                                                          "a": {
+                                                                                                                            "a": {
+                                                                                                                              "a": {
+                                                                                                                                "a": {
+                                                                                                                                  "a": {
+                                                                                                                                    "a": {
+                                                                                                                                      "a": {}
+                                                                                                                                    }
+                                                                                                                                  }
+                                                                                                                                }
+                                                                                                                              }
+                                                                                                                            }
+                                                                                                                          }
+                                                                                                                        }
+                                                                                                                      }
+                                                                                                                    }
+                                                                                                                  }
+                                                                                                                }
+                                                                                                              }
+                                                                                                            }
+                                                                                                          }
+                                                                                                        }
+                                                                                                      }
+                                                                                                    }
+                                                                                                  }
+                                                                                                }
+                                                                                              }
+                                                                                            }
+                                                                                          }
+                                                                                        }
+                                                                                      }
+                                                                                    }
+                                                                                  }
+                                                                                }
+                                                                              }
+                                                                            }
+                                                                          }
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                }
+                                                              }
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "output": "{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}"
+    },
+    {
+      "name": "66 nested arrays are rejected (innermost has 65 ancestors)",
+      "invalid": {
+        "kind": "deep_array",
+        "value": "66"
+      },
+      "error": "unsupported_value"
+    },
+    {
+      "name": "66 nested objects are rejected (innermost has 65 ancestors)",
+      "invalid": {
+        "kind": "deep_object",
+        "value": "66"
+      },
+      "error": "unsupported_value"
     }
   ]
 }

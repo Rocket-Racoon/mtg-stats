@@ -1,5 +1,15 @@
 """Public interface of the ``playgroups`` domain; other code imports only from here."""
 
+from app.playgroups.services.access import (
+    MemberDep,
+    MembershipInfo,
+    PlaygroupAdminDep,
+    PlaygroupOwnerDep,
+    get_membership,
+    require_member,
+    require_playgroup_admin,
+    require_playgroup_owner,
+)
 from app.playgroups.services.invites import (
     CreatedInvite,
     InviteInfo,
@@ -17,6 +27,14 @@ from app.playgroups.services.invites import (
     revoke_invite,
     validate_invite,
 )
+from app.playgroups.services.playgroups import (
+    PlaygroupInfo,
+    PlaygroupPage,
+    create_playgroup,
+    get_playgroup,
+    list_playgroups,
+    update_playgroup,
+)
 
 __all__ = [
     "CreatedInvite",
@@ -25,13 +43,27 @@ __all__ = [
     "InvitePage",
     "InvitePreview",
     "InviteStatus",
+    "MemberDep",
+    "MembershipInfo",
+    "PlaygroupAdminDep",
+    "PlaygroupInfo",
+    "PlaygroupOwnerDep",
+    "PlaygroupPage",
     "consume_invite",
     "create_invite",
+    "create_playgroup",
+    "get_membership",
+    "get_playgroup",
     "hash_invite_token",
     "invite_status",
     "list_invites",
+    "list_playgroups",
     "lock_invite",
     "preview_invite",
+    "require_member",
+    "require_playgroup_admin",
+    "require_playgroup_owner",
     "revoke_invite",
+    "update_playgroup",
     "validate_invite",
 ]

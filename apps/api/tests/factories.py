@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.ids import uuid7
 from app.identity.models import Player, User
 from app.identity.services import default_avatar_color
+from app.playgroups.models import Playgroup
 
 
 class BaseFactory(factory.Factory):  # type: ignore[misc]
@@ -81,6 +82,19 @@ class GuestPlayerFactory(PlayerFactory):
     user_id = None
     is_guest = True
     display_name = factory.Sequence(lambda n: f"Guest {n}")
+
+
+class PlaygroupFactory(BaseFactory):
+    """A playgroup with no members; add memberships separately."""
+
+    class Meta:
+        model = Playgroup
+
+    id = factory.LazyFunction(uuid7)
+    name = factory.Sequence(lambda n: f"Playgroup {n}")
+    description = ""
+    created_at = factory.LazyFunction(lambda: datetime.now(UTC))
+    updated_at = factory.LazyFunction(lambda: datetime.now(UTC))
 
 
 def _as_uuid(value: object) -> UUID:

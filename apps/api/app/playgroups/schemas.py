@@ -1,12 +1,29 @@
 """API shapes of the ``playgroups`` domain."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from app.core.paging import Page
+from app.playgroups.models import (
+    PLAYGROUP_DESCRIPTION_MAX_LENGTH,
+    PLAYGROUP_NAME_MAX_LENGTH,
+    PLAYGROUP_NAME_MIN_LENGTH,
+)
+
+PlaygroupName = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=PLAYGROUP_NAME_MIN_LENGTH,
+        max_length=PLAYGROUP_NAME_MAX_LENGTH,
+    ),
+]
+PlaygroupDescription = Annotated[
+    str, StringConstraints(max_length=PLAYGROUP_DESCRIPTION_MAX_LENGTH)
+]
 
 
 class InviteCreate(BaseModel):
@@ -51,3 +68,44 @@ class InvitePreviewOut(BaseModel):
 
     inviter_display_name: str
     expires_at: datetime
+
+
+class PlaygroupCreate(BaseModel):
+    """Body of ``POST /playgroups``."""
+
+    model_config = ConfigDict(strict=True)
+
+    name: PlaygroupName = Field(description="3 to 50 characters (surrounding spaces are trimmed).")
+    description: PlaygroupDescription = Field(default="", description="Up to 500 characters.")
+
+
+class PlaygroupUpdate(BaseModel):
+    """Body of ``PATCH /playgroups/{id}``. Send only the fields to change; null is rejected."""
+
+    model_config = ConfigDict(strict=True)
+
+    name: PlaygroupName | None = None
+    description: PlaygroupDescription | None = None
+
+    @model_validator(mode="after")
+    def _no_explicit_null(self) -> Self:
+        for field in self.model_fields_set:
+            if getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null; omit it to leave it unchanged")
+        return self
+
+
+class PlaygroupOut(BaseModel):
+    """A playgroup with the caller's role in it."""
+
+    id: UUID
+    name: str
+    description: str
+    role: Literal["owner", "admin", "member"] = Field(description="The caller's role.")
+    created_at: datetime
+    updated_at: datetime
+    joined_at: datetime = Field(description="When the caller joined.")
+
+
+class PlaygroupPageOut(Page[PlaygroupOut]):
+    """One page of the caller's playgroups."""

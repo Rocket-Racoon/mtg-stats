@@ -254,6 +254,8 @@ The serializer MUST fail, with one of these codes, instead of writing an approxi
 
 In Python, `bool` is checked **before** `int`, because `True` is an `int`: a boolean serializes as `true` or `false`, never as `1` or `0`.
 
+**Subclasses of the built-in types.** A value parsed from JSON is always a plain string, integer, array or object, so the rules above are complete for anything that arrives over the wire or in a vector. A subclass instance can only be built in memory, and there the two implementations differ in details that this contract does not fix: Python rejects an instance of any subclass of `str`, `int`, `list` or `dict` with `unsupported_value`, except that a `dict` subclass given as the whole `payload` is copied into a plain `dict` first; TypeScript serializes an `Array` subclass as an array and rejects other class instances. Code MUST NOT rely on either behaviour: pass plain values only.
+
 ### 5.5 Examples
 
 | Input                                              | Canonical output                        |
@@ -392,7 +394,7 @@ Vector files are test data, not wire data. A runner loads them with a plain JSON
 }
 ```
 
-- `settings` has all four settings. The runner builds the state with `initialState(game_id, settings)`.
+- `settings` MAY be partial or empty, as in 3.5: a missing setting takes its default. The runner builds the state with `initialState(game_id, settings)`.
 - Each event is an envelope. `game_id` MAY be omitted, and the runner fills in the vector's `game_id`. `seq` and `ts` MAY be omitted, which makes the event optimistic (applied as `last_seq + 1`).
 - `expect` has **exactly one** of:
   - `{"state": <full state>}`: every event is applied successfully, and the canonical JSON of the final state equals the canonical JSON of `expect.state`.

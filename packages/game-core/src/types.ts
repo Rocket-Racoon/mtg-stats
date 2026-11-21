@@ -10,6 +10,9 @@ export const MAX_SEATS = 8;
 export const PHASES = ['lobby', 'active', 'ending', 'finished', 'abandoned'] as const;
 export type Phase = (typeof PHASES)[number];
 
+/** The phases a game can be resumed into (`game_resumed` never returns to a closed game). */
+export type ResumePhase = Exclude<Phase, 'finished' | 'abandoned'>;
+
 export const TRUST_MODES = ['casual', 'strict'] as const;
 export type TrustMode = (typeof TRUST_MODES)[number];
 
@@ -88,16 +91,6 @@ export interface Commander {
   name: string;
 }
 
-export interface Elimination {
-  reason: EliminationReason;
-  /** Seat that caused the elimination, or null. */
-  by: number | null;
-  /** `seq` of the event that eliminated the seat; equal values mean "at the same time". */
-  at_seq: number;
-  /** D5 code given with a host `player_eliminated`, else null. */
-  cause: WinCondition | null;
-}
-
 export interface Seat {
   /** Stable seat id, 1..8. Never changes when seats are reordered. */
   seat: number;
@@ -112,7 +105,16 @@ export interface Seat {
   experience: number;
   /** Cast count per commander, same length and order as `commanders`. */
   commander_cast: number[];
-  elimination: Elimination | null;
+  /** Why the seat was eliminated; null while in the game. The seat is eliminated iff this is non-null. */
+  elimination_reason: EliminationReason | null;
+  /** Seat that caused the elimination, or null (S-6.1.3). */
+  eliminated_by: number | null;
+  /** `seq` of the event that eliminated the seat; equal values mean "eliminated at the same time". */
+  eliminated_at_seq: number | null;
+  /** The game round when the seat was eliminated (S-6.7.2, S-6.7.4). */
+  eliminated_round: number | null;
+  /** D5 code given with a host `player_eliminated`, else null. */
+  elimination_cause: WinCondition | null;
 }
 
 export interface GameState {
@@ -120,7 +122,7 @@ export interface GameState {
   game_id: string;
   phase: Phase;
   /** The phase to return to on `game_resumed`; non-null only while `abandoned`. */
-  resume_phase: Phase | null;
+  resume_phase: ResumePhase | null;
   settings: GameSettings;
   control_mode: ControlMode;
   /** Seats sorted by ascending `seat`. */
@@ -144,6 +146,8 @@ export interface GameState {
   started_at: string | null;
   /** Seqs skipped when state was rebuilt after a revert (S-6.6.1), ascending. */
   voided: number[];
+  /** Seqs of events currently reverted by an effective `event_reverted` (S-6.6.1), ascending, no duplicates. */
+  reverted: number[];
   /** `seq` of the last applied event, 0 for none. */
   last_seq: number;
 }
@@ -187,7 +191,7 @@ export interface EventPayloads {
   settings_changed: Partial<GameSettings>;
   seat_joined: { seat: number; player_id: string | null; name: string };
   seat_left: { seat: number };
-  seat_moved: { from: number; to: number; correction?: boolean };
+  seat_moved: { from: number; to: number; correction?: boolean | null };
   seat_claimed: { seat: number; player_id: string };
   deck_assigned: { seat: number; deck_version_id: string; commanders: CommanderInput[] };
   commanders_set: { seat: number; commanders: CommanderInput[] };
@@ -221,8 +225,8 @@ export interface EventPayloads {
   game_end_requested: {
     winner_seat?: number | null;
     win_condition?: WinCondition | null;
-    win_condition_note?: string;
-    no_winner?: boolean;
+    win_condition_note?: string | null;
+    no_winner?: boolean | null;
   };
   game_ended: { summary: Record<string, unknown> };
   game_abandoned: { reason: AbandonReason };

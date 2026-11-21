@@ -5,3 +5,4 @@ export * from './canonical-json';
 export { initialState } from './state';
 export { apply, reduce, replay } from './reducer';
 export type { ReplayResult } from './reducer';
+export { hasLoneSurrogate } from './unicode';

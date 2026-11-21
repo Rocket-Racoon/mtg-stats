@@ -23,7 +23,7 @@
             "x": null
           }
         ],
-        "\u00e9": "\ud83d\ude00"
+        "é": "😀"
       },
       "actor": {
         "kind": "player",
@@ -60,7 +60,8 @@
       "win_condition_note": "",
       "started_at": null,
       "voided": [],
-      "last_seq": 1
+      "last_seq": 1,
+      "reverted": []
     }
   }
 }

@@ -19,8 +19,8 @@
         "field": "life",
         "value": 9007199254740991,
         "n": -9007199254740991,
-        "z": -0,
-        "name": "Zo\u00eb \ud83d\ude00 \u05e9\u05dc\u05d5\u05dd \u2028"
+        "z": 0,
+        "name": "Zoë 😀 שלום  "
       },
       "actor": {
         "kind": "player",
@@ -57,7 +57,8 @@
       "win_condition_note": "",
       "started_at": null,
       "voided": [],
-      "last_seq": 1
+      "last_seq": 1,
+      "reverted": []
     }
   }
 }

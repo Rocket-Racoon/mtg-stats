@@ -22,7 +22,7 @@
           {
             "seat": 1,
             "player_id": "018f0000-0000-7000-8000-0000000000a1",
-            "name": "Zo\u00eb \"The Brain\" \u65e5\u672c",
+            "name": "Zoë \"The Brain\" 日本",
             "deck_version_id": "dv-1",
             "commanders": [
               {
@@ -35,7 +35,11 @@
             "energy": 4,
             "experience": 2,
             "commander_cast": [2],
-            "elimination": null
+            "elimination_reason": null,
+            "eliminated_by": null,
+            "eliminated_at_seq": null,
+            "eliminated_round": null,
+            "elimination_cause": null
           },
           {
             "seat": 2,
@@ -53,12 +57,16 @@
             "energy": 0,
             "experience": 0,
             "commander_cast": [0],
-            "elimination": null
+            "elimination_reason": null,
+            "eliminated_by": null,
+            "eliminated_at_seq": null,
+            "eliminated_round": null,
+            "elimination_cause": null
           },
           {
             "seat": 3,
             "player_id": "p-3",
-            "name": "e\u0301 (NFD) vs \u00e9 (NFC) \ud83d\ude00",
+            "name": "é (NFD) vs é (NFC) 😀",
             "deck_version_id": null,
             "commanders": [
               {
@@ -75,22 +83,21 @@
             "energy": 0,
             "experience": 0,
             "commander_cast": [1, 3],
-            "elimination": {
-              "reason": "commander_damage",
-              "by": 1,
-              "at_seq": 17,
-              "cause": null
-            }
+            "elimination_reason": "commander_damage",
+            "eliminated_by": 1,
+            "eliminated_at_seq": 17,
+            "eliminated_round": 3,
+            "elimination_cause": null
           },
           {
             "seat": 5,
             "player_id": "p-5",
-            "name": "\u05e9\u05dc\u05d5\u05dd \u202e",
+            "name": "שלום ‮",
             "deck_version_id": null,
             "commanders": [
               {
                 "card_id": "c-3",
-                "name": "\ud835\udc9c/\\"
+                "name": "𝒜/\\"
               }
             ],
             "life": 9007199254740990,
@@ -98,12 +105,11 @@
             "energy": 0,
             "experience": 0,
             "commander_cast": [0],
-            "elimination": {
-              "reason": "declared",
-              "by": null,
-              "at_seq": 17,
-              "cause": "combo"
-            }
+            "elimination_reason": "declared",
+            "eliminated_by": null,
+            "eliminated_at_seq": 17,
+            "eliminated_round": 3,
+            "elimination_cause": "combo"
           }
         ],
         "order": [5, 1, 3, 2],
@@ -131,9 +137,10 @@
         "win_condition_note": "",
         "started_at": "2026-11-21T12:34:56.789Z",
         "voided": [20, 21, 40],
-        "last_seq": 41
+        "last_seq": 41,
+        "reverted": [12, 30]
       },
-      "output": "{\"active_seat\":1,\"commander_damage\":{\"1\":{\"3:0\":2,\"3:1\":4},\"2\":{\"1:0\":7},\"3\":{\"1:0\":21,\"2:0\":0}},\"control_mode\":\"host_all\",\"game_id\":\"018f0000-0000-7000-8000-000000000001\",\"initiative\":5,\"last_seq\":41,\"monarch\":3,\"no_winner\":false,\"order\":[5,1,3,2],\"phase\":\"active\",\"resume_phase\":null,\"round\":4,\"seats\":[{\"commander_cast\":[2],\"commanders\":[{\"card_id\":\"0a1b2c3d-0000-4000-8000-000000000001\",\"name\":\"Atraxa, Praetors' Voice\"}],\"deck_version_id\":\"dv-1\",\"elimination\":null,\"energy\":4,\"experience\":2,\"life\":-12,\"name\":\"Zo\u00eb \\\"The Brain\\\" \u65e5\u672c\",\"player_id\":\"018f0000-0000-7000-8000-0000000000a1\",\"poison\":3,\"seat\":1},{\"commander_cast\":[0],\"commanders\":[{\"card_id\":null,\"name\":\"\"}],\"deck_version_id\":null,\"elimination\":null,\"energy\":0,\"experience\":0,\"life\":25,\"name\":\"\",\"player_id\":null,\"poison\":0,\"seat\":2},{\"commander_cast\":[1,3],\"commanders\":[{\"card_id\":\"c-1\",\"name\":\"Tymna the Weaver\"},{\"card_id\":\"c-2\",\"name\":\"Thrasios, Triton Hero\"}],\"deck_version_id\":null,\"elimination\":{\"at_seq\":17,\"by\":1,\"cause\":null,\"reason\":\"commander_damage\"},\"energy\":0,\"experience\":0,\"life\":0,\"name\":\"e\u0301 (NFD) vs \u00e9 (NFC) \ud83d\ude00\",\"player_id\":\"p-3\",\"poison\":0,\"seat\":3},{\"commander_cast\":[0],\"commanders\":[{\"card_id\":\"c-3\",\"name\":\"\ud835\udc9c/\\\\\"}],\"deck_version_id\":null,\"elimination\":{\"at_seq\":17,\"by\":null,\"cause\":\"combo\",\"reason\":\"declared\"},\"energy\":0,\"experience\":0,\"life\":9007199254740990,\"name\":\"\u05e9\u05dc\u05d5\u05dd \u202e\",\"player_id\":\"p-5\",\"poison\":10,\"seat\":5}],\"settings\":{\"commander_damage_threshold\":15,\"poison_threshold\":7,\"starting_life\":25,\"trust_mode\":\"strict\"},\"started_at\":\"2026-11-21T12:34:56.789Z\",\"turn\":14,\"v\":1,\"voided\":[20,21,40],\"win_condition\":null,\"win_condition_note\":\"\",\"winner_seat\":null}"
+      "output": "{\"active_seat\":1,\"commander_damage\":{\"1\":{\"3:0\":2,\"3:1\":4},\"2\":{\"1:0\":7},\"3\":{\"1:0\":21,\"2:0\":0}},\"control_mode\":\"host_all\",\"game_id\":\"018f0000-0000-7000-8000-000000000001\",\"initiative\":5,\"last_seq\":41,\"monarch\":3,\"no_winner\":false,\"order\":[5,1,3,2],\"phase\":\"active\",\"resume_phase\":null,\"reverted\":[12,30],\"round\":4,\"seats\":[{\"commander_cast\":[2],\"commanders\":[{\"card_id\":\"0a1b2c3d-0000-4000-8000-000000000001\",\"name\":\"Atraxa, Praetors' Voice\"}],\"deck_version_id\":\"dv-1\",\"eliminated_at_seq\":null,\"eliminated_by\":null,\"eliminated_round\":null,\"elimination_cause\":null,\"elimination_reason\":null,\"energy\":4,\"experience\":2,\"life\":-12,\"name\":\"Zoë \\\"The Brain\\\" 日本\",\"player_id\":\"018f0000-0000-7000-8000-0000000000a1\",\"poison\":3,\"seat\":1},{\"commander_cast\":[0],\"commanders\":[{\"card_id\":null,\"name\":\"\"}],\"deck_version_id\":null,\"eliminated_at_seq\":null,\"eliminated_by\":null,\"eliminated_round\":null,\"elimination_cause\":null,\"elimination_reason\":null,\"energy\":0,\"experience\":0,\"life\":25,\"name\":\"\",\"player_id\":null,\"poison\":0,\"seat\":2},{\"commander_cast\":[1,3],\"commanders\":[{\"card_id\":\"c-1\",\"name\":\"Tymna the Weaver\"},{\"card_id\":\"c-2\",\"name\":\"Thrasios, Triton Hero\"}],\"deck_version_id\":null,\"eliminated_at_seq\":17,\"eliminated_by\":1,\"eliminated_round\":3,\"elimination_cause\":null,\"elimination_reason\":\"commander_damage\",\"energy\":0,\"experience\":0,\"life\":0,\"name\":\"é (NFD) vs é (NFC) 😀\",\"player_id\":\"p-3\",\"poison\":0,\"seat\":3},{\"commander_cast\":[0],\"commanders\":[{\"card_id\":\"c-3\",\"name\":\"𝒜/\\\\\"}],\"deck_version_id\":null,\"eliminated_at_seq\":17,\"eliminated_by\":null,\"eliminated_round\":3,\"elimination_cause\":\"combo\",\"elimination_reason\":\"declared\",\"energy\":0,\"experience\":0,\"life\":9007199254740990,\"name\":\"שלום ‮\",\"player_id\":\"p-5\",\"poison\":10,\"seat\":5}],\"settings\":{\"commander_damage_threshold\":15,\"poison_threshold\":7,\"starting_life\":25,\"trust_mode\":\"strict\"},\"started_at\":\"2026-11-21T12:34:56.789Z\",\"turn\":14,\"v\":1,\"voided\":[20,21,40],\"win_condition\":null,\"win_condition_note\":\"\",\"winner_seat\":null}"
     },
     {
       "name": "abandoned drawn game",
@@ -153,7 +160,7 @@
           {
             "seat": 1,
             "player_id": "p-1",
-            "name": "\u00c5ngstr\u00f6m",
+            "name": "Ångström",
             "deck_version_id": null,
             "commanders": [
               {
@@ -166,7 +173,11 @@
             "energy": 0,
             "experience": 0,
             "commander_cast": [0],
-            "elimination": null
+            "elimination_reason": null,
+            "eliminated_by": null,
+            "eliminated_at_seq": null,
+            "eliminated_round": null,
+            "elimination_cause": null
           },
           {
             "seat": 2,
@@ -184,7 +195,11 @@
             "energy": 0,
             "experience": 0,
             "commander_cast": [0],
-            "elimination": null
+            "elimination_reason": null,
+            "eliminated_by": null,
+            "eliminated_at_seq": null,
+            "eliminated_round": null,
+            "elimination_cause": null
           }
         ],
         "order": [2, 1],
@@ -197,18 +212,19 @@
         "no_winner": true,
         "winner_seat": null,
         "win_condition": null,
-        "win_condition_note": "Draw by \u201cmutual\u201d agreement \u2014 caf\u00e9 \ud83c\udf7a",
+        "win_condition_note": "Draw by “mutual” agreement — café 🍺",
         "started_at": "2026-01-01T00:00:00.000Z",
         "voided": [],
-        "last_seq": 9007199254740990
+        "last_seq": 9007199254740990,
+        "reverted": []
       },
-      "output": "{\"active_seat\":null,\"commander_damage\":{},\"control_mode\":\"own_seat\",\"game_id\":\"018f0000-0000-7000-8000-000000000001\",\"initiative\":null,\"last_seq\":9007199254740990,\"monarch\":null,\"no_winner\":true,\"order\":[2,1],\"phase\":\"abandoned\",\"resume_phase\":\"ending\",\"round\":60,\"seats\":[{\"commander_cast\":[0],\"commanders\":[{\"card_id\":\"c-9\",\"name\":\"Kenrith\"}],\"deck_version_id\":null,\"elimination\":null,\"energy\":0,\"experience\":0,\"life\":40,\"name\":\"\u00c5ngstr\u00f6m\",\"player_id\":\"p-1\",\"poison\":0,\"seat\":1},{\"commander_cast\":[0],\"commanders\":[{\"card_id\":\"c-8\",\"name\":\"Yawgmoth\"}],\"deck_version_id\":null,\"elimination\":null,\"energy\":0,\"experience\":0,\"life\":1,\"name\":\"Bob \\u0001\\u001f\",\"player_id\":\"p-2\",\"poison\":9,\"seat\":2}],\"settings\":{\"commander_damage_threshold\":21,\"poison_threshold\":10,\"starting_life\":40,\"trust_mode\":\"casual\"},\"started_at\":\"2026-01-01T00:00:00.000Z\",\"turn\":120,\"v\":1,\"voided\":[],\"win_condition\":null,\"win_condition_note\":\"Draw by \u201cmutual\u201d agreement \u2014 caf\u00e9 \ud83c\udf7a\",\"winner_seat\":null}"
+      "output": "{\"active_seat\":null,\"commander_damage\":{},\"control_mode\":\"own_seat\",\"game_id\":\"018f0000-0000-7000-8000-000000000001\",\"initiative\":null,\"last_seq\":9007199254740990,\"monarch\":null,\"no_winner\":true,\"order\":[2,1],\"phase\":\"abandoned\",\"resume_phase\":\"ending\",\"reverted\":[],\"round\":60,\"seats\":[{\"commander_cast\":[0],\"commanders\":[{\"card_id\":\"c-9\",\"name\":\"Kenrith\"}],\"deck_version_id\":null,\"eliminated_at_seq\":null,\"eliminated_by\":null,\"eliminated_round\":null,\"elimination_cause\":null,\"elimination_reason\":null,\"energy\":0,\"experience\":0,\"life\":40,\"name\":\"Ångström\",\"player_id\":\"p-1\",\"poison\":0,\"seat\":1},{\"commander_cast\":[0],\"commanders\":[{\"card_id\":\"c-8\",\"name\":\"Yawgmoth\"}],\"deck_version_id\":null,\"eliminated_at_seq\":null,\"eliminated_by\":null,\"eliminated_round\":null,\"elimination_cause\":null,\"elimination_reason\":null,\"energy\":0,\"experience\":0,\"life\":1,\"name\":\"Bob \\u0001\\u001f\",\"player_id\":\"p-2\",\"poison\":9,\"seat\":2}],\"settings\":{\"commander_damage_threshold\":21,\"poison_threshold\":10,\"starting_life\":40,\"trust_mode\":\"casual\"},\"started_at\":\"2026-01-01T00:00:00.000Z\",\"turn\":120,\"v\":1,\"voided\":[],\"win_condition\":null,\"win_condition_note\":\"Draw by “mutual” agreement — café 🍺\",\"winner_seat\":null}"
     },
     {
       "name": "empty lobby with a Unicode game id",
       "input": {
         "v": 1,
-        "game_id": "game-\u00e9-\ud83d\ude00",
+        "game_id": "game-é-😀",
         "phase": "lobby",
         "resume_phase": null,
         "settings": {
@@ -232,9 +248,10 @@
         "win_condition_note": "",
         "started_at": null,
         "voided": [],
-        "last_seq": 0
+        "last_seq": 0,
+        "reverted": []
       },
-      "output": "{\"active_seat\":null,\"commander_damage\":{},\"control_mode\":\"own_seat\",\"game_id\":\"game-\u00e9-\ud83d\ude00\",\"initiative\":null,\"last_seq\":0,\"monarch\":null,\"no_winner\":false,\"order\":[],\"phase\":\"lobby\",\"resume_phase\":null,\"round\":0,\"seats\":[],\"settings\":{\"commander_damage_threshold\":1,\"poison_threshold\":99,\"starting_life\":999,\"trust_mode\":\"casual\"},\"started_at\":null,\"turn\":0,\"v\":1,\"voided\":[],\"win_condition\":null,\"win_condition_note\":\"\",\"winner_seat\":null}"
+      "output": "{\"active_seat\":null,\"commander_damage\":{},\"control_mode\":\"own_seat\",\"game_id\":\"game-é-😀\",\"initiative\":null,\"last_seq\":0,\"monarch\":null,\"no_winner\":false,\"order\":[],\"phase\":\"lobby\",\"resume_phase\":null,\"reverted\":[],\"round\":0,\"seats\":[],\"settings\":{\"commander_damage_threshold\":1,\"poison_threshold\":99,\"starting_life\":999,\"trust_mode\":\"casual\"},\"started_at\":null,\"turn\":0,\"v\":1,\"voided\":[],\"win_condition\":null,\"win_condition_note\":\"\",\"winner_seat\":null}"
     }
   ]
 }

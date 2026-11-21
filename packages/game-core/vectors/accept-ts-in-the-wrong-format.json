@@ -51,7 +51,8 @@
       "win_condition_note": "",
       "started_at": null,
       "voided": [],
-      "last_seq": 1
+      "last_seq": 1,
+      "reverted": []
     }
   }
 }

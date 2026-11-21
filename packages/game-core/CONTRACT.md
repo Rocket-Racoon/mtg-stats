@@ -2,7 +2,7 @@
 
 Version: schema `v` = 1. Story: S-6.1.1. Architecture: `docs/architecture.md` section 6.
 
-This file is the single written contract for the live game. Two reducers implement it: TypeScript in `packages/game-core/src` and Python in `apps/api/app/games/core/`. They must produce byte-identical canonical JSON for the same events. If this file and a reducer disagree, the reducer is wrong. A change to this file that changes behaviour bumps `v`, and a change to the shape of the state, an event or an error code needs a matching vector in `vectors/`.
+This file is the single written contract for the live game. Two reducers implement it: TypeScript in `packages/game-core/src` and Python in `apps/api/app/games/core/`. They must produce byte-identical canonical JSON for the same events. If this file and a reducer disagree, the reducer is wrong. The rules for changing it, and for when `v` bumps, are in 1.1. A change to the shape of the state, an event or an error code needs a matching vector in `vectors/`.
 
 Words in capitals (MUST, MUST NOT, MAY) are normative.
 
@@ -14,6 +14,24 @@ Words in capitals (MUST, MUST NOT, MAY) are normative.
 - **Ids** (`game_id`, `player_id`, `deck_version_id`, `card_id`) are opaque non-empty strings. The reducers never parse them. Only `event_id` has a checked format.
 - **Absent versus null.** In the _state_, every key is always present and "no value" is `null`. In an _envelope_, `seq` and `ts` are **absent** (never `null`) until the server assigns them. In an event _payload_, a key marked optional (`name?`) may be absent or `null`, and both mean "not given"; a reducer MUST NOT distinguish them. The serializer never invents or drops keys.
 - Timestamps are strings `YYYY-MM-DDTHH:MM:SS.mmmZ` (UTC, exactly 3 fractional digits). A reducer MUST NOT parse, compare or do arithmetic on them (section 7).
+
+### 1.1 Versioning
+
+`v` versions three things together: the **envelope** (section 2), the **registered payload shapes** (section 4) and the **state shape** (section 3). It does not version behaviour that the contract already registers. The aim is that every event ever stored stays replayable.
+
+| Change                                                                             | Bumps `v`? | Why                                                                                                                                                         |
+| ---------------------------------------------------------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Filling in the handler of an event type already registered in section 4            | No         | The type, its payload shape and the state shape are already fixed. Until the first release that stores logs, handlers may also be corrected freely.         |
+| Changing what an already released handler does to existing logs                    | Yes        | A stored log would replay to a different state. The reducers keep the old behaviour for events with the old `v`.                                            |
+| Adding an event type                                                               | No         | Old logs contain none. An older reducer rejects it with `unknown_event_type`, and the server is authoritative, so clients must update.                      |
+| Adding an optional payload key                                                     | No         | Reducers ignore unknown payload keys, and old events simply lack it.                                                                                        |
+| Adding a required payload key, or removing, renaming or retyping any payload key   | Yes        | Old events would become invalid or mean something else.                                                                                                     |
+| Adding a state key                                                                 | No         | States are derived: the server rebuilds stored snapshots from the log (S-6.3.8) after a deploy, and canonical comparisons always use freshly folded states. |
+| Removing, renaming or retyping a state key, or changing what an existing key means | Yes        | Stored snapshots and clients would misread it.                                                                                                              |
+| Adding an error code                                                               | No         | Codes are strings; clients branch on the codes they know and treat the rest as a generic rejection.                                                         |
+| Changing the envelope keys or their rules, or the canonical JSON rules             | Yes        | Every stored event and every comparison would change.                                                                                                       |
+
+When `v` bumps to N, every reducer keeps accepting **every** version still present in a stored log (`SUPPORTED_VERSIONS` lists them all) and applies each event under the rules of its own `v`. The state's `v` is the current version, N. An integer `v` that is not in the supported list is `unsupported_version`.
 
 ## 2. Event envelope
 
@@ -31,6 +49,8 @@ Every event, on the wire and in the log, is a JSON object with exactly these key
 | `ts`                | string, optional (absent)  | Server UTC time of acceptance, `YYYY-MM-DDTHH:MM:SS.mmmZ`. Absent until the server stamps it; when present it MUST be a string (`null` or any other type is `invalid_event`). **Reducers MUST NOT read, parse or validate it beyond "is a string"**: a string in the wrong format is accepted by `apply`. Checking the format is the server's job, when it stamps `ts`.                              |
 | `v`                 | integer                    | Schema version. The only supported value is 1. It MUST be an integer in the safe range; a boolean, `null`, a string or a fraction is `invalid_event` (not `unsupported_version`). An integer other than 1, such as 0, 2 or -1, is `unsupported_version`. `v` is checked first (section 6.2).                                                                                                         |
 
+**Well-formed strings.** Every string in the envelope (`event_id`, `game_id`, `type`, `ts`, `actor.player_id`) MUST be well-formed Unicode: it MUST NOT contain a lone surrogate, that is a code point in U+D800 to U+DFFF that is not half of a valid high-then-low surrogate pair (in Python, any `str` containing a code point in that range). A string that does is `invalid_event`. Such a string could not be serialized in canonical JSON (5.4) or stored as `jsonb`. The check sits in step 4 of 6.2, after the `type` checks of step 3, so a `type` with a lone surrogate, which cannot be a registered type, is `unknown_event_type`, not `invalid_event`.
+
 The required keys are `event_id`, `game_id`, `type`, `payload`, `actor`, `on_behalf_of_seat` and `v`. Whether `actor` is allowed to send a given event is the server's job (trust mode, host and spectator rules, S-6.3.3), not the reducer's.
 
 An event is an _optimistic_ event while `seq` is absent. A reducer applies it as if its `seq` were `last_seq + 1` (section 6).
@@ -43,7 +63,7 @@ The state is a JSON object. Every key below is always present.
 
 | Key                  | Type                          | Meaning                                                                                                                                                                                                                                                                                           |
 | -------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `v`                  | integer                       | Schema version, 1.                                                                                                                                                                                                                                                                                |
+| `v`                  | integer                       | Schema version of the state shape: the current version, 1 (see 1.1).                                                                                                                                                                                                                              |
 | `game_id`            | string                        | The game.                                                                                                                                                                                                                                                                                         |
 | `phase`              | string                        | `lobby`, `active`, `ending`, `finished` or `abandoned`.                                                                                                                                                                                                                                           |
 | `resume_phase`       | string or null                | The phase `game_resumed` returns to (`lobby`, `active` or `ending`). Non-null only while `phase` is `abandoned`.                                                                                                                                                                                  |
@@ -62,7 +82,8 @@ The state is a JSON object. Every key below is always present.
 | `win_condition`      | string or null                | A D5 code (section 3.4) or `null`.                                                                                                                                                                                                                                                                |
 | `win_condition_note` | string                        | Free text, required by S-6.7 when `win_condition` is `other`. `""` when none.                                                                                                                                                                                                                     |
 | `started_at`         | string or null                | The `started_at` carried in the `game_started` payload, otherwise `null`.                                                                                                                                                                                                                         |
-| `voided`             | array of integers             | Seqs skipped when state was rebuilt after a revert (S-6.6.1). Ascending, no duplicates. `[]` until S-6.6.1.                                                                                                                                                                                       |
+| `voided`             | array of integers             | Seqs skipped when state was rebuilt after a revert because they became invalid (S-6.6.1). Ascending, no duplicates. `[]` until S-6.6.1.                                                                                                                                                           |
+| `reverted`           | array of integers             | Seqs of the events currently excluded by an effective `event_reverted` (S-6.6.1, see 6.5): an event whose revert was itself reverted is not in it. Includes the seq of an `event_reverted` event that was itself reverted. Ascending, no duplicates. `[]` initially.                              |
 | `last_seq`           | integer                       | `seq` of the last applied event. 0 before any event.                                                                                                                                                                                                                                              |
 
 ### 3.2 `settings`
@@ -80,21 +101,32 @@ A value outside its range, or a `trust_mode` that is not `casual` or `strict`, i
 
 ### 3.3 Seat object
 
-| Key               | Type                              | Meaning                                                                                                                                                                                           |
-| ----------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `seat`            | integer                           | Seat id, 1 to 8.                                                                                                                                                                                  |
-| `player_id`       | string or null                    | The player at the seat. `null` for a guest seat the host created with no device bound yet (S-6.8.4).                                                                                              |
-| `name`            | string                            | Display name. Any Unicode. `""` is allowed.                                                                                                                                                       |
-| `deck_version_id` | string or null                    | Assigned deck version, or `null`.                                                                                                                                                                 |
-| `commanders`      | array of 1 or 2 commander objects | `{"card_id": string or null, "name": string}`. The unnamed default is `[{"card_id": null, "name": ""}]`. The index in this array is the "commander index" used in `commander_damage` source keys. |
-| `life`            | integer                           | Not clamped: it can be negative.                                                                                                                                                                  |
-| `poison`          | integer                           | At least 0.                                                                                                                                                                                       |
-| `energy`          | integer                           | At least 0.                                                                                                                                                                                       |
-| `experience`      | integer                           | At least 0.                                                                                                                                                                                       |
-| `commander_cast`  | array of integers                 | Cast count per commander, same length and order as `commanders`. Commander tax is `2 * count` and is derived, never stored.                                                                       |
-| `elimination`     | object or null                    | `null` while in the game. Otherwise `{"reason", "by", "at_seq", "cause"}` (below).                                                                                                                |
+| Key                  | Type                              | Meaning                                                                                                                                                                                           |
+| -------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `seat`               | integer                           | Seat id, 1 to 8.                                                                                                                                                                                  |
+| `player_id`          | string or null                    | The player at the seat. `null` for a guest seat the host created with no device bound yet (S-6.8.4).                                                                                              |
+| `name`               | string                            | Display name. Any Unicode. `""` is allowed.                                                                                                                                                       |
+| `deck_version_id`    | string or null                    | Assigned deck version, or `null`.                                                                                                                                                                 |
+| `commanders`         | array of 1 or 2 commander objects | `{"card_id": string or null, "name": string}`. The unnamed default is `[{"card_id": null, "name": ""}]`. The index in this array is the "commander index" used in `commander_damage` source keys. |
+| `life`               | integer                           | Not clamped: it can be negative.                                                                                                                                                                  |
+| `poison`             | integer                           | At least 0.                                                                                                                                                                                       |
+| `energy`             | integer                           | At least 0.                                                                                                                                                                                       |
+| `experience`         | integer                           | At least 0.                                                                                                                                                                                       |
+| `commander_cast`     | array of integers                 | Cast count per commander, same length and order as `commanders`. Commander tax is `2 * count` and is derived, never stored.                                                                       |
+| `elimination_reason` | string or null                    | Why the seat was eliminated: `life`, `commander_damage`, `poison`, `concession` or `declared`. `null` while the seat is in the game.                                                              |
+| `eliminated_by`      | integer or null                   | Seat id that caused the elimination, or `null` (no source, or a concession or declared elimination).                                                                                              |
+| `eliminated_at_seq`  | integer or null                   | `seq` of the event that eliminated the seat. Equal values on several seats mean "eliminated at the same time" (D6). `null` while in the game.                                                     |
+| `eliminated_round`   | integer or null                   | The state's `round` at the moment the event that eliminated the seat was applied. `null` while in the game.                                                                                       |
+| `elimination_cause`  | string or null                    | The D5 code (3.4) given with a host `player_eliminated`, otherwise `null`.                                                                                                                        |
 
-`elimination.reason` is `life`, `commander_damage`, `poison`, `concession` or `declared`. `by` is the seat id that caused it, or `null`. `at_seq` is the `seq` of the event that eliminated the seat: equal values mean "eliminated at the same time" (D6). `cause` is a D5 code from a host `player_eliminated`, otherwise `null`.
+**Elimination fields.** A seat is eliminated if and only if `eliminated_at_seq` is not `null`. While the seat is in the game all five elimination fields are `null`. Once it is eliminated, `elimination_reason`, `eliminated_at_seq` and `eliminated_round` are non-null, and `eliminated_by` and `elimination_cause` may be `null`.
+
+Where the names come from:
+
+- `eliminated_by` and `eliminated_at_seq` are the names the acceptance criteria of S-6.1.3, S-6.1.4, S-6.1.5 and S-6.1.7 use ("eliminated with reason `life`, `eliminated_by = 1` and `eliminated_at_seq` equal to that event's seq"; "`eliminated_by = null`"; "the same `eliminated_at_seq`").
+- `elimination_reason` is the name S-6.7.4 and S-6.7.2 use for the reason ("`elimination_reason`"). S-6.1.3 to S-6.1.5 say "eliminated with reason `life`" without naming a field, so the S-6.7 name is used. The values are the five listed above (`commander_damage` > `poison` > `life` is the precedence, S-6.1.4).
+- `eliminated_round` is the name S-6.7.4 uses ("`eliminated_round`", and "elimination reason, eliminator and round" in S-6.7.2). S-6.7.4 also stores the eliminator as `eliminated_by_seat` on the saved `GameSeat`; the state keeps the S-6.1 name `eliminated_by`, and the results writer maps one to the other.
+- `elimination_cause` is **not** named by any story: the stories only name the `cause` key of the `player_eliminated` payload. The name is this contract's design.
 
 ### 3.4 D5 win-condition codes
 
@@ -102,7 +134,13 @@ A value outside its range, or a `trust_mode` that is not `casual` or `strict`, i
 
 ### 3.5 Initial state
 
-Before any event the state is an empty lobby built from a `game_id` and the four settings (all keys of 3.1; `phase` `lobby`, `control_mode` `own_seat`, `seats` `[]`, `order` `[]`, every nullable key `null`, `turn` 0, `round` 0, `commander_damage` `{}`, `no_winner` `false`, `win_condition_note` `""`, `voided` `[]`, `last_seq` 0, `v` 1). `initialState` does no range validation (3.2); range validation arrives with S-6.1.6. `vectors/initial-state.json` is the reference.
+Before any event the state is an empty lobby built by `initialState(game_id, settings?)`:
+
+- `game_id` MUST be a non-empty string without a lone surrogate. Otherwise `initialState` **throws** (TypeScript `TypeError`; Python `TypeError` or `ValueError`; the exact class is language-specific and not part of the contract). It is not a reducer, so it never returns a reducer error code.
+- `settings` is optional and may be partial. A missing key takes its default (3.2). A `settings` that is not an object, or that has a key that is not one of the four setting names, also throws.
+- Values are copied as given: **neither types nor ranges are validated**. An out-of-range value (3.2) is stored unchanged. Range validation arrives with S-6.1.6.
+- The `settings` given here are a **placeholder**. The log of a real game starts with `game_created`, which replaces them (4.3). They exist for vectors and tests that do not start with `game_created`.
+- All keys of 3.1: `phase` `lobby`, `control_mode` `own_seat`, `seats` `[]`, `order` `[]`, every nullable key `null`, `turn` 0, `round` 0, `commander_damage` `{}`, `no_winner` `false`, `win_condition_note` `""`, `voided` `[]`, `reverted` `[]`, `last_seq` 0, `v` 1. `vectors/initial-state.json` is the reference.
 
 ## 4. Event registry
 
@@ -119,7 +157,7 @@ The registry is closed: a type that is not in this table is rejected with `unkno
 | `deck_assigned`        | `seat`, `deck_version_id`, `commanders`                                                | S-6.1.6       |
 | `commanders_set`       | `seat`, `commanders`                                                                   | S-6.1.6       |
 | `control_mode_changed` | `mode` (`own_seat` or `host_all`)                                                      | S-6.8.2       |
-| `game_started`         | `first_seat`, `started_at` (timestamp)                                                 | S-6.1.6       |
+| `game_started`         | `first_seat`, `started_at` (timestamp; the server overwrites it, see 4.3)              | S-6.1.6       |
 | `turn_passed`          | none (`{}`)                                                                            | S-6.1.6       |
 | `life_changed`         | `seat`, `delta`, `source_seat?`                                                        | S-6.1.3       |
 | `commander_damage`     | `source_seat`, `commander` (index), `target_seat`, `amount`                            | S-6.1.4       |
@@ -142,22 +180,38 @@ The registry is closed: a type that is not in this table is rejected with `unkno
 
 ### 4.1 Payload value rules
 
-- `seat`, `from`, `to`, `source_seat`, `target_seat`, `first_seat`, `winner_seat`: seat ids, 1 to 8. A seat id that is not at the table is `unknown_seat`.
+- `seat`, `from`, `to`, `source_seat`, `target_seat`, `first_seat`, `winner_seat`: seat ids, 1 to 8. A seat id that is an integer from 1 to 8 but is not at the table is `unknown_seat`. A seat id that is not an integer, or is outside 1 to 8, is `invalid_payload` (it can never be a seat; compare `on_behalf_of_seat` in section 2, which is `invalid_event` for the same reason).
 - `delta` is a non-zero integer (positive or negative); `amount` is a positive integer. The permitted magnitudes (for example 1 to 999 for life) and which sign a counter may take are part of each handler's story, and a violation is `invalid_amount`.
 - `value_set.field` is one of `life`, `poison`, `energy`, `experience`, `commander_damage`, `commander_cast`. `commander_damage` needs `source_seat` and `commander`; `commander_cast` needs `commander`; the other fields use neither.
 - `game_abandoned` records which phase it left, so `game_resumed` can restore it (`resume_phase`).
 - `event_reverted` and `value_set`/`player_revived` follow the revert and correction rules of S-6.6.1 and S-6.6.5.
 
-### 4.2 Error codes per handler (named by the stories)
+### 4.2 Error codes per handler
 
-The stories name these outcomes; later stories fill in the rest.
+**Named by the stories** (the S-6.1.x and S-6.6.x acceptance criteria use these names):
 
-- Settings: `invalid_setting` (S-6.1.3, S-6.1.4, S-6.1.5, S-6.1.6). `settings_changed` outside `lobby`: `invalid_phase`.
-- Amounts: `invalid_amount` (S-6.1.3 to S-6.1.7). Missing commander index: `unknown_commander` (S-6.1.4).
-- Eliminated target or source: `seat_eliminated` (S-6.1.3, S-6.1.7). Reviving a seat that is not eliminated: `seat_not_eliminated`.
-- Lobby: `table_full` (`seat_joined` with 8 seats), `seat_taken` (the seat id is already in use), `not_enough_players` (`game_started` with fewer than 2 seats), `invalid_phase` (for example `seat_moved` without `correction: true` in an active game).
-- Closed games (handler-level, introduced by later stories; no-op handlers do not check it): any event other than `game_resumed` on a `finished` or `abandoned` game is `game_closed`.
-- Revert: `not_revertible` (`game_created`, `game_started`, `game_ended`), `already_reverted` (S-6.6.1).
+- `invalid_setting` (S-6.1.3, S-6.1.4, S-6.1.5, S-6.1.6). `settings_changed` outside `lobby`: `invalid_phase`.
+- `invalid_amount` (S-6.1.3 to S-6.1.7). `unknown_commander` for a commander index the seat does not have (S-6.1.4).
+- `seat_eliminated` for an eliminated target or source (S-6.1.3, S-6.1.7).
+- `table_full` (`seat_joined` with 8 seats), `not_enough_players` (`game_started` with fewer than 2 seats), `invalid_phase` (for example `seat_moved` without `correction: true` in an active game), all S-6.1.6.
+- `game_closed`: any event other than `game_resumed` on a `finished` or `abandoned` game (S-6.2.9, S-6.3.3). Handler-level, introduced by later stories; no-op handlers do not check it.
+- `not_revertible` (`game_created`, `game_started`, `game_ended`) and `already_reverted` (S-6.6.1).
+
+**Added by this contract** (no story names them; chosen so every outcome has a code):
+
+- `unknown_seat` (a seat id in 1 to 8 that is not at the table), `seat_taken` (`seat_joined` for a seat id already in use), `seat_not_eliminated` (a revive of a seat still in the game).
+- The structural codes `invalid_event`, `game_mismatch`, `out_of_order` and `invalid_payload` (6.2).
+
+### 4.3 Specified but not yet enforced
+
+Handlers are no-ops in S-6.1.1. These rules are part of the contract now, so the later stories implement them without changing the contract; no reducer enforces them yet.
+
+- **`game_created` and the settings.** `game_created` is valid **only as the event at `seq` 1**, that is when `state.last_seq` is 0. It **replaces `settings` entirely** with `payload.settings` (all four keys, validated: a bad value is `invalid_setting`). S-6.2.1 says a game's log begins with `game_created`; the settings given to `initialState` are only a placeholder for it (3.5). A `game_created` at any later seq is rejected with `invalid_phase`: no new code is added, `out_of_order` is reserved for a bad `seq`, and `invalid_phase` already means "this event is not allowed at this point of the game". A first event that is not `game_created` is accepted (vectors rely on it). Owner: S-6.1.6.
+- **`started_at`.** The server is authoritative: when it accepts `game_started` it **overwrites** a client-sent `started_at` with its own time before the event is stored and broadcast. Clients may send a placeholder. Owner: S-6.2.6 / S-6.3.3.
+- **`game_closed`.** See 4.2 and 6.2. Owner: S-6.2.8, S-6.2.9, S-6.7.3.
+- **Reverts.** See 6.5. Owner: S-6.6.1.
+- **Settings ranges.** See 3.2. Owner: S-6.1.6.
+- **Message size.** The wire reader (5.6) has no size limit, and unknown payload keys are stored as sent. S-6.3.2 and S-6.3.3 MUST cap the size of a message (and may cap the payload) before the reader runs.
 
 ## 5. Canonical JSON
 
@@ -214,7 +268,7 @@ In Python, `bool` is checked **before** `int`, because `True` is an `int`: a boo
 
 ### 5.6 Reading JSON into the model (wire parsing)
 
-The reducers only ever see integers, but a parser can produce floats from `3.0` or `1e2`. The server and any Python reader MUST parse incoming JSON so that every number token containing `.`, `e` or `E` is **rejected** (for example `json.loads(text, parse_float=reject)`), and so that integers outside the safe range are rejected. A rejected body is `invalid_event`. A JavaScript client cannot produce such tokens because it never serializes a float; a JavaScript `JSON.parse` of `3.0` yields the integer 3, and that asymmetry is accepted because TypeScript never receives wire data the server did not canonicalize. Duplicate keys in an object are rejected by the Python reader.
+The reducers only ever see integers, but a parser can produce floats from `3.0` or `1e2`. The server and any Python reader MUST parse incoming JSON so that every number token containing `.`, `e` or `E` is **rejected** (for example `json.loads(text, parse_float=reject)`), and so that integers outside the safe range are rejected. A rejected body is `invalid_event`. A JavaScript client cannot produce such tokens because it never serializes a float; a JavaScript `JSON.parse` of `3.0` yields the integer 3, and that asymmetry is accepted because TypeScript never receives wire data the server did not canonicalize. Duplicate keys in an object are rejected by the Python reader. The wire reader MUST also reject a lone surrogate escape, `\uD800` to `\uDFFF` that is not half of a valid high-then-low pair (a high escape not directly followed by a low one, or a low escape not directly preceded by a high one), in any string or key, as `invalid_event`. JavaScript's `JSON.parse` accepts such an escape and yields a lone surrogate, so `apply` (step 4 for envelope strings, step 5 for the payload) is the second line of defence. The reader as specified has no size limit: the transport caps message size (4.3).
 
 ## 6. Reducer
 
@@ -226,7 +280,7 @@ apply(state, event) -> { ok: true, state } | { ok: false, error: { code } }
 
 `reduce` is an alias. Both languages expose the same function under the same behaviour. `replay(initial, events)` folds `apply` and, on the first rejection, returns the index of the event and the error. The input state and event MUST NOT be mutated; a handler returns a new state. A rejected event changes nothing: the caller keeps the previous state.
 
-The state before the first event comes from `initialState(game_id, settings)` (3.5). A settings value that is not valid is not checked there; the `game_created` and `settings_changed` handlers validate (S-6.1.6).
+The state before the first event comes from `initialState(game_id, settings?)` (3.5), which throws on a bad `game_id` or an unknown setting key and validates no ranges; the `game_created` and `settings_changed` handlers validate values (S-6.1.6). `replay` is the entry point for a whole log; S-6.1.6 and S-6.6.1 extend it where an event needs the log (6.5).
 
 ### 6.2 Reducer error codes
 
@@ -234,8 +288,8 @@ The state before the first event comes from `initialState(game_id, settings)` (3
 
 1. The event is not an object, or `v` is missing or is not an integer in the safe range (a boolean, `null`, a string, a fraction): `invalid_event`. Because this is first, `"v": true` is `invalid_event`, never `unsupported_version`.
 2. `v` is an integer that is not a supported version (only 1): `unsupported_version`. This comes **before** the type check, so an event with both a bad `v` and a bad `type` gets `unsupported_version`.
-3. `type` is not a string: `invalid_event`. `type` is not in the registry: `unknown_event_type`.
-4. The envelope is malformed (section 2: unknown or missing keys, key types, `event_id` format, `payload` not an object, `actor` shape, `on_behalf_of_seat`, and `seq` or `ts` present but invalid, including `null`, and `seq` below 1): `invalid_event`.
+3. `type` is not a string: `invalid_event`. `type` is not in the registry: `unknown_event_type`; this includes a `type` with a lone surrogate, which is checked here, before the well-formed-string check of step 4.
+4. The envelope is malformed (section 2: unknown or missing keys, key types, `event_id` format, `payload` not an object, `actor` shape, `on_behalf_of_seat`, and `seq` or `ts` present but invalid, including `null`, and `seq` below 1, and any envelope string with a lone surrogate, section 2): `invalid_event`.
 5. `payload` is not a canonical value (5.1): a non-integer number, `NaN` or an infinity, an integer outside the safe range, a string with a lone surrogate, nesting beyond the limit (5.4), or an unsupported type: `invalid_payload`. This is the test the canonical serializer applies, and it runs before the handler and before `game_mismatch` and `out_of_order`, because it depends only on the event and not on the state. The payload is the top-level value for the nesting count (0 ancestors).
 6. `game_id` differs from the state's `game_id`: `game_mismatch`.
 7. `seq` (when present and valid) is not exactly `state.last_seq + 1`: `out_of_order`. With `seq` absent the event is applied as `last_seq + 1`.
@@ -278,7 +332,19 @@ The server's authorization layer rejects these before the reducer runs (S-6.3.3,
 
 ### 6.4 Seq and optimistic events
 
-`seq` is assigned by the server and increases by exactly 1. A client applying its own unacked event applies it with `seq` absent, so `last_seq` advances by 1 and any `elimination.at_seq` records that predicted value. When the server's broadcast arrives, the client rebuilds from the last confirmed state, applies the confirmed events by `seq`, then re-applies the pending events (S-6.3.5). The state is therefore never trusted across a rebuild.
+`seq` is assigned by the server and increases by exactly 1. A client applying its own unacked event applies it with `seq` absent, so `last_seq` advances by 1 and any `eliminated_at_seq` records that predicted value. When the server's broadcast arrives, the client rebuilds from the last confirmed state, applies the confirmed events by `seq`, then re-applies the pending events (S-6.3.5). The state is therefore never trusted across a rebuild.
+
+### 6.5 Reverts are resolved by the fold over the log
+
+`event_reverted {target_seq}` cannot be handled by `apply(state, event)` alone with the state of section 3. `not_revertible` needs the **type of the event at `target_seq`**, which a state does not keep, and the state after a revert is not "the old state plus a change": S-6.6.1 says the state is rebuilt by folding the log while excluding reverted events. So reverts are resolved by the fold over the log (`replay`, and the server's rebuild of a game's state from its log, S-6.3.8), not by a single `apply`. The rules, from S-6.6.1:
+
+- Events are folded in `seq` order. An `event_reverted` is **effective** unless a later effective `event_reverted` targets it (that is the redo: reverting a revert brings the original effect back).
+- The state is the result of folding the log **without** the events excluded by effective reverts. Those seqs are the state's `reverted` array.
+- An event that is no longer valid once the excluded events are removed (for example poison -2 after the +3 is reverted) is **skipped** and its seq is added to `voided`; the fold continues with the next event.
+- Checks that need the log: `not_revertible` (the target is a `game_created`, `game_started` or `game_ended` event) and a target that is not an earlier event of this log (`invalid_payload`; provisional, S-6.6.1 confirms the code). `already_reverted` is decidable from the state alone, because the target is already in `reverted`.
+- Who may revert and the undo window are server rules (`forbidden`, `undo_window_expired`, S-6.6.2), not reducer rules.
+
+In this version the `event_reverted` handler is a no-op and `reverted` and `voided` stay `[]`. Both keys exist now so that S-6.6.1 does not change the state shape (and so does not bump `v`, 1.1).
 
 ## 7. Purity
 
@@ -344,6 +410,6 @@ Each case has a `name` and one of:
 - `{"input": <JSON value>, "output": "<canonical text>"}`: serializing `input` yields exactly `output`. Every number in `input` is an integer.
 - `{"invalid": {"kind": ..., "value": ...}, "error": "<code>"}`: the runner builds the value in its own language and puts it inside a one-element array, `[value]`, then expects the serializer to fail with `error` (5.4). The kinds are `float` (`value` is decimal text such as `"1.5"`, never an integral float), `nan`, `infinity`, `integer` (`value` is decimal text of an integer outside the safe range), and `lone_surrogate` (`value` is the hex code of one surrogate code unit, such as `"d800"`). Two more kinds, `deep_array` and `deep_object`, build a chain of `value` (decimal text) nested containers, arrays or objects with the key `"a"`, with an empty container at the bottom. For these two the runner serializes the chain itself, **not** wrapped in `[value]`, so `value` is exactly the number of nested containers (65 pass, 66 fail, see 5.4). The passing boundary cases give the same chain as `input`.
 
-### 8.3 Seed vectors
+### 8.3 The vectors
 
-`canonical-json.json` (the cases above), `initial-state.json` (the canonical form of an empty lobby), `reject-unknown-event-type.json`, `reject-unsupported-version.json` and `reject-unsupported-version-and-type.json` (checks the order in 6.2), and one reject vector per envelope and payload rule: `reject-actor-*` (player with an empty id, player with a null id, system with an id, unknown kind, extra key), `reject-v-boolean`, `reject-seq-null`, `reject-seq-zero`, `reject-seq-negative`, `reject-ts-null`, `reject-payload-integer-out-of-range`, `reject-payload-too-deep`, plus `accept-payload-depth-limit` for the allowed side of the limit. S-6.1.2 adds the validator, the coverage check (an event type that no vector exercises fails the runner with `uncovered event type: <type>`) and the Python runner.
+Reducer vectors are named `accept-*` (the events are accepted and the final state is compared) and `reject-*` (one event is rejected with a given code). They cover every envelope and payload rule of sections 2 and 6.2, including the check order (`reject-precedence-*`). `canonical-json*.json` hold the serializer cases, `initial-state*.json` the initial state, and `canonical-json-game-state.json` realistic full states as serialization cases (seats cannot be built through no-op handlers). Both runners, the TypeScript one in `packages/game-core/src/vectors.test.ts` and the Python one in `apps/api` (both ship with S-6.1.1), check the header (`format` is 1, `name` equals the file name without `.json`, `expect` has exactly one of `state` and `error`) and run every file. S-6.1.2 adds the full validator and the coverage check (an event type that no vector exercises fails the runner with `uncovered event type: <type>`).

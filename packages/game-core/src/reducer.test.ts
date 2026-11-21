@@ -146,6 +146,59 @@ describe('apply', () => {
   });
 });
 
+describe('envelope strings must be well formed', () => {
+  const lone = String.fromCharCode(0xd800);
+  const low = String.fromCharCode(0xdc00);
+  const pair = String.fromCharCode(0xd83d, 0xde00);
+
+  it.each([
+    ['game_id', { game_id: 'g' + lone }],
+    ['game_id (low surrogate)', { game_id: low + 'g' }],
+    ['ts', { ts: '2026' + lone }],
+    ['actor.player_id', { actor: { kind: 'player', player_id: 'p' + lone } }],
+  ])('rejects a lone surrogate in %s with invalid_event', (_name, over) => {
+    expect(codeFor(event(over))).toBe('invalid_event');
+  });
+
+  it('gives a type with a lone surrogate unknown_event_type (step 3 runs first)', () => {
+    expect(codeFor(event({ type: 'turn_passed' + lone }))).toBe('unknown_event_type');
+  });
+
+  it('accepts valid surrogate pairs in ts and player_id', () => {
+    expect(codeFor(event({ ts: pair, actor: { kind: 'player', player_id: pair } }))).toBe('ok');
+  });
+});
+
+describe('initialState', () => {
+  it('throws on an empty, non-string or ill-formed game_id', () => {
+    expect(() => initialState('')).toThrow(TypeError);
+    expect(() => initialState(5 as unknown as string)).toThrow(TypeError);
+    expect(() => initialState('g' + String.fromCharCode(0xd800))).toThrow(TypeError);
+  });
+
+  it('throws on an unknown setting key or a non-object settings', () => {
+    expect(() => initialState(GAME_ID, { foo: 1 } as never)).toThrow(TypeError);
+    expect(() => initialState(GAME_ID, null as never)).toThrow(TypeError);
+    expect(() => initialState(GAME_ID, [] as never)).toThrow(TypeError);
+  });
+
+  it('fills missing settings with the defaults and copies values without validating', () => {
+    const s = initialState(GAME_ID, { poison_threshold: 12, starting_life: 0 });
+    expect(s.settings).toEqual({
+      starting_life: 0,
+      commander_damage_threshold: 21,
+      poison_threshold: 12,
+      trust_mode: 'casual',
+    });
+  });
+
+  it('starts with empty voided and reverted arrays', () => {
+    const s = initialState(GAME_ID);
+    expect(s.voided).toEqual([]);
+    expect(s.reverted).toEqual([]);
+  });
+});
+
 describe('replay', () => {
   it('folds events and reports the index of the first rejection', () => {
     const s0 = initialState(GAME_ID);

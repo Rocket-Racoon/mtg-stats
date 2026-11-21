@@ -1,4 +1,5 @@
 import { CanonicalJsonError, canonicalJson } from './canonical-json';
+import { hasLoneSurrogate } from './unicode';
 import { EVENT_TYPES, MAX_SEATS, SUPPORTED_VERSIONS } from './types';
 import type {
   ApplyResult,
@@ -54,7 +55,13 @@ function isActorValid(actor: unknown): boolean {
   if (!isRecord(actor)) return false;
   const keys = Object.keys(actor);
   if (keys.length !== 2 || !('kind' in actor) || !('player_id' in actor)) return false;
-  if (actor.kind === 'player') return typeof actor.player_id === 'string' && actor.player_id !== '';
+  if (actor.kind === 'player') {
+    return (
+      typeof actor.player_id === 'string' &&
+      actor.player_id !== '' &&
+      !hasLoneSurrogate(actor.player_id)
+    );
+  }
   return actor.kind === 'system' && actor.player_id === null;
 }
 
@@ -71,9 +78,11 @@ function isCanonicalValue(value: unknown): boolean {
 function isEnvelopeValid(e: Record<string, unknown>): boolean {
   if (Object.keys(e).some((key) => !ENVELOPE_KEYS.has(key))) return false;
   if (typeof e.event_id !== 'string' || !UUID_V4.test(e.event_id)) return false;
-  if (typeof e.game_id !== 'string' || e.game_id === '') return false;
+  if (typeof e.game_id !== 'string' || e.game_id === '' || hasLoneSurrogate(e.game_id)) {
+    return false;
+  }
   if (e.seq !== undefined && (!isInt(e.seq) || e.seq < 1)) return false;
-  if (e.ts !== undefined && typeof e.ts !== 'string') return false;
+  if (e.ts !== undefined && (typeof e.ts !== 'string' || hasLoneSurrogate(e.ts))) return false;
   if (!isRecord(e.payload)) return false;
   if (!isActorValid(e.actor)) return false;
   const seat = e.on_behalf_of_seat;

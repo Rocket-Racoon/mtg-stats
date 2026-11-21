@@ -178,7 +178,8 @@
       "voided": [],
       "win_condition": null,
       "win_condition_note": "",
-      "winner_seat": null
+      "winner_seat": null,
+      "reverted": []
     }
   }
 }

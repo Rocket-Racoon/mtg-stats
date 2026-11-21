@@ -416,7 +416,8 @@
       "win_condition_note": "",
       "started_at": null,
       "voided": [],
-      "last_seq": 29
+      "last_seq": 29,
+      "reverted": []
     }
   }
 }

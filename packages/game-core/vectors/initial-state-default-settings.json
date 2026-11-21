@@ -38,7 +38,8 @@
       "win_condition_note": "",
       "started_at": null,
       "voided": [],
-      "last_seq": 0
+      "last_seq": 0,
+      "reverted": []
     }
   }
 }

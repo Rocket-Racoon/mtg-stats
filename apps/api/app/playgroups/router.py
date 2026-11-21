@@ -18,9 +18,15 @@ from app.playgroups.schemas import (
     InvitePageOut,
     InvitePreviewOut,
     InvitePreviewRequest,
+    PlaygroupCreate,
+    PlaygroupOut,
+    PlaygroupPageOut,
+    PlaygroupUpdate,
 )
 
-router = APIRouter(prefix="/invites", tags=["invites"])
+invites_router = APIRouter(prefix="/invites", tags=["invites"])
+playgroups_router = APIRouter(prefix="/playgroups", tags=["playgroups"])
+router = APIRouter()
 
 
 def _out(info: services.InviteInfo) -> InviteOut:
@@ -35,7 +41,7 @@ def _out(info: services.InviteInfo) -> InviteOut:
     )
 
 
-@router.post("", summary="Create an invite link", status_code=201)
+@invites_router.post("", summary="Create an invite link", status_code=201)
 async def create_invite(
     admin: SiteAdminDep,
     session: SessionDep,
@@ -56,7 +62,7 @@ async def create_invite(
     return InviteCreated(**_out(created.invite).model_dump(), url=created.url)
 
 
-@router.post("/preview", summary="Preview an invite")
+@invites_router.post("/preview", summary="Preview an invite")
 async def preview_invite(
     body: InvitePreviewRequest, session: SessionDep, _rate_limit: PublicRateLimitDep
 ) -> InvitePreviewOut:
@@ -72,7 +78,7 @@ async def preview_invite(
     )
 
 
-@router.get("", summary="List my invites")
+@invites_router.get("", summary="List my invites")
 async def list_invites(
     user: CurrentUserDep, session: SessionDep, params: PageParamsDep
 ) -> InvitePageOut:
@@ -81,7 +87,7 @@ async def list_invites(
     return InvitePageOut(items=[_out(i) for i in page.items], next_cursor=page.next_cursor)
 
 
-@router.post("/{invite_id}/revoke", summary="Revoke an invite")
+@invites_router.post("/{invite_id}/revoke", summary="Revoke an invite")
 async def revoke_invite(invite_id: str, user: CurrentUserDep, session: SessionDep) -> InviteOut:
     """Revoke one of the caller's invites. Idempotent. Anyone else's, or unknown, is a 404."""
     try:
@@ -89,3 +95,65 @@ async def revoke_invite(invite_id: str, user: CurrentUserDep, session: SessionDe
     except ValueError:
         raise NotFoundError from None
     return _out(await services.revoke_invite(session, invite_id=parsed, user_id=user.id))
+
+
+def _group_out(info: services.PlaygroupInfo) -> PlaygroupOut:
+    return PlaygroupOut(
+        id=info.id,
+        name=info.name,
+        description=info.description,
+        role=info.role,
+        created_at=info.created_at,
+        updated_at=info.updated_at,
+        joined_at=info.joined_at,
+    )
+
+
+@playgroups_router.post("", summary="Create a playgroup", status_code=201)
+async def create_playgroup(
+    body: PlaygroupCreate, user: CurrentUserDep, session: SessionDep
+) -> PlaygroupOut:
+    """Create a playgroup; the caller becomes its owner. Any signed-in user, no cap (C3).
+
+    `name` is 3-50 characters (trimmed) and `description` up to 500; otherwise 422.
+    """
+    info = await services.create_playgroup(
+        session, user_id=user.id, name=body.name, description=body.description
+    )
+    return _group_out(info)
+
+
+@playgroups_router.get("", summary="List my playgroups")
+async def list_playgroups(
+    user: CurrentUserDep, session: SessionDep, params: PageParamsDep
+) -> PlaygroupPageOut:
+    """Every playgroup the caller belongs to, with their role in each, newest membership first."""
+    page = await services.list_playgroups(session, user_id=user.id, params=params)
+    return PlaygroupPageOut(items=[_group_out(i) for i in page.items], next_cursor=page.next_cursor)
+
+
+@playgroups_router.get("/{playgroup_id}", summary="Get a playgroup")
+async def get_playgroup(
+    playgroup_id: str, access: services.MemberDep, session: SessionDep
+) -> PlaygroupOut:
+    """One playgroup with the caller's role. A non-member, or an unknown id, gets a 404."""
+    return _group_out(await services.get_playgroup(session, access))
+
+
+@playgroups_router.patch("/{playgroup_id}", summary="Rename or re-describe a playgroup")
+async def update_playgroup(
+    playgroup_id: str,
+    body: PlaygroupUpdate,
+    access: services.PlaygroupAdminDep,
+    session: SessionDep,
+) -> PlaygroupOut:
+    """Change the name and/or description. Owner or admin only: a plain member gets 403, a
+    non-member 404."""
+    info = await services.update_playgroup(
+        session, access, name=body.name, description=body.description
+    )
+    return _group_out(info)
+
+
+router.include_router(invites_router)
+router.include_router(playgroups_router)

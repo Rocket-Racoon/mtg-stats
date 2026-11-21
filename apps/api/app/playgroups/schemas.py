@@ -1,12 +1,68 @@
 """API shapes of the ``playgroups`` domain."""
 
+import unicodedata
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_validator,
+)
 
 from app.core.paging import Page
+from app.playgroups.models import (
+    PLAYGROUP_DESCRIPTION_MAX_LENGTH,
+    PLAYGROUP_NAME_MAX_LENGTH,
+    PLAYGROUP_NAME_MIN_LENGTH,
+)
+
+_DESCRIPTION_ALLOWED_CONTROLS = frozenset({"\n", "\r", "\t"})
+
+
+def _reject_control_characters(value: str) -> str:
+    """Reject control characters (category Cc, NUL included) and lone surrogates (Cs).
+
+    Postgres cannot store NUL and psycopg cannot encode a lone surrogate, so without this they
+    would be a 500. Runs after trimming, as for identity display names.
+    """
+    if any(unicodedata.category(ch) in ("Cc", "Cs") for ch in value):
+        raise ValueError("must not contain control characters")
+    return value
+
+
+def _reject_description_controls(value: str) -> str:
+    """Like the name rule, but a description may hold newlines, carriage returns and tabs.
+
+    A carriage return is accepted and stored as sent (no normalisation), so CRLF from a client
+    comes back unchanged and the 500-character limit counts exactly what was sent.
+    """
+    if any(
+        unicodedata.category(ch) in ("Cc", "Cs") and ch not in _DESCRIPTION_ALLOWED_CONTROLS
+        for ch in value
+    ):
+        raise ValueError("must not contain control characters other than newline and tab")
+    return value
+
+
+PlaygroupName = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=PLAYGROUP_NAME_MIN_LENGTH,
+        max_length=PLAYGROUP_NAME_MAX_LENGTH,
+    ),
+    AfterValidator(_reject_control_characters),
+]
+PlaygroupDescription = Annotated[
+    str,
+    StringConstraints(max_length=PLAYGROUP_DESCRIPTION_MAX_LENGTH),
+    AfterValidator(_reject_description_controls),
+]
 
 
 class InviteCreate(BaseModel):
@@ -51,3 +107,44 @@ class InvitePreviewOut(BaseModel):
 
     inviter_display_name: str
     expires_at: datetime
+
+
+class PlaygroupCreate(BaseModel):
+    """Body of ``POST /playgroups``."""
+
+    model_config = ConfigDict(strict=True)
+
+    name: PlaygroupName = Field(description="3 to 50 characters (surrounding spaces are trimmed).")
+    description: PlaygroupDescription = Field(default="", description="Up to 500 characters.")
+
+
+class PlaygroupUpdate(BaseModel):
+    """Body of ``PATCH /playgroups/{id}``. Send only the fields to change; null is rejected."""
+
+    model_config = ConfigDict(strict=True)
+
+    name: PlaygroupName | None = None
+    description: PlaygroupDescription | None = None
+
+    @model_validator(mode="after")
+    def _no_explicit_null(self) -> Self:
+        for field in self.model_fields_set:
+            if getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null; omit it to leave it unchanged")
+        return self
+
+
+class PlaygroupOut(BaseModel):
+    """A playgroup with the caller's role in it."""
+
+    id: UUID
+    name: str
+    description: str
+    role: Literal["owner", "admin", "member"] = Field(description="The caller's role.")
+    created_at: datetime
+    updated_at: datetime
+    joined_at: datetime = Field(description="When the caller joined.")
+
+
+class PlaygroupPageOut(Page[PlaygroupOut]):
+    """One page of the caller's playgroups."""

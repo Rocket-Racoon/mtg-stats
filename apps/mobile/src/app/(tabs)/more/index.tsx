@@ -65,6 +65,11 @@ export default function More() {
       ) : null}
       <AppButton label="About" onPress={() => router.push('/more/about')} testID="more-about" />
       <AppButton
+        label="Playgroups"
+        onPress={() => router.push('/more/playgroups')}
+        testID="more-playgroups"
+      />
+      <AppButton
         label="Change password"
         onPress={() => router.push('/more/change-password')}
         testID="more-change-password"

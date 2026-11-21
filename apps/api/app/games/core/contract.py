@@ -78,19 +78,6 @@ REDUCER_ERROR_CODES: Final[tuple[str, ...]] = get_args(ReducerErrorCode)
 SERVER_ONLY_REJECT_CODES: Final = ("forbidden", "undo_window_expired")
 """Codes only the server's authorization layer returns; a reducer MUST NOT (section 6.3)."""
 
-WIN_CONDITION_CODES: Final = (
-    "combat_damage",
-    "commander_damage",
-    "combo",
-    "alternate_win",
-    "poison",
-    "mill",
-    "life_drain",
-    "concession",
-    "last_standing",
-    "other",
-)
-"""D5 win-condition codes (section 3.4)."""
 
 SETTING_RANGES: Final = {
     "starting_life": (1, 999),
@@ -98,7 +85,6 @@ SETTING_RANGES: Final = {
     "poison_threshold": (1, 99),
 }
 """Inclusive ranges of the integer settings (section 3.2)."""
-TRUST_MODES: Final = ("casual", "strict")
 DEFAULT_SETTINGS: Final = {
     "starting_life": 40,
     "commander_damage_threshold": 21,
@@ -116,6 +102,24 @@ Phase = Literal["lobby", "active", "ending", "finished", "abandoned"]
 ResumePhase = Literal["lobby", "active", "ending"]
 ControlMode = Literal["own_seat", "host_all"]
 EliminationReason = Literal["life", "commander_damage", "poison", "concession", "declared"]
+TrustMode = Literal["casual", "strict"]
+WinCondition = Literal[
+    "combat_damage",
+    "commander_damage",
+    "combo",
+    "alternate_win",
+    "poison",
+    "mill",
+    "life_drain",
+    "concession",
+    "last_standing",
+    "other",
+]
+
+
+WIN_CONDITION_CODES: Final[tuple[str, ...]] = get_args(WinCondition)
+"""D5 win-condition codes (section 3.4)."""
+TRUST_MODES: Final[tuple[str, ...]] = get_args(TrustMode)
 
 
 class _Frozen(BaseModel):
@@ -125,14 +129,16 @@ class _Frozen(BaseModel):
 class Settings(_Frozen):
     """Game settings (section 3.2).
 
-    Values are not range-checked here: ``initial_state`` does not validate (section 6.1) and the
-    ``game_created`` / ``settings_changed`` handlers do (S-6.1.6, ``invalid_setting``).
+    The model is strict, for loading stored snapshots. ``initial_state`` does not validate
+    (sections 3.5, 6.1): it builds the instance with ``model_construct`` and stores the values as
+    given. The ``game_created`` / ``settings_changed`` handlers validate ranges and
+    ``trust_mode`` (S-6.1.6, ``invalid_setting``).
     """
 
     starting_life: SafeInt
     commander_damage_threshold: SafeInt
     poison_threshold: SafeInt
-    trust_mode: str
+    trust_mode: TrustMode
 
 
 class Commander(_Frozen):
@@ -140,15 +146,6 @@ class Commander(_Frozen):
 
     card_id: str | None
     name: str
-
-
-class Elimination(_Frozen):
-    """Why and when a seat left the game (section 3.3)."""
-
-    reason: EliminationReason
-    by: SeatId | None
-    at_seq: SafeInt
-    cause: str | None
 
 
 class Seat(_Frozen):
@@ -164,7 +161,11 @@ class Seat(_Frozen):
     energy: NonNegativeInt
     experience: NonNegativeInt
     commander_cast: list[NonNegativeInt]
-    elimination: Elimination | None
+    elimination_reason: EliminationReason | None
+    eliminated_by: SeatId | None
+    eliminated_at_seq: SafeInt | None
+    eliminated_round: NonNegativeInt | None
+    elimination_cause: WinCondition | None
 
 
 class GameState(_Frozen):
@@ -186,15 +187,17 @@ class GameState(_Frozen):
     commander_damage: dict[str, dict[str, SafeInt]]
     no_winner: StrictBool
     winner_seat: SeatId | None
-    win_condition: str | None
+    win_condition: WinCondition | None
     win_condition_note: str
     started_at: str | None
     voided: list[NonNegativeInt]
+    reverted: list[NonNegativeInt]
     last_seq: NonNegativeInt
 
     def to_json_value(self) -> dict[str, Any]:
         """Return the state as plain JSON values, ready for ``canonical_json``."""
-        return self.model_dump(mode="json")
+        # warnings=False: initial_state stores unvalidated settings (section 3.5).
+        return self.model_dump(mode="json", warnings=False)
 
 
 class Actor(_Frozen):
@@ -219,7 +222,7 @@ class EventEnvelope(_Frozen):
     game_id: NonEmptyStr
     seq: Annotated[StrictInt, Field(ge=1, le=MAX_SAFE_INTEGER)] | None = None
     type: str
-    payload: dict[str, Any]
+    payload: dict[Any, Any]  # keys are checked by the canonical test (step 5), not here
     actor: Actor
     on_behalf_of_seat: SeatId | None
     ts: str | None = None

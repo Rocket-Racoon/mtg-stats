@@ -248,7 +248,7 @@ def test_initial_state_holds_every_key_and_the_four_settings() -> None:
         ),
     )
     value = state.to_json_value()
-    assert len(value) == 21
+    assert len(value) == 22
     assert value["settings"] == {
         "starting_life": 30,
         "commander_damage_threshold": 15,
@@ -289,7 +289,11 @@ def test_seat_model_round_trips_through_the_state() -> None:
             "energy": 0,
             "experience": 0,
             "commander_cast": [0],
-            "elimination": {"reason": "life", "by": None, "at_seq": 4, "cause": None},
+            "elimination_reason": "life",
+            "eliminated_by": None,
+            "eliminated_at_seq": 4,
+            "eliminated_round": 2,
+            "elimination_cause": "other",
         }
     ]
     raw["order"] = [1]
@@ -353,3 +357,61 @@ def test_payload_nesting_counts_the_payload_as_the_top_level_value() -> None:
 def test_closed_game_is_not_checked_by_apply_yet() -> None:
     finished = _state().model_copy(update={"phase": "finished"})
     assert isinstance(apply(finished, _event()), ApplyOk)
+
+
+def test_initial_state_defaults_partial_settings_and_copies_given_values() -> None:
+    assert initial_state(GAME_ID).settings.model_dump() == DEFAULT_SETTINGS
+    partial = initial_state(GAME_ID, {"starting_life": 20, "trust_mode": "strict"})
+    assert partial.settings.model_dump() == {
+        **DEFAULT_SETTINGS,
+        "starting_life": 20,
+        "trust_mode": "strict",
+    }
+    odd = initial_state(GAME_ID, {"starting_life": "lots"})  # types are not validated
+    assert odd.settings.starting_life == "lots"  # type: ignore[comparison-overlap]
+
+
+@pytest.mark.parametrize("game_id", ["", "g\ud800", "\udc00g", None, 5, b"g"])
+def test_initial_state_rejects_a_bad_game_id(game_id: Any) -> None:
+    with pytest.raises((TypeError, ValueError)):
+        initial_state(game_id)
+
+
+@pytest.mark.parametrize("settings", [{"nope": 1}, {"starting_life": 1, "x": 2}, [], "x", 3])
+def test_initial_state_rejects_unknown_setting_keys_and_non_mappings(settings: Any) -> None:
+    with pytest.raises((TypeError, ValueError)):
+        initial_state(GAME_ID, settings)
+
+
+def test_initial_state_has_an_empty_reverted_list() -> None:
+    assert _state().to_json_value()["reverted"] == []
+    assert list(_state().to_json_value())[-3:] == ["voided", "reverted", "last_seq"]
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"game_id": "g\ud800"},
+        {"game_id": "\udc00"},
+        {"ts": "2026\ud800"},
+        {"actor": {"kind": "player", "player_id": "p\udfff"}},
+    ],
+)
+def test_envelope_string_with_a_lone_surrogate_is_invalid_event_before_game_mismatch(
+    overrides: dict[str, Any],
+) -> None:
+    assert _code(apply(_state(), _event(**overrides))) == "invalid_event"
+
+
+def test_type_with_a_lone_surrogate_is_unknown_event_type_not_invalid_event() -> None:
+    assert _code(apply(_state(), _event(type="turn\ud800"))) == "unknown_event_type"
+
+
+def test_valid_surrogate_pair_in_an_envelope_string_is_accepted() -> None:
+    state = initial_state("g\U0001f600")
+    assert isinstance(apply(state, _event(game_id="g\U0001f600")), ApplyOk)
+
+
+def test_payload_with_a_non_string_key_is_invalid_payload_not_invalid_event() -> None:
+    assert _code(apply(_state(), _event(payload={1: 2}))) == "invalid_payload"
+    assert _code(apply(_state(), _event(payload={"a": {None: 1}}))) == "invalid_payload"

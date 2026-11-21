@@ -120,3 +120,53 @@ def test_wire_parse_rejects_floats_big_integers_duplicates_and_malformed_text(te
 def test_wire_parse_rejects_bytes_that_are_not_utf8() -> None:
     with pytest.raises(WireParseError):
         loads_wire(b"\xff\xfe")
+
+
+class _OddInt(int):
+    def __str__(self) -> str:
+        return "forged"
+
+
+class _Odd(dict):  # type: ignore[type-arg]
+    pass
+
+
+def test_subclasses_of_json_types_are_unsupported_values() -> None:
+    # Exact types only (sections 5.1, 5.4): an overridden __str__ or __getitem__ cannot leak.
+    for value in (_OddInt(7), _Odd(a=1), ["x", _Odd()]):
+        with pytest.raises(CanonicalJsonError) as raised:
+            canonical_json(value)
+        assert raised.value.code == "unsupported_value"
+
+
+def test_integers_are_always_written_as_plain_decimal() -> None:
+    assert canonical_json([0, -1, 10**15]) == "[0,-1,1000000000000000]"
+
+
+_BS = chr(92)  # a backslash: these texts hold JSON escape sequences, not surrogate characters
+
+
+def _esc(*units: str) -> str:
+    return "".join(_BS + "u" + unit for unit in units)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '"' + _esc("d800") + '"',
+        '"' + _esc("dc00") + '"',
+        '"a' + _esc("d83d") + 'z"',
+        '"' + _esc("de00", "d83d") + '"',  # low before high
+        '"' + _esc("d83d", "d83d") + '"',  # two highs
+        '{"' + _esc("d800") + '":1}',
+        '["x",{"k":["' + _esc("dfff") + '"]}]',
+    ],
+)
+def test_wire_reader_rejects_a_lone_surrogate_escape_anywhere(text: str) -> None:
+    with pytest.raises(WireParseError) as raised:
+        loads_wire(text)
+    assert raised.value.code == "invalid_event"
+
+
+def test_wire_reader_accepts_a_valid_surrogate_pair_escape() -> None:
+    assert loads_wire('"' + _esc("d83d", "de00") + '"') == "😀"

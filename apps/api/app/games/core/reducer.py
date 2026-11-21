@@ -13,7 +13,12 @@ from typing import Any, Final
 
 from pydantic import ValidationError
 
-from app.games.core.canonical import MAX_SAFE_INTEGER, CanonicalJsonError, canonical_json
+from app.games.core.canonical import (
+    MAX_SAFE_INTEGER,
+    CanonicalJsonError,
+    canonical_json,
+    has_lone_surrogate,
+)
 from app.games.core.contract import (
     EVENT_TYPES,
     SUPPORTED_VERSIONS,
@@ -88,21 +93,40 @@ def _is_integer(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and abs(value) <= MAX_SAFE_INTEGER
 
 
+def _has_malformed_string(event: dict[str, Any]) -> bool:
+    """True when an envelope string has a lone surrogate (section 2, well-formed strings)."""
+    actor = event.get("actor")
+    candidates = [event.get("event_id"), event.get("game_id"), event.get("ts")]
+    if isinstance(actor, dict):
+        candidates.append(actor.get("player_id"))
+    return any(isinstance(c, str) and has_lone_surrogate(c) for c in candidates)
+
+
+def _envelope_error(event: Any) -> ReducerErrorCode | None:
+    """Steps 1 to 4 of section 6.2, which need no state: the code of the first failure, if any."""
+    if not isinstance(event, dict) or not _is_integer(event.get("v")):
+        return "invalid_event"
+    if event["v"] not in SUPPORTED_VERSIONS:
+        return "unsupported_version"
+    event_type = event.get("type")
+    if not isinstance(event_type, str):
+        return "invalid_event"
+    if event_type not in REGISTRY:
+        return "unknown_event_type"
+    if _has_malformed_string(event):  # before the model, so no Pydantic accident decides
+        return "invalid_event"
+    return None
+
+
 def apply(state: GameState, event: Any) -> ApplyResult:
     """Apply one event to ``state`` and return the new state or the first rejection.
 
     ``event`` is a raw envelope (a ``dict`` as parsed from the wire). Checks run in the order of
     section 6.2. Neither argument is mutated, and a rejected event changes nothing.
     """
-    if not isinstance(event, dict) or not _is_integer(event.get("v")):
-        return _reject("invalid_event")
-    if event["v"] not in SUPPORTED_VERSIONS:
-        return _reject("unsupported_version")
-    event_type = event.get("type")
-    if not isinstance(event_type, str):
-        return _reject("invalid_event")
-    if event_type not in REGISTRY:
-        return _reject("unknown_event_type")
+    code = _envelope_error(event)
+    if code is not None:
+        return _reject(code)
     try:
         envelope = EventEnvelope.model_validate(event)
     except ValidationError:

@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 CORE_DIR = Path(__file__).resolve().parents[1] / "core"
-SOURCES = sorted(CORE_DIR.glob("*.py"))
+SOURCES = sorted(CORE_DIR.rglob("*.py"))  # recursive: a nested module is scanned too
 
 ALLOWED_MODULES = frozenset(
     {"__future__", "collections", "dataclasses", "json", "pydantic", "re", "typing"}
@@ -53,7 +53,7 @@ def test_guard_finds_the_core_modules() -> None:
     assert {"reducer.py", "canonical.py", "contract.py", "state.py"} <= names
 
 
-@pytest.mark.parametrize("path", SOURCES, ids=[p.name for p in SOURCES])
+@pytest.mark.parametrize("path", SOURCES, ids=[p.relative_to(CORE_DIR).as_posix() for p in SOURCES])
 def test_core_module_uses_no_clock_randomness_or_io(path: Path) -> None:
     assert _violations(path.read_text(encoding="utf-8")) == []
 
@@ -77,3 +77,14 @@ def test_core_module_uses_no_clock_randomness_or_io(path: Path) -> None:
 )
 def test_guard_flags_a_forbidden_construct(snippet: str) -> None:
     assert _violations(snippet) != []
+
+
+def test_guard_scans_nested_modules_and_flags_one_that_imports_random(tmp_path: Path) -> None:
+    nested = tmp_path / "core" / "handlers" / "deep"
+    nested.mkdir(parents=True)
+    (tmp_path / "core" / "ok.py").write_text("import json", encoding="utf-8")
+    (nested / "bad.py").write_text("import random", encoding="utf-8")
+    scanned = sorted((tmp_path / "core").rglob("*.py"))
+    assert [p.name for p in scanned] == ["bad.py", "ok.py"]
+    flagged = {p.name: _violations(p.read_text(encoding="utf-8")) for p in scanned}
+    assert flagged == {"bad.py": ["import random"], "ok.py": []}

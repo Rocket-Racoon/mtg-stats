@@ -420,10 +420,16 @@ def test_payload_at_the_safe_integer_extremes_with_unicode_is_accepted() -> None
 
 
 def test_initial_state_keeps_out_of_range_settings_unchanged() -> None:
-    settings = Settings(
-        starting_life=5000, commander_damage_threshold=0, poison_threshold=100, trust_mode="banana"
-    )
-    assert initial_state(GAME_ID, settings).settings == settings
+    # CONTRACT.md 3.5: values are copied as given, neither types nor ranges validated. The strict
+    # Settings model (trust_mode is an enum, for loading snapshots) cannot hold "banana", so the
+    # unvalidated values reach initial_state as a mapping, the form the contract and vectors use.
+    given = {
+        "starting_life": 5000,
+        "commander_damage_threshold": 0,
+        "poison_threshold": 100,
+        "trust_mode": "banana",
+    }
+    assert initial_state(GAME_ID, given).settings.model_dump(warnings=False) == given
 
 
 def test_initial_state_returns_independent_lists_and_dicts_on_every_call() -> None:

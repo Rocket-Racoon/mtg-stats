@@ -21,7 +21,6 @@ from app.games.core import (
     SCHEMA_VERSION,
     Actor,
     Commander,
-    Elimination,
     EventEnvelope,
     GameState,
     Seat,
@@ -182,8 +181,13 @@ def test_settings_model_fields_ranges_and_defaults_equal_the_settings_table(cont
 def test_seat_commander_and_elimination_fields_equal_the_contract(contract: str) -> None:
     assert list(Seat.model_fields) == list(rows(contract, "### 3.3 Seat object"))
     text = section(contract, "### 3.3 Seat object")
-    assert list(Elimination.model_fields) == ["reason", "by", "at_seq", "cause"]
-    assert '`{"reason", "by", "at_seq", "cause"}`' in text
+    assert list(Seat.model_fields)[-5:] == [
+        "elimination_reason",
+        "eliminated_by",
+        "eliminated_at_seq",
+        "eliminated_round",
+        "elimination_cause",
+    ]
     assert list(Commander.model_fields) == ["card_id", "name"]
     assert '`{"card_id": string or null, "name": string}`' in text
 
@@ -195,8 +199,10 @@ def test_enumerations_equal_the_contract(contract: str) -> None:
         get_args(ResumePhase)
     )
     assert code_spans(top["control_mode"]) == list(get_args(ControlMode))
-    seat_text = section(contract, "### 3.3 Seat object")
-    reasons = re.search(r"`elimination.reason` is (.+?)\. `by`", seat_text)
+    reasons = re.search(
+        r"eliminated: (.+?)\. `null` while",
+        rows(contract, "### 3.3 Seat object")["elimination_reason"],
+    )
     assert reasons
     assert code_spans(reasons.group(1)) == list(get_args(EliminationReason))
     d5 = section(contract, "### 3.4 D5 win-condition codes").strip().split("\n")[0]

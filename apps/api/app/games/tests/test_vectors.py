@@ -14,7 +14,6 @@ from app.games.core import (
     ApplyError,
     CanonicalJsonError,
     GameState,
-    Settings,
     apply,
     canonical_json,
     initial_state,
@@ -85,7 +84,7 @@ def _final_state(state: GameState) -> str:
 
 
 def _run_reducer(vector: dict[str, Any]) -> None:
-    state = initial_state(vector["game_id"], Settings.model_validate(vector["settings"]))
+    state = initial_state(vector["game_id"], vector["settings"])
     expect = vector["expect"]
     assert len(expect) == 1
     for index, raw in enumerate(vector["events"]):

@@ -1,52 +1,64 @@
 """No router reaches Scryfall (S-3.1.2): user requests read the local card database.
 
-Every module that is named ``router.py`` or imports ``fastapi.APIRouter`` (a router module, as
-``test_domain_imports`` defines it) must not import ``ScryfallClient`` or the
-``app.cards.scryfall_client`` module. Imports are read with ``ast`` (nothing is executed), so an
-import under ``TYPE_CHECKING`` or inside a function counts too.
+Every module that is named ``router.py`` or is a router module (``is_router_module``: it imports
+``fastapi.APIRouter``) must not reach ``app.cards.scryfall_client`` or ``ScryfallClient``.
+
+Detected, through ``imported_modules`` of ``test_domain_imports`` (relative imports resolved,
+literal ``importlib.import_module`` and ``__import__`` calls included, ``TYPE_CHECKING`` and
+in-function imports included): any import that resolves to ``app.cards.scryfall_client`` or below,
+e.g. ``from . import scryfall_client`` inside ``cards/router.py``. On top of that, by name:
+``from <anything> import scryfall_client`` or ``ScryfallClient`` (this also catches a re-export,
+and a ``from app.cards import scryfall_client`` when the file does not exist on disk), and any
+attribute access to ``.scryfall_client`` or ``.ScryfallClient``, so ``from app import cards``
+followed by ``cards.scryfall_client.ScryfallClient()`` is flagged at the attribute.
+
+Not detectable: ``getattr(cards, "scryfall_client")`` and other non-literal lookups, a dynamic
+import whose name is not a string literal, and a router that gets a client from another module
+that builds one (for example ``from app.cards.services import some_helper``). Those are left to
+review, as architecture §4.2 does for the other import rules.
 """
 
 import ast
 from collections.abc import Mapping
 from pathlib import Path
 
-from tests.architecture.test_domain_imports import APP_ROOT, is_router_module
+from tests.architecture.test_domain_imports import APP_ROOT, imported_modules, is_router_module
 
 CLIENT_MODULE = "app.cards.scryfall_client"
 CLIENT_NAME = "ScryfallClient"
+CLIENT_MODULE_NAME = "scryfall_client"
 
 
-def scryfall_imports(tree: ast.AST) -> list[tuple[int, str]]:
-    """``(line, what)`` of every import of the Scryfall client module or class in ``tree``."""
+def _named_uses(tree: ast.AST) -> list[tuple[int, str]]:
+    """Name-based hits: imported names and attribute accesses of the client."""
     found: list[tuple[int, str]] = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            found += [(node.lineno, a.name) for a in node.names if a.name.startswith(CLIENT_MODULE)]
-        elif isinstance(node, ast.ImportFrom):
-            module = node.module or ""
-            if module.startswith(CLIENT_MODULE):
-                found.append((node.lineno, module))
+        if isinstance(node, ast.ImportFrom):
             found += [
-                (node.lineno, f"{module}.{a.name}") for a in node.names if a.name == CLIENT_NAME
+                (node.lineno, f"{node.module or '.'}.{a.name}")
+                for a in node.names
+                if a.name in {CLIENT_NAME, CLIENT_MODULE_NAME}
             ]
-            if module == "app.cards":
-                found += [
-                    (node.lineno, f"{module}.{a.name}")
-                    for a in node.names
-                    if a.name == "scryfall_client"
-                ]
+        elif isinstance(node, ast.Attribute) and node.attr in {CLIENT_NAME, CLIENT_MODULE_NAME}:
+            found.append((node.lineno, f"attribute .{node.attr}"))
     return found
 
 
 def router_violations(root: Path) -> list[str]:
-    """Router modules under ``root`` that import the Scryfall client, as ``file:line: import``."""
+    """Router modules under ``root`` that reach the Scryfall client, as ``file:line: what``."""
     problems: list[str] = []
     for path in sorted(root.rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        tree = ast.parse(path.read_bytes(), filename=str(path))
         if path.name != "router.py" and not is_router_module(tree):
             continue
+        hits = [
+            (line, module)
+            for line, module in imported_modules(root, path)
+            if module == CLIENT_MODULE or module.startswith(f"{CLIENT_MODULE}.")
+        ]
+        hits += _named_uses(tree)
         shown = path.relative_to(root).as_posix()
-        problems += [f"{shown}:{line}: {what}" for line, what in scryfall_imports(tree)]
+        problems += [f"{shown}:{line}: {what}" for line, what in sorted(set(hits))]
     return problems
 
 
@@ -60,6 +72,10 @@ def _write(root: Path, files: Mapping[str, str]) -> Path:
 
 def test_no_router_in_the_app_imports_the_scryfall_client() -> None:
     assert router_violations(APP_ROOT) == []
+
+
+def _flagged(root: Path) -> set[str]:
+    return {line.split(":")[0] for line in router_violations(root)}
 
 
 def test_router_importing_the_client_class_is_reported(tmp_path: Path) -> None:
@@ -77,14 +93,68 @@ def test_router_importing_the_client_module_in_any_form_is_reported(tmp_path: Pa
     root = _write(
         tmp_path,
         {
+            "cards/scryfall_client.py": "",
             "a/router.py": "import app.cards.scryfall_client\n",
             "b/router.py": "from app.cards import scryfall_client\n",
             "c/router.py": "from app.cards.services import ScryfallClient\n",
             "d/router.py": "def f() -> None:\n    from app.cards.scryfall_client import x\n",
         },
     )
-    flagged = {line.split("/")[0] for line in router_violations(root)}
-    assert flagged == {"a", "b", "c", "d"}
+    assert _flagged(root) == {"a/router.py", "b/router.py", "c/router.py", "d/router.py"}
+
+
+def test_relative_import_of_the_client_in_cards_router_is_reported(tmp_path: Path) -> None:
+    root = _write(
+        tmp_path,
+        {
+            "cards/scryfall_client.py": "",
+            "cards/router.py": "from . import scryfall_client\n",
+            "cards/other/router.py": "from ..scryfall_client import ScryfallClient\n",
+        },
+    )
+    assert _flagged(root) == {"cards/router.py", "cards/other/router.py"}
+
+
+def test_literal_importlib_and_dunder_import_of_the_client_are_reported(tmp_path: Path) -> None:
+    root = _write(
+        tmp_path,
+        {
+            "a/router.py": (
+                "import importlib\nmod = importlib.import_module('app.cards.scryfall_client')\n"
+            ),
+            "b/router.py": "mod = __import__('app.cards.scryfall_client')\n",
+        },
+    )
+    assert _flagged(root) == {"a/router.py", "b/router.py"}
+
+
+def test_from_app_import_cards_with_attribute_access_is_reported_at_the_attribute(
+    tmp_path: Path,
+) -> None:
+    root = _write(
+        tmp_path,
+        {
+            "decks/router.py": (
+                "from app import cards\nclient = cards.scryfall_client.ScryfallClient()\n"
+            )
+        },
+    )
+    assert router_violations(root) == [
+        "decks/router.py:2: attribute .ScryfallClient",
+        "decks/router.py:2: attribute .scryfall_client",
+    ]
+
+
+def test_getattr_lookup_of_the_client_is_a_known_undetectable_form(tmp_path: Path) -> None:
+    root = _write(
+        tmp_path,
+        {
+            "decks/router.py": (
+                "from app import cards\nclient = getattr(cards, 'scryfall_client')\n"
+            )
+        },
+    )
+    assert router_violations(root) == []
 
 
 def test_non_router_module_may_import_the_client(tmp_path: Path) -> None:

@@ -1,6 +1,7 @@
 """Tests of the Redis spacing limiter (S-3.1.2); they use the isolated test Redis."""
 
 import asyncio
+import uuid
 
 import pytest
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -55,3 +56,38 @@ async def test_falls_back_to_local_spacing_when_redis_fails(
     for _ in range(3):
         await limiter.wait()
     assert delays == [pytest.approx(0.1), pytest.approx(0.1)]
+
+
+async def test_local_fallback_state_is_shared_by_limiters_of_one_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def broken() -> None:
+        raise RedisConnectionError("down")
+
+    monkeypatch.setattr(spacing_limiter, "get_redis", broken)
+    delays: list[float] = []
+
+    async def record(seconds: float) -> None:
+        delays.append(seconds)
+
+    name = f"k-{uuid.uuid4().hex}"
+    first = SpacingLimiter(name, 100, sleep=record, monotonic=lambda: 50.0)
+    second = SpacingLimiter(name, 100, sleep=record, monotonic=lambda: 50.0)
+    for limiter in (first, second, first, second):
+        await limiter.wait()
+    assert delays == [pytest.approx(0.1), pytest.approx(0.2), pytest.approx(0.3)]
+
+
+async def test_local_fallback_keys_do_not_share_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken() -> None:
+        raise RedisConnectionError("down")
+
+    monkeypatch.setattr(spacing_limiter, "get_redis", broken)
+    delays: list[float] = []
+
+    async def record(seconds: float) -> None:
+        delays.append(seconds)
+
+    for name in (f"a-{uuid.uuid4().hex}", f"b-{uuid.uuid4().hex}"):
+        await SpacingLimiter(name, 100, sleep=record, monotonic=lambda: 1.0).wait()
+    assert delays == []

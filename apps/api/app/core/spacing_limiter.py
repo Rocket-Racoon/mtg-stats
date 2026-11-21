@@ -1,10 +1,20 @@
 """Redis spacing limiter: callers of one key are at least ``interval_ms`` apart (S-3.1.2).
 
 Each call atomically reserves the next free slot (one Lua script, using the Redis clock so
-processes need no synchronised clocks) and sleeps until it. Slots are ``interval_ms`` apart, so
-several coroutines or processes never exceed ``1000 / interval_ms`` calls per second. When Redis
-fails, it falls back to spacing within this process and logs one warning (so a Redis outage never
-makes an upstream API see a burst from one process).
+processes need no synchronised clocks) and sleeps until it. Needs Redis 5 or later (the script
+calls ``TIME`` before it writes).
+
+Guarantees and limits:
+
+* Slots are reserved exactly ``interval_ms`` apart on the Redis clock, so the reservations of any
+  number of coroutines and processes never exceed ``1000 / interval_ms`` per second.
+* Each caller sleeps from when its reply arrives, so the actual send times can differ from the
+  slots by the reply latency and the timer resolution; the spacing of real sends is approximate.
+* The waiting queue is uncapped: every waiter holds a reserved slot, however far ahead it is.
+* A Redis restart drops the slot key, so the next caller gets an immediate slot.
+* When Redis fails, calls are spaced locally instead, with state shared by every limiter of the
+  same key in this process (one process then keeps to the interval; several processes do not
+  coordinate), and one warning is logged per failure.
 """
 
 import asyncio
@@ -32,6 +42,11 @@ return nxt - now
 
 Sleep = Callable[[float], Awaitable[None]]
 
+# Fallback state: the next free local slot (monotonic seconds) per Redis key, shared by every
+# limiter of that key in this process. asyncio is single-threaded and the slot is taken without
+# an await, so no lock is needed.
+_local_next: dict[str, float] = {}
+
 
 class SpacingLimiter:
     """Spaces calls for one Redis ``key`` by ``interval_ms`` across coroutines and processes."""
@@ -49,8 +64,6 @@ class SpacingLimiter:
         self._interval_ms = interval_ms
         self._sleep = sleep
         self._monotonic = monotonic
-        self._local_next = 0.0
-        self._local_lock = asyncio.Lock()
 
     async def wait(self) -> None:
         """Block until this caller's slot arrives."""
@@ -68,8 +81,8 @@ class SpacingLimiter:
             await self._sleep(delay_ms / 1000)
 
     async def _wait_locally(self) -> None:
-        async with self._local_lock:
-            delay = self._local_next - self._monotonic()
-            if delay > 0:
-                await self._sleep(delay)
-            self._local_next = max(self._local_next, self._monotonic()) + self._interval
+        now = self._monotonic()
+        slot = max(_local_next.get(self._key, 0.0), now)
+        _local_next[self._key] = slot + self._interval
+        if slot > now:
+            await self._sleep(slot - now)

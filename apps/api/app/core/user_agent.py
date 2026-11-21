@@ -4,11 +4,14 @@ Scryfall, the deck sites and Commander Spellbook all get ``MTGStats/<version> (+
 the version is the API package's, the URL comes from ``REPO_SLUG``, and there is never an email.
 """
 
+import logging
 import tomllib
 from functools import lru_cache
 from pathlib import Path
 
 from app.core.config import Settings, get_settings
+
+logger = logging.getLogger("app.core.user_agent")
 
 PYPROJECT_PATH = Path(__file__).resolve().parents[2] / "pyproject.toml"
 FALLBACK_VERSION = "0.0.0"
@@ -25,7 +28,12 @@ def api_version() -> str:
     try:
         data = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))
         return str(data["project"]["version"])
-    except (OSError, KeyError, tomllib.TOMLDecodeError):
+    except (OSError, KeyError, tomllib.TOMLDecodeError) as exc:
+        logger.warning(
+            "API version unreadable (%s); using %s in the User-Agent",
+            type(exc).__name__,
+            FALLBACK_VERSION,
+        )
         return FALLBACK_VERSION
 
 

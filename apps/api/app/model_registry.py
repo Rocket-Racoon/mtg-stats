@@ -9,6 +9,7 @@ a registration side effect, and importing ``models`` is the whole point.
 
 from sqlalchemy import MetaData
 
+import app.cards.models
 import app.games.models
 import app.identity.models
 import app.playgroups.models

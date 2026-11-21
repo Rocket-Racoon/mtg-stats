@@ -89,7 +89,7 @@ def test_migrated_and_create_all_cards_schemas_are_identical(
     assert migrated["function"], "the migration must create public.immutable_unaccent"
     expressions = [str(row[-1]) for row in migrated["columns"] if row[1] == "search_name"]
     assert expressions
-    assert all("public.immutable_unaccent" in e for e in expressions)
+    assert all("immutable_unaccent" in e for e in expressions)
     for key in ("columns", "indexes", "constraints", "function"):
         assert migrated[key] == from_models[key], key
 

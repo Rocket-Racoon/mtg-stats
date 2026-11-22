@@ -33,6 +33,12 @@ UNVALIDATED = {
     "initial-state-unvalidated-setting-types",
     "accept-settings-changed-keeps-unvalidated-initial-settings",
     "accept-seat-joined-with-unvalidated-starting-life",
+    "accept-player-conceded-with-an-unvalidated-life",
+    "accept-seat-joined-unvalidated-starting-life-true",
+    "accept-seat-joined-unvalidated-starting-life-false",
+    "accept-seat-joined-unvalidated-starting-life-null",
+    "accept-seat-joined-unvalidated-starting-life-a-numeric-string",
+    "accept-seat-joined-unvalidated-starting-life-negative",
 }
 
 

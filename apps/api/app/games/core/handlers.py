@@ -1,14 +1,14 @@
-"""The lobby, seat and turn handlers (CONTRACT.md section 4.4, S-6.1.6).
+"""The lobby, seat and turn handlers (S-6.1.6, CONTRACT.md 4.4) and the life ones (S-6.1.3, 4.5).
 
 Pure: no clock, randomness or I/O. A handler runs after steps 1 to 7 of section 6.2 and returns
-the first failure in this order (4.4.1): payload shape, phase, seat references, then its own rules.
-A handler never mutates its input; it builds new lists and copies the state.
+the first failure in this order (4.4.1, 4.5.1): payload shape, phase, seat references, then its own
+rules. A handler never mutates its input; it builds new lists and copies the state.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Final, TypeGuard
+from typing import Any, Final, TypeGuard, cast
 
 from app.games.core.canonical import MAX_SAFE_INTEGER
 from app.games.core.contract import (
@@ -16,6 +16,7 @@ from app.games.core.contract import (
     MIN_SEATS,
     SETTING_RANGES,
     TRUST_MODES,
+    WIN_CONDITION_CODES,
     Commander,
     EventEnvelope,
     GameState,
@@ -24,7 +25,12 @@ from app.games.core.contract import (
     ReducerErrorCode,
     Seat,
     Settings,
+    WinCondition,
 )
+from app.games.core.elimination import Elimination, eliminate
+
+MAX_LIFE_DELTA: Final = 999
+"""The largest |delta| of a ``life_changed`` (4.5.3)."""
 
 _SETTING_NAMES: Final = (
     "starting_life",
@@ -305,6 +311,76 @@ def _turn_passed(state: GameState, event: EventEnvelope, seq: int) -> GameState 
     )
 
 
+def _is_running(state: GameState) -> bool:
+    """Section 4.5.1: the three S-6.1.3 handlers are allowed in ``active`` and ``ending``."""
+    return state.phase in ("active", "ending")
+
+
+def _life_changed(state: GameState, event: EventEnvelope, seq: int) -> GameState | ReducerError:
+    """Section 4.5.3: add ``delta`` to a seat's life, unclamped; eliminate it at 0 or less."""
+    payload = event.payload
+    seat_id: Any = payload.get("seat")
+    delta: Any = payload.get("delta")
+    source: Any = payload.get("source_seat")
+    if not _is_seat_id(seat_id) or not _is_int(delta):
+        return _reject("invalid_payload")
+    if source is not None and not _is_seat_id(source):
+        return _reject("invalid_payload")
+    if not _is_running(state):
+        return _reject("invalid_phase")
+    present = _seat_ids(state)
+    if seat_id not in present or (source is not None and source not in present):
+        return _reject("unknown_seat")
+    if _eliminated(seat_id, state) or (source is not None and _eliminated(source, state)):
+        return _reject("seat_eliminated")
+    if delta == 0 or abs(delta) > MAX_LIFE_DELTA:
+        return _reject("invalid_amount")
+    current: Any = next(s for s in state.seats if s.seat == seat_id).life
+    # life may be unvalidated (3.5): only a safe integer qualifies, and the sum must stay safe.
+    if not _is_int(current) or abs(current + delta) > MAX_SAFE_INTEGER:
+        return _reject("invalid_amount")
+    life = current + delta
+    changed = state.model_copy(update={"seats": _replace_seat(state, seat_id, {"life": life})})
+    if delta < 0 and life <= 0:
+        changed = eliminate(changed, seq, [Elimination(seat_id, "life", source, None)])
+    return changed.model_copy(update={"last_seq": seq})
+
+
+def _player_conceded(state: GameState, event: EventEnvelope, seq: int) -> GameState | ReducerError:
+    """Section 4.5.4: eliminate a seat with reason ``concession``, whatever its life."""
+    seat_id = event.payload.get("seat")
+    if not _is_seat_id(seat_id):
+        return _reject("invalid_payload")
+    if not _is_running(state):
+        return _reject("invalid_phase")
+    if seat_id not in _seat_ids(state):
+        return _reject("unknown_seat")
+    if _eliminated(seat_id, state):
+        return _reject("seat_eliminated")
+    changed = eliminate(state, seq, [Elimination(seat_id, "concession", None, None)])
+    return changed.model_copy(update={"last_seq": seq})
+
+
+def _player_eliminated(
+    state: GameState, event: EventEnvelope, seq: int
+) -> GameState | ReducerError:
+    """Section 4.5.5: the host declares a seat out, with an optional D5 ``cause``."""
+    seat_id, cause = event.payload.get("seat"), event.payload.get("cause")
+    if not _is_seat_id(seat_id):
+        return _reject("invalid_payload")
+    if cause is not None and not (isinstance(cause, str) and cause in WIN_CONDITION_CODES):
+        return _reject("invalid_payload")
+    if not _is_running(state):
+        return _reject("invalid_phase")
+    if seat_id not in _seat_ids(state):
+        return _reject("unknown_seat")
+    if _eliminated(seat_id, state):
+        return _reject("seat_eliminated")
+    entry = Elimination(seat_id, "declared", None, cast(WinCondition | None, cause))
+    changed = eliminate(state, seq, [entry])
+    return changed.model_copy(update={"last_seq": seq})
+
+
 HANDLERS: Final[Mapping[str, Handler]] = {
     "game_created": _game_created,
     "settings_changed": _settings_changed,
@@ -315,5 +391,8 @@ HANDLERS: Final[Mapping[str, Handler]] = {
     "commanders_set": _commanders_set,
     "game_started": _game_started,
     "turn_passed": _turn_passed,
+    "life_changed": _life_changed,
+    "player_conceded": _player_conceded,
+    "player_eliminated": _player_eliminated,
 }
-"""The nine handlers of section 4.4, by event type."""
+"""The twelve handlers of sections 4.4 and 4.5, by event type."""

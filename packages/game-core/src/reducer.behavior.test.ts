@@ -228,9 +228,9 @@ describe('criterion 3: apply reads no clock, randomness or I/O', () => {
 });
 
 describe('every registered event type whose handler is still a no-op is accepted as one', () => {
-  it('has the 29 types of the registry, 9 of them with handlers (S-6.1.6)', () => {
+  it('has the 29 types of the registry, 12 of them with handlers (S-6.1.6, S-6.1.3)', () => {
     expect(EVENT_TYPES).toHaveLength(29);
-    expect(NO_OP_TYPES).toHaveLength(20);
+    expect(NO_OP_TYPES).toHaveLength(17);
   });
 
   it.each(NO_OP_TYPES)('%s from the initial state only advances last_seq', (type) => {
@@ -253,7 +253,7 @@ describe('every registered event type whose handler is still a no-op is accepted
         phase,
         resume_phase: phase === 'abandoned' ? 'active' : null,
       });
-      expect(apply(state, event({ type: 'life_changed' }))).toEqual({
+      expect(apply(state, event())).toEqual({
         ok: true,
         state: { ...state, last_seq: 42 },
       });

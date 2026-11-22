@@ -13,7 +13,7 @@
   "events": [
     {
       "event_id": "00000000-0000-4000-8000-000000000001",
-      "type": "turn_passed",
+      "type": "settings_changed",
       "payload": {
         "a\ud83d\ude00": ["\udbff\udfff"]
       },

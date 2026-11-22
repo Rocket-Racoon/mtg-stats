@@ -2,7 +2,7 @@
   "format": 1,
   "kind": "reducer",
   "name": "accept-payload-depth-limit",
-  "description": "A payload whose deepest container has exactly 64 ancestors (65 nested containers) is accepted; the no-op handler only advances last_seq.",
+  "description": "A payload whose deepest container has exactly 64 ancestors (65 nested containers) is accepted; the carrier event (settings_changed, which ignores unknown payload keys) only advances last_seq.",
   "game_id": "018f0000-0000-7000-8000-000000000001",
   "settings": {
     "starting_life": 40,
@@ -13,7 +13,7 @@
   "events": [
     {
       "event_id": "00000000-0000-4000-8000-000000000001",
-      "type": "turn_passed",
+      "type": "settings_changed",
       "payload": {
         "a": {
           "a": {

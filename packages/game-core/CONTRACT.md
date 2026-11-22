@@ -97,7 +97,7 @@ Settings are game data, never constants (D3). They can change only in the `lobby
 | `poison_threshold`           | integer | 1 to 99            | 10       |
 | `trust_mode`                 | string  | `casual`, `strict` | `casual` |
 
-A value outside its range, or a `trust_mode` that is not `casual` or `strict`, is rejected with `invalid_setting`. That check belongs to the `game_created` and `settings_changed` handlers, which arrive with story S-6.1.6 (S-6.1.3 to S-6.1.5 name the ranges). **`initialState` does not validate ranges**: it stores the values it is given, so both implementations keep an out-of-range value unchanged until S-6.1.6.
+A value outside its range, or a `trust_mode` that is not `casual` or `strict`, is rejected with `invalid_setting`. That check belongs to the `game_created` and `settings_changed` handlers (S-6.1.6, rules in 4.4; S-6.1.3 to S-6.1.5 name the ranges). **`initialState` does not validate ranges**: it stores the values it is given, so both implementations keep an out-of-range value unchanged; a later `game_created` replaces the settings and validates them.
 
 ### 3.3 Seat object
 
@@ -138,13 +138,13 @@ Before any event the state is an empty lobby built by `initialState(game_id, set
 
 - `game_id` MUST be a non-empty string without a lone surrogate. Otherwise `initialState` **throws** (TypeScript `TypeError`; Python `TypeError` or `ValueError`; the exact class is language-specific and not part of the contract). It is not a reducer, so it never returns a reducer error code.
 - `settings` is optional and may be partial. A missing key takes its default (3.2). A `settings` that is not an object, or that has a key that is not one of the four setting names, also throws.
-- Values are copied as given: **neither types nor ranges are validated**. An out-of-range value (3.2) is stored unchanged. Range validation arrives with S-6.1.6.
+- Values are copied as given: **neither types nor ranges are validated**. An out-of-range value (3.2) is stored unchanged. Range validation is done by the `game_created` and `settings_changed` handlers (4.4).
 - The `settings` given here are a **placeholder**. The log of a real game starts with `game_created`, which replaces them (4.3). They exist for vectors and tests that do not start with `game_created`.
 - All keys of 3.1: `phase` `lobby`, `control_mode` `own_seat`, `seats` `[]`, `order` `[]`, every nullable key `null`, `turn` 0, `round` 0, `commander_damage` `{}`, `no_winner` `false`, `win_condition_note` `""`, `voided` `[]`, `reverted` `[]`, `last_seq` 0, `v` 1. `vectors/initial-state.json` is the reference.
 
 ## 4. Event registry
 
-The registry is closed: a type that is not in this table is rejected with `unknown_event_type`. "Introduced by" names the story that defines the handler's behaviour; until then the handler is a no-op that only advances `last_seq`. Payload keys marked `?` are optional (absent or `null`). Unknown payload keys MUST be ignored by reducers, and they stay in the log as sent. In the payloads below, "commanders" means an array of 1 or 2 `{"card_id": string or null, "name": string}` objects.
+The registry is closed: a type that is not in this table is rejected with `unknown_event_type`. "Introduced by" names the story that defines the handler's behaviour; until then the handler is a no-op that only advances `last_seq`. The nine S-6.1.6 handlers are specified in 4.4. Payload keys marked `?` are optional (absent or `null`). Unknown payload keys MUST be ignored by reducers, and they stay in the log as sent. In the payloads below, "commanders" means an array of 1 or 2 `{"card_id": string or null, "name": string}` objects.
 
 | Type                   | Payload                                                                                | Introduced by |
 | ---------------------- | -------------------------------------------------------------------------------------- | ------------- |
@@ -204,14 +204,167 @@ The registry is closed: a type that is not in this table is rejected with `unkno
 
 ### 4.3 Specified but not yet enforced
 
-Handlers are no-ops in S-6.1.1. These rules are part of the contract now, so the later stories implement them without changing the contract; no reducer enforces them yet.
+These rules are part of the contract so that the later stories implement them without changing it. An item marked **enforced** is implemented by a reducer and has vectors; the others are not enforced yet.
 
-- **`game_created` and the settings.** `game_created` is valid **only as the event at `seq` 1**, that is when `state.last_seq` is 0. It **replaces `settings` entirely** with `payload.settings` (all four keys, validated: a bad value is `invalid_setting`). S-6.2.1 says a game's log begins with `game_created`; the settings given to `initialState` are only a placeholder for it (3.5). A `game_created` at any later seq is rejected with `invalid_phase`: no new code is added, `out_of_order` is reserved for a bad `seq`, and `invalid_phase` already means "this event is not allowed at this point of the game". A first event that is not `game_created` is accepted (vectors rely on it). Owner: S-6.1.6.
+- **`game_created` and the settings.** `game_created` is valid **only as the event at `seq` 1**, that is when `state.last_seq` is 0. It **replaces `settings` entirely** with `payload.settings` (all four keys, validated: a bad value is `invalid_setting`). S-6.2.1 says a game's log begins with `game_created`; the settings given to `initialState` are only a placeholder for it (3.5). A `game_created` at any later seq is rejected with `invalid_phase`: no new code is added, `out_of_order` is reserved for a bad `seq`, and `invalid_phase` already means "this event is not allowed at this point of the game". A first event that is not `game_created` is accepted (vectors rely on it). Owner: S-6.1.6. **Enforced** by S-6.1.6 (4.4.2).
 - **`started_at`.** The server is authoritative: when it accepts `game_started` it **overwrites** a client-sent `started_at` with its own time before the event is stored and broadcast. Clients may send a placeholder. Owner: S-6.2.6 / S-6.3.3.
 - **`game_closed`.** See 4.2 and 6.2. Owner: S-6.2.8, S-6.2.9, S-6.7.3.
 - **Reverts.** See 6.5. Owner: S-6.6.1.
-- **Settings ranges.** See 3.2. Owner: S-6.1.6.
+- **Settings ranges.** See 3.2. Owner: S-6.1.6. **Enforced** by S-6.1.6 (4.4.2 and 4.4.3).
 - **Message size.** The wire reader (5.6) has no size limit, and unknown payload keys are stored as sent. S-6.3.2 and S-6.3.3 MUST cap the size of a message (and may cap the payload) before the reader runs.
+
+### 4.4 Lobby, seat and turn handlers (S-6.1.6)
+
+These nine handlers replace the no-ops. Everything else in section 4 is still a no-op. They are pure (section 7): timestamps and random choices come in the payload.
+
+#### 4.4.1 Rules shared by the nine handlers
+
+**Order of the handler's checks.** After steps 1 to 7 of 6.2, a handler returns the **first** failure in this order:
+
+1. **Payload shape** (`invalid_payload`): a required key is absent, a value has the wrong type, a seat id is not an integer from 1 to 8 (4.1), a string that must be non-empty is `""`, a `commanders` array has the wrong length or a bad item. An optional key (`?`) may be absent or `null`. Unknown payload keys are ignored.
+2. **Phase** (`invalid_phase`): the table below.
+3. **Seat references** (`unknown_seat`): every seat id the payload names (`seat`, `from`, `to`, `first_seat`) that is not at the table, checked in the order the payload table lists them.
+4. **The handler's own rules**, in the order its subsection lists them.
+
+`game_created` and `settings_changed` have no seat references. A rejected event changes nothing (6.1).
+
+| Handler            | Allowed when                                                       |
+| ------------------ | ------------------------------------------------------------------ |
+| `game_created`     | `state.last_seq` is 0 (the event is the first of the log)          |
+| `settings_changed` | `phase` is `lobby`                                                 |
+| `seat_joined`      | `phase` is `lobby`                                                 |
+| `seat_left`        | `phase` is `lobby`                                                 |
+| `seat_moved`       | `phase` is `lobby`, or `phase` is `active` with `correction: true` |
+| `deck_assigned`    | `phase` is `lobby`                                                 |
+| `commanders_set`   | `phase` is `lobby`                                                 |
+| `game_started`     | `phase` is `lobby`                                                 |
+| `turn_passed`      | `phase` is `active`                                                |
+
+In every other phase (`ending`, `finished`, `abandoned`, and `lobby` or `active` where the table says otherwise) the event is `invalid_phase`. `game_closed` is not produced by these handlers (6.2).
+
+**Values.**
+
+- A **seat id** is an integer 1 to 8. A **player id**, a **deck version id** and a **card id** are non-empty strings when they are not `null`. A **name** is any string, `""` included. Strings are never trimmed, normalised or compared case-insensitively.
+- **Commanders** (`deck_assigned`, `commanders_set`): an array of **1 or 2** items, each an object with the keys `card_id` (a non-empty string or `null`; the key MUST be present) and `name` (a string; the key MUST be present). Other keys of an item are ignored and are not stored. An array of 0 or of 3 or more items, a non-array, or a bad item is `invalid_payload`. The array order is kept: the index is the commander index (3.3).
+- **A new seat** has: the `seat`, `player_id` and `name` of the payload; `deck_version_id` `null`; `commanders` `[{"card_id": null, "name": ""}]`; `life` equal to `settings.starting_life` at that moment; `poison`, `energy` and `experience` 0; `commander_cast` `[0]`; and the five elimination fields `null`.
+- **Lobby invariant.** While `phase` is `lobby`, every seat's `life` equals `settings.starting_life`. `seat_joined` creates a seat that way and `settings_changed` of `starting_life` rewrites every seat's `life`. Nothing else in the lobby changes `life`, `poison`, `energy` or `experience`.
+- `seats` stays sorted by ascending `seat`. `order` keeps the relative order of the seats that stay.
+
+**Settings values (`invalid_setting`).** `starting_life` MUST be an integer from 1 to 999, `commander_damage_threshold` and `poison_threshold` integers from 1 to 99, and `trust_mode` the string `casual` or `strict`. Any other value is `invalid_setting`, whatever its type: `0`, `1000`, `"40"`, `true`, `null`, `"STRICT"`.
+
+#### 4.4.2 `game_created`
+
+Payload: `settings`, an object with **all four** setting keys (3.2). Unknown keys inside it are ignored.
+
+1. `settings` is absent or is not an object, or one of the four keys is absent: `invalid_payload`.
+2. `state.last_seq` is not 0: `invalid_phase`. A `game_created` is valid only as the first event of a log; a later one is never allowed and has no effect.
+3. Any of the four values breaks "Settings values" in 4.4.1: `invalid_setting`.
+
+State change: `settings` becomes exactly the four values of the payload. Nothing else changes (the table is empty at seq 1). A log that does not start with `game_created` is still accepted (4.3).
+
+#### 4.4.3 `settings_changed`
+
+Payload: any of `starting_life`, `commander_damage_threshold`, `poison_threshold`, `trust_mode`. Every key is optional and the event carries a **partial** change. `{}` is valid and changes nothing but `last_seq`. A key that is present with the value `null` is **not** "not given" here: it is `invalid_setting`.
+
+1. `phase` is not `lobby`: `invalid_phase`. This comes before the value check: a bad value after `game_started` is `invalid_phase`.
+2. A present setting breaks "Settings values" in 4.4.1: `invalid_setting`. One bad key rejects the whole event, and no key is applied.
+
+State change: each present key replaces the setting. When `starting_life` is present, every seat's `life` becomes the new `starting_life`.
+
+#### 4.4.4 `seat_joined`
+
+Payload: `seat` (the seat id the sender picked; the reducer never picks one), `player_id` (a non-empty string or `null`; the key MUST be present), `name` (a string; the key MUST be present). Choosing the next free seat is the sender's and the server's job (S-6.2.2).
+
+1. Payload shape (4.4.1): `invalid_payload`.
+2. `phase` is not `lobby`: `invalid_phase`.
+3. The table already has 8 seats: `table_full`. This comes before `seat_taken`, so a full table always says `table_full`.
+4. `seat` is already in `seats`: `seat_taken`.
+
+State change: a new seat (4.4.1) is added to `seats` in seat-id order, and its id is **appended to the end of `order`**. The same non-null `player_id` in two seats is not checked here (the server decides who may take a second seat).
+
+#### 4.4.5 `seat_left`
+
+Payload: `seat`.
+
+1. Payload shape: `invalid_payload`.
+2. `phase` is not `lobby`: `invalid_phase`. A seat cannot leave after the game has started; a player who quits a running game concedes (S-6.1.3).
+3. `seat` is not at the table: `unknown_seat`.
+
+State change: the seat is removed from `seats` and its id from `order`. The other seats keep their ids and their relative order. A later `seat_joined` can reuse the id; it is a new seat (4.4.1).
+
+#### 4.4.6 `seat_moved`
+
+Payload: `from`, `to` (seat ids) and `correction?` (a boolean, or absent or `null`, which both mean `false`; any other type is `invalid_payload`).
+
+1. Payload shape: `invalid_payload`.
+2. Phase: in `lobby` the event is allowed whether `correction` is `true` or not. In `active` it is allowed only when `correction` is `true`; without it, `invalid_phase`. In every other phase, `invalid_phase`.
+3. `from`, then `to`, not at the table: `unknown_seat`.
+
+State change: the positions of the seat ids `from` and `to` **in `order` are exchanged**. `seats` is unchanged: seat ids, players, life and every other field stay with their seat id. `from` equal to `to` is a valid no-op (`last_seq` only). `active_seat`, `turn`, `round`, `monarch`, `initiative` and `commander_damage` never change, so after a correction in an `active` game **the same seat id (and so the same player) stays active**, even if it is `from` or `to`, and the counters stay. Later `turn_passed` events (4.4.10) read the new `order`. Example: order `[1,2,3,4]` with `seat_moved {from: 4, to: 2}` gives `[1,4,3,2]`, and with `{from: 1, to: 2}` gives `[2,1,3,4]`.
+
+#### 4.4.7 `deck_assigned`
+
+Payload: `seat`, `deck_version_id` (a non-empty string), `commanders` (4.4.1).
+
+1. Payload shape: `invalid_payload`.
+2. `phase` is not `lobby`: `invalid_phase`.
+3. `seat` is not at the table: `unknown_seat`.
+
+State change, on that seat only: `deck_version_id` is set, `commanders` is **replaced** by the payload's array, and `commander_cast` becomes an array of 0s of the same length. Whether the deck belongs to the player, or its commanders match it, is not checked (S-6.2.4, server).
+
+#### 4.4.8 `commanders_set`
+
+Payload: `seat`, `commanders` (4.4.1). Checks 1 to 3 are those of `deck_assigned`.
+
+State change, on that seat only: `commanders` is **replaced** by the payload's array and `commander_cast` becomes 0s of the same length. `deck_version_id` is **left as it is**.
+
+#### 4.4.9 `game_started`
+
+Payload: `first_seat` (a seat id), `started_at` (a string; any string is accepted and stored as sent, the reducer never parses it, and the server overwrites it, 4.3).
+
+1. Payload shape: `invalid_payload`.
+2. `phase` is not `lobby`: `invalid_phase`.
+3. `first_seat` is not at the table: `unknown_seat`.
+4. Fewer than 2 seats: `not_enough_players`.
+
+Check 3 comes before check 4: a table with 0 seats gives `unknown_seat`, and a table with a single seat gives `not_enough_players` when `first_seat` is that seat.
+
+State change: `phase` `active`; `active_seat` `first_seat`; `turn` 1; `round` 1; `started_at` the payload's; every seat's `life` `settings.starting_life`. `order`, the seats' other fields, the settings and `control_mode` are unchanged. From now on `settings_changed` is `invalid_phase` (D3).
+
+#### 4.4.10 `turn_passed`
+
+Payload: `{}` (keys are ignored). An **eliminated** seat is one whose `eliminated_at_seq` is not `null` (3.3).
+
+1. `phase` is not `active`: `invalid_phase`.
+2. Every seat is eliminated: `invalid_phase`.
+
+Let `order` be the state's `order` and `a` the active seat. Then:
+
+- **Next seat** `n`: scan `order` cyclically **after** the position of `a` (the positions after it to the end, then from the start up to and including `a` itself) and take the first seat that is not eliminated. `a` is scanned last, so when `a` is the only seat left, `n = a`. `a` may itself be eliminated (it was eliminated during its own turn); it is then simply never chosen.
+- **Round head** `b`: the first seat in `order`, from its first position on, that is not eliminated. It is the "first player" of the round: the seat at the head of the order, or, if that seat is eliminated, the next surviving seat after it.
+- **State change**: `active_seat` becomes `n`, `turn` goes up by 1, and `round` goes up by 1 **if and only if `n` equals `b`**, that is when play comes back to the head of the order (or to the next survivor after an eliminated head). With a single survivor `n = b = a`, so every pass is a new round.
+
+Only positions in `order` matter for this rule, never the seat ids. A `seat_moved` correction changes the positions, and so changes where the next seat and the round head are, with no other effect on `turn` and `round`. The first seat of a game is not stored: when `game_started` names a `first_seat` that is not at the head of the order, round 1 is a **partial** round that ends when play first reaches the head. D4 reads "turn count" as `round` (individual turns stay in the log).
+
+Worked examples (every seat is alive unless it is listed as eliminated):
+
+| `order`     | eliminated | active `a`                 | `n` | `b` | `turn`, `round` before | `turn`, `round` after |
+| ----------- | ---------- | -------------------------- | --- | --- | ---------------------- | --------------------- |
+| `[1,2,3,4]` | none       | 1                          | 2   | 1   | 1, 1                   | 2, 1                  |
+| `[1,2,3,4]` | none       | 4                          | 1   | 1   | 4, 1                   | 5, 2                  |
+| `[1,2,3,4]` | none       | 3 (the first seat)         | 4   | 1   | 1, 1                   | 2, 1                  |
+| `[1,2,3,4]` | 4          | 3                          | 1   | 1   | 3, 1                   | 4, 2                  |
+| `[1,2,3,4]` | 1          | 4                          | 2   | 2   | 4, 1                   | 5, 2                  |
+| `[1,2,3,4]` | 1          | 2                          | 3   | 2   | 2, 1                   | 3, 1                  |
+| `[1,2,3,4]` | 1          | 1 (eliminated on its turn) | 2   | 2   | 1, 1                   | 2, 2                  |
+| `[1,2,3,4]` | 2, 3, 4    | 1                          | 1   | 1   | 1, 1                   | 2, 2                  |
+| `[1,2,3,4]` | 1, 2, 3    | 4                          | 4   | 4   | 4, 3                   | 5, 4                  |
+| `[3,2,1,4]` | none       | 3                          | 2   | 3   | 1, 1                   | 2, 1                  |
+| `[3,2,1,4]` | none       | 4                          | 3   | 3   | 4, 1                   | 5, 2                  |
+| `[1,4,3,2]` | none       | 3                          | 2   | 1   | 3, 1                   | 4, 1                  |
+| `[1,4,3,2]` | none       | 2                          | 1   | 1   | 4, 1                   | 5, 2                  |
+
+The last two rows follow `seat_moved {from: 4, to: 2, correction: true}` in an active game where seat 3 is active and the order was `[1,2,3,4]`: the same seat 3 is still active, and the next two passes go 3 to 2, then 2 to 1 with the round going up. No event can eliminate a seat before S-6.1.3, so the rows with eliminated seats have no vector in `vectors/` yet. `src/lobby.test.ts` pins them with hand-built states, and S-6.1.3 adds vectors.
 
 ## 5. Canonical JSON
 
@@ -297,7 +450,7 @@ The state before the first event comes from `initialState(game_id, settings?)` (
 7. `seq` (when present and valid) is not exactly `state.last_seq + 1`: `out_of_order`. With `seq` absent the event is applied as `last_seq + 1`.
 8. The type's handler runs, may return its own codes, and on success sets `last_seq` to the event's seq.
 
-In this version every handler is a no-op that only sets `last_seq`, whatever the phase. **`game_closed` is a handler-level code, not a generic check in `apply`**: later stories (S-6.2.8, S-6.2.9, S-6.7.3) introduce it in their handlers. Until then an event is accepted in a `finished` or `abandoned` game.
+The nine handlers of S-6.1.6 (`game_created`, `settings_changed`, `seat_joined`, `seat_left`, `seat_moved`, `deck_assigned`, `commanders_set`, `game_started`, `turn_passed`) follow section 4.4. Every other handler is still a no-op that only sets `last_seq`, whatever the phase. **`game_closed` is a handler-level code, not a generic check in `apply`**: later stories (S-6.2.8, S-6.2.9, S-6.7.3) introduce it in their handlers. Until then an event is accepted in a `finished` or `abandoned` game.
 
 A fractional number can never be in a vector's accept path, because the state and the payloads hold integers only. Python's wire reader (5.6) rejects float tokens as `invalid_event` before `apply` is called; an in-memory Python `float` given to `apply` is `invalid_payload`.
 
@@ -515,4 +668,4 @@ A type that is covered only as an **applied prefix event of a rejecting vector**
 
 The shared conformance corpus for the validator and the coverage rule is `packages/game-core/vector-cases/` (format in its `README.md`): the TypeScript and Python suites both run every case there and must return exactly the messages it lists. A case states one list of messages (there are no alternative readings), and a suite fails if a case carries `alternatives` or `gap`.
 
-Reducer vectors are named `accept-*` (the events are accepted and the final state is compared) and `reject-*` (one event is rejected with a given code). They cover every envelope and payload rule of sections 2 and 6.2, including the check order (`reject-precedence-*`). `canonical-json*.json` hold the serializer cases, `initial-state*.json` the initial state, and `canonical-json-game-state.json` realistic full states as serialization cases (seats cannot be built through no-op handlers). `accept-all-registered-event-types*.json` apply every registered type, which satisfies the coverage rule of 8.4. When handlers gain behaviour, such a vector must still apply every type successfully, or the coverage rule fails.
+Reducer vectors are named `accept-*` (the events are accepted and the final state is compared) and `reject-*` (one event is rejected with a given code). They cover every envelope and payload rule of sections 2 and 6.2, including the check order (`reject-precedence-*`). `canonical-json*.json` hold the serializer cases, `initial-state*.json` the initial state, and `canonical-json-game-state.json` realistic full states as serialization cases (seats cannot be built through no-op handlers). `accept-all-registered-event-types*.json` apply every registered type in one legal log (a lobby with seats, the start, then the types whose handlers are still no-ops), which satisfies the coverage rule of 8.4. When handlers gain behaviour, such a vector must still apply every type successfully, or the coverage rule fails. The S-6.1.6 vectors are named `accept-<event type>-*` and `reject-<event type>-*` with the type's underscores written as hyphens (`accept-seat-moved-*`, `reject-game-started-*`); each one starts from an empty lobby and builds its seats with `seat_joined`.

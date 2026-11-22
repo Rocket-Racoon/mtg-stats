@@ -2,19 +2,26 @@
   "format": 1,
   "kind": "reducer",
   "name": "accept-all-registered-event-types",
-  "description": "Every registered event type (4) with an empty payload and no seq/ts is accepted: handlers are no-ops that only advance last_seq, so the state is the initial state with last_seq 29. Update this vector when a handler story (S-6.1.3 onward) gives a type real behaviour.",
+  "description": "Every registered event type (4) is accepted in one legal log: game_created at seq 1, a lobby with three seats (one leaves, two swap), a deck and commanders, the start, a turn, and then the 18 types whose handlers are still no-ops with an empty payload (they only advance last_seq). Update this vector when a handler story gives one of those types real behaviour.",
   "game_id": "018f0000-0000-7000-8000-000000000001",
   "settings": {
-    "starting_life": 40,
-    "commander_damage_threshold": 21,
-    "poison_threshold": 10,
-    "trust_mode": "casual"
+    "starting_life": 30,
+    "commander_damage_threshold": 15,
+    "poison_threshold": 5,
+    "trust_mode": "strict"
   },
   "events": [
     {
       "event_id": "00000000-0000-4000-8000-000000000001",
       "type": "game_created",
-      "payload": {},
+      "payload": {
+        "settings": {
+          "starting_life": 30,
+          "commander_damage_threshold": 15,
+          "poison_threshold": 5,
+          "trust_mode": "strict"
+        }
+      },
       "actor": {
         "kind": "player",
         "player_id": "018f0000-0000-7000-8000-0000000000a1"
@@ -25,7 +32,9 @@
     {
       "event_id": "00000000-0000-4000-8000-000000000002",
       "type": "settings_changed",
-      "payload": {},
+      "payload": {
+        "poison_threshold": 7
+      },
       "actor": {
         "kind": "player",
         "player_id": "018f0000-0000-7000-8000-0000000000a1"
@@ -36,7 +45,11 @@
     {
       "event_id": "00000000-0000-4000-8000-000000000003",
       "type": "seat_joined",
-      "payload": {},
+      "payload": {
+        "seat": 1,
+        "player_id": "018f0000-0000-7000-8000-0000000000b1",
+        "name": "Ana"
+      },
       "actor": {
         "kind": "player",
         "player_id": "018f0000-0000-7000-8000-0000000000a1"
@@ -46,8 +59,12 @@
     },
     {
       "event_id": "00000000-0000-4000-8000-000000000004",
-      "type": "seat_left",
-      "payload": {},
+      "type": "seat_joined",
+      "payload": {
+        "seat": 2,
+        "player_id": "018f0000-0000-7000-8000-0000000000b2",
+        "name": "Bo"
+      },
       "actor": {
         "kind": "player",
         "player_id": "018f0000-0000-7000-8000-0000000000a1"
@@ -57,8 +74,12 @@
     },
     {
       "event_id": "00000000-0000-4000-8000-000000000005",
-      "type": "seat_moved",
-      "payload": {},
+      "type": "seat_joined",
+      "payload": {
+        "seat": 3,
+        "player_id": "018f0000-0000-7000-8000-0000000000b3",
+        "name": "Cy"
+      },
       "actor": {
         "kind": "player",
         "player_id": "018f0000-0000-7000-8000-0000000000a1"
@@ -68,6 +89,33 @@
     },
     {
       "event_id": "00000000-0000-4000-8000-000000000006",
+      "type": "seat_left",
+      "payload": {
+        "seat": 3
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000007",
+      "type": "seat_moved",
+      "payload": {
+        "from": 1,
+        "to": 2
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000008",
       "type": "seat_claimed",
       "payload": {},
       "actor": {
@@ -78,29 +126,50 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000007",
-      "type": "deck_assigned",
-      "payload": {},
-      "actor": {
-        "kind": "player",
-        "player_id": "018f0000-0000-7000-8000-0000000000a1"
-      },
-      "on_behalf_of_seat": null,
-      "v": 1
-    },
-    {
-      "event_id": "00000000-0000-4000-8000-000000000008",
-      "type": "commanders_set",
-      "payload": {},
-      "actor": {
-        "kind": "player",
-        "player_id": "018f0000-0000-7000-8000-0000000000a1"
-      },
-      "on_behalf_of_seat": null,
-      "v": 1
-    },
-    {
       "event_id": "00000000-0000-4000-8000-000000000009",
+      "type": "deck_assigned",
+      "payload": {
+        "seat": 1,
+        "deck_version_id": "018f0000-0000-7000-8000-0000000000d1",
+        "commanders": [
+          {
+            "card_id": "018f0000-0000-7000-8000-0000000000c1",
+            "name": "Atraxa, Praetors’ Voice"
+          }
+        ]
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000010",
+      "type": "commanders_set",
+      "payload": {
+        "seat": 2,
+        "commanders": [
+          {
+            "card_id": "018f0000-0000-7000-8000-0000000000c2",
+            "name": "Tymna the Weaver"
+          },
+          {
+            "card_id": "018f0000-0000-7000-8000-0000000000c3",
+            "name": "Thrasios, Triton Hero"
+          }
+        ]
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000011",
       "type": "control_mode_changed",
       "payload": {},
       "actor": {
@@ -111,9 +180,12 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000010",
+      "event_id": "00000000-0000-4000-8000-000000000012",
       "type": "game_started",
-      "payload": {},
+      "payload": {
+        "first_seat": 2,
+        "started_at": "2026-11-21T12:00:00.000Z"
+      },
       "actor": {
         "kind": "player",
         "player_id": "018f0000-0000-7000-8000-0000000000a1"
@@ -122,7 +194,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000011",
+      "event_id": "00000000-0000-4000-8000-000000000013",
       "type": "turn_passed",
       "payload": {},
       "actor": {
@@ -133,7 +205,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000012",
+      "event_id": "00000000-0000-4000-8000-000000000014",
       "type": "life_changed",
       "payload": {},
       "actor": {
@@ -144,7 +216,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000013",
+      "event_id": "00000000-0000-4000-8000-000000000015",
       "type": "commander_damage",
       "payload": {},
       "actor": {
@@ -155,7 +227,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000014",
+      "event_id": "00000000-0000-4000-8000-000000000016",
       "type": "poison_changed",
       "payload": {},
       "actor": {
@@ -166,7 +238,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000015",
+      "event_id": "00000000-0000-4000-8000-000000000017",
       "type": "counter_changed",
       "payload": {},
       "actor": {
@@ -177,7 +249,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000016",
+      "event_id": "00000000-0000-4000-8000-000000000018",
       "type": "commander_cast",
       "payload": {},
       "actor": {
@@ -188,7 +260,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000017",
+      "event_id": "00000000-0000-4000-8000-000000000019",
       "type": "monarch_set",
       "payload": {},
       "actor": {
@@ -199,7 +271,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000018",
+      "event_id": "00000000-0000-4000-8000-000000000020",
       "type": "initiative_set",
       "payload": {},
       "actor": {
@@ -210,7 +282,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000019",
+      "event_id": "00000000-0000-4000-8000-000000000021",
       "type": "drain",
       "payload": {},
       "actor": {
@@ -221,7 +293,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000020",
+      "event_id": "00000000-0000-4000-8000-000000000022",
       "type": "group_drain",
       "payload": {},
       "actor": {
@@ -232,7 +304,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000021",
+      "event_id": "00000000-0000-4000-8000-000000000023",
       "type": "player_conceded",
       "payload": {},
       "actor": {
@@ -243,7 +315,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000022",
+      "event_id": "00000000-0000-4000-8000-000000000024",
       "type": "player_eliminated",
       "payload": {},
       "actor": {
@@ -254,7 +326,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000023",
+      "event_id": "00000000-0000-4000-8000-000000000025",
       "type": "player_revived",
       "payload": {},
       "actor": {
@@ -265,7 +337,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000024",
+      "event_id": "00000000-0000-4000-8000-000000000026",
       "type": "value_set",
       "payload": {},
       "actor": {
@@ -276,7 +348,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000025",
+      "event_id": "00000000-0000-4000-8000-000000000027",
       "type": "game_end_requested",
       "payload": {},
       "actor": {
@@ -287,7 +359,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000026",
+      "event_id": "00000000-0000-4000-8000-000000000028",
       "type": "game_ended",
       "payload": {},
       "actor": {
@@ -298,7 +370,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000027",
+      "event_id": "00000000-0000-4000-8000-000000000029",
       "type": "game_abandoned",
       "payload": {},
       "actor": {
@@ -309,7 +381,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000028",
+      "event_id": "00000000-0000-4000-8000-000000000030",
       "type": "game_resumed",
       "payload": {},
       "actor": {
@@ -320,7 +392,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000029",
+      "event_id": "00000000-0000-4000-8000-000000000031",
       "type": "event_reverted",
       "payload": {},
       "actor": {
@@ -335,20 +407,69 @@
     "state": {
       "v": 1,
       "game_id": "018f0000-0000-7000-8000-000000000001",
-      "phase": "lobby",
+      "phase": "active",
       "resume_phase": null,
       "settings": {
-        "starting_life": 40,
-        "commander_damage_threshold": 21,
-        "poison_threshold": 10,
-        "trust_mode": "casual"
+        "starting_life": 30,
+        "commander_damage_threshold": 15,
+        "poison_threshold": 7,
+        "trust_mode": "strict"
       },
       "control_mode": "own_seat",
-      "seats": [],
-      "order": [],
-      "active_seat": null,
-      "turn": 0,
-      "round": 0,
+      "seats": [
+        {
+          "seat": 1,
+          "player_id": "018f0000-0000-7000-8000-0000000000b1",
+          "name": "Ana",
+          "deck_version_id": "018f0000-0000-7000-8000-0000000000d1",
+          "commanders": [
+            {
+              "card_id": "018f0000-0000-7000-8000-0000000000c1",
+              "name": "Atraxa, Praetors’ Voice"
+            }
+          ],
+          "life": 30,
+          "poison": 0,
+          "energy": 0,
+          "experience": 0,
+          "commander_cast": [0],
+          "elimination_reason": null,
+          "eliminated_by": null,
+          "eliminated_at_seq": null,
+          "eliminated_round": null,
+          "elimination_cause": null
+        },
+        {
+          "seat": 2,
+          "player_id": "018f0000-0000-7000-8000-0000000000b2",
+          "name": "Bo",
+          "deck_version_id": null,
+          "commanders": [
+            {
+              "card_id": "018f0000-0000-7000-8000-0000000000c2",
+              "name": "Tymna the Weaver"
+            },
+            {
+              "card_id": "018f0000-0000-7000-8000-0000000000c3",
+              "name": "Thrasios, Triton Hero"
+            }
+          ],
+          "life": 30,
+          "poison": 0,
+          "energy": 0,
+          "experience": 0,
+          "commander_cast": [0, 0],
+          "elimination_reason": null,
+          "eliminated_by": null,
+          "eliminated_at_seq": null,
+          "eliminated_round": null,
+          "elimination_cause": null
+        }
+      ],
+      "order": [2, 1],
+      "active_seat": 1,
+      "turn": 2,
+      "round": 1,
       "monarch": null,
       "initiative": null,
       "commander_damage": {},
@@ -356,10 +477,10 @@
       "winner_seat": null,
       "win_condition": null,
       "win_condition_note": "",
-      "started_at": null,
+      "started_at": "2026-11-21T12:00:00.000Z",
       "voided": [],
-      "last_seq": 29,
-      "reverted": []
+      "reverted": [],
+      "last_seq": 31
     }
   }
 }

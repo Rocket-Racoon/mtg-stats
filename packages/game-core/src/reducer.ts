@@ -1,4 +1,16 @@
 import { CanonicalJsonError, canonicalJson } from './canonical-json';
+import {
+  commandersSet,
+  deckAssigned,
+  gameCreated,
+  gameStarted,
+  seatJoined,
+  seatLeft,
+  seatMoved,
+  settingsChanged,
+  turnPassed,
+} from './lobby';
+import type { Handler } from './lobby';
 import { hasLoneSurrogate } from './unicode';
 import { EVENT_TYPES, MAX_SEATS, SUPPORTED_VERSIONS } from './types';
 import type {
@@ -15,19 +27,26 @@ import type {
  * this package, may read a clock, randomness or I/O. `purity.test.ts` enforces it.
  */
 
-type Handler = (state: GameState, event: EventEnvelope, seq: number) => ApplyResult;
-
 const fail = (code: ReducerErrorCode): { ok: false; error: ReducerError } => ({
   ok: false,
   error: { code },
 });
 
-/** Handlers record the event and change nothing else; later stories replace them one by one. */
+/** Handlers not yet specified record the event and change nothing else; later stories replace them one by one. */
 const noop: Handler = (state, _event, seq) => ({ ok: true, state: { ...state, last_seq: seq } });
 
-const HANDLERS: Readonly<Record<EventType, Handler>> = Object.fromEntries(
-  EVENT_TYPES.map((type) => [type, noop]),
-) as Record<EventType, Handler>;
+const HANDLERS: Readonly<Record<EventType, Handler>> = {
+  ...(Object.fromEntries(EVENT_TYPES.map((type) => [type, noop])) as Record<EventType, Handler>),
+  game_created: gameCreated,
+  settings_changed: settingsChanged,
+  seat_joined: seatJoined,
+  seat_left: seatLeft,
+  seat_moved: seatMoved,
+  deck_assigned: deckAssigned,
+  commanders_set: commandersSet,
+  game_started: gameStarted,
+  turn_passed: turnPassed,
+};
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 

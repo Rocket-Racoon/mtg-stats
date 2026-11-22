@@ -1,0 +1,191 @@
+{
+  "format": 1,
+  "kind": "reducer",
+  "name": "accept-game-started-after-seats-left",
+  "description": "Start works on whatever seats remain: seats 2 and 3 after seats 1 and 4 left.",
+  "game_id": "018f0000-0000-7000-8000-000000000001",
+  "settings": {
+    "starting_life": 40,
+    "commander_damage_threshold": 21,
+    "poison_threshold": 10,
+    "trust_mode": "casual"
+  },
+  "events": [
+    {
+      "event_id": "00000000-0000-4000-8000-000000000001",
+      "type": "seat_joined",
+      "payload": {
+        "seat": 1,
+        "player_id": "018f0000-0000-7000-8000-0000000000b1",
+        "name": "Seat 1"
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000002",
+      "type": "seat_joined",
+      "payload": {
+        "seat": 2,
+        "player_id": "018f0000-0000-7000-8000-0000000000b2",
+        "name": "Seat 2"
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000003",
+      "type": "seat_joined",
+      "payload": {
+        "seat": 3,
+        "player_id": "018f0000-0000-7000-8000-0000000000b3",
+        "name": "Seat 3"
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000004",
+      "type": "seat_joined",
+      "payload": {
+        "seat": 4,
+        "player_id": "018f0000-0000-7000-8000-0000000000b4",
+        "name": "Seat 4"
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000005",
+      "type": "seat_left",
+      "payload": {
+        "seat": 1
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000006",
+      "type": "seat_left",
+      "payload": {
+        "seat": 4
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000007",
+      "type": "game_started",
+      "payload": {
+        "first_seat": 3,
+        "started_at": "2026-11-21T12:00:00.000Z"
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    }
+  ],
+  "expect": {
+    "state": {
+      "v": 1,
+      "game_id": "018f0000-0000-7000-8000-000000000001",
+      "phase": "active",
+      "resume_phase": null,
+      "settings": {
+        "starting_life": 40,
+        "commander_damage_threshold": 21,
+        "poison_threshold": 10,
+        "trust_mode": "casual"
+      },
+      "control_mode": "own_seat",
+      "seats": [
+        {
+          "seat": 2,
+          "player_id": "018f0000-0000-7000-8000-0000000000b2",
+          "name": "Seat 2",
+          "deck_version_id": null,
+          "commanders": [
+            {
+              "card_id": null,
+              "name": ""
+            }
+          ],
+          "life": 40,
+          "poison": 0,
+          "energy": 0,
+          "experience": 0,
+          "commander_cast": [0],
+          "elimination_reason": null,
+          "eliminated_by": null,
+          "eliminated_at_seq": null,
+          "eliminated_round": null,
+          "elimination_cause": null
+        },
+        {
+          "seat": 3,
+          "player_id": "018f0000-0000-7000-8000-0000000000b3",
+          "name": "Seat 3",
+          "deck_version_id": null,
+          "commanders": [
+            {
+              "card_id": null,
+              "name": ""
+            }
+          ],
+          "life": 40,
+          "poison": 0,
+          "energy": 0,
+          "experience": 0,
+          "commander_cast": [0],
+          "elimination_reason": null,
+          "eliminated_by": null,
+          "eliminated_at_seq": null,
+          "eliminated_round": null,
+          "elimination_cause": null
+        }
+      ],
+      "order": [2, 3],
+      "active_seat": 3,
+      "turn": 1,
+      "round": 1,
+      "monarch": null,
+      "initiative": null,
+      "commander_damage": {},
+      "no_winner": false,
+      "winner_seat": null,
+      "win_condition": null,
+      "win_condition_note": "",
+      "started_at": "2026-11-21T12:00:00.000Z",
+      "voided": [],
+      "reverted": [],
+      "last_seq": 7
+    }
+  }
+}

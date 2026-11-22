@@ -1001,6 +1001,6 @@ def test_a_vector_named_for_one_of_the_nine_types_has_an_event_of_that_type() ->
     assert wrong == []
 
 
-def test_the_still_noop_types_are_the_17_that_are_not_s_6_1_6_or_s_6_1_3_types() -> None:
-    assert len(NO_OP_TYPES) == 17
+def test_the_still_noop_types_are_the_16_that_are_not_s_6_1_6_s_6_1_3_or_s_6_1_4_types() -> None:
+    assert len(NO_OP_TYPES) == 16
     assert len(S_6_1_6_TYPES) == 9

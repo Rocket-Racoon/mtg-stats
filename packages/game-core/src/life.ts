@@ -1,46 +1,26 @@
 import { eliminate } from './elimination';
-import type { Handler } from './lobby';
-import { MAX_SEATS, WIN_CONDITIONS } from './types';
-import type {
-  ApplyResult,
-  EventEnvelope,
-  GameState,
-  ReducerErrorCode,
-  WinCondition,
-} from './types';
+import {
+  fail,
+  field,
+  hasSeat,
+  isEliminated,
+  isGiven,
+  isInt,
+  isRunning,
+  isSeatId,
+  payloadOf,
+} from './handler-utils';
+import type { Handler } from './handler-utils';
+import { WIN_CONDITIONS } from './types';
+import type { GameState, WinCondition } from './types';
 
 /*
  * Handlers of S-6.1.3 (CONTRACT.md section 4.5): life totals, concession and declared
  * eliminations. Pure: nothing here reads a clock, randomness or I/O (section 7).
  */
 
-type Payload = Record<string, unknown>;
-
 /** The largest |delta| of a `life_changed` (4.5.3). */
 const MAX_LIFE_DELTA = 999;
-
-const fail = (code: ReducerErrorCode): ApplyResult => ({ ok: false, error: { code } });
-
-const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v);
-
-const isSeatId = (v: unknown): v is number => isInt(v) && v >= 1 && v <= MAX_SEATS;
-
-/** A payload value by key, never one inherited from the prototype. */
-const field = (payload: Payload, key: string): unknown =>
-  Object.hasOwn(payload, key) ? payload[key] : undefined;
-
-const isGiven = (v: unknown): boolean => v !== undefined && v !== null;
-
-const isRunning = (state: GameState): boolean =>
-  state.phase === 'active' || state.phase === 'ending';
-
-const hasSeat = (state: GameState, seat: number): boolean =>
-  state.seats.some((s) => s.seat === seat);
-
-const isEliminated = (state: GameState, seat: number): boolean =>
-  state.seats.some((s) => s.seat === seat && s.eliminated_at_seq !== null);
-
-const payloadOf = (event: EventEnvelope): Payload => event.payload;
 
 export const lifeChanged: Handler = (state, event, seq) => {
   const payload = payloadOf(event);

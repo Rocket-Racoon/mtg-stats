@@ -70,7 +70,9 @@ function violations(text: string): string[] {
 
 describe('game-core purity guard', () => {
   it('finds the source files', () => {
-    expect(sources).toEqual(expect.arrayContaining(['reducer.ts', 'canonical-json.ts']));
+    expect(sources).toEqual(
+      expect.arrayContaining(['reducer.ts', 'canonical-json.ts', 'handler-utils.ts']),
+    );
   });
 
   it('scans subdirectories too', () => {

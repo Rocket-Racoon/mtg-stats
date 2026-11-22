@@ -471,12 +471,12 @@ ROWS: dict[str, tuple[str, list[dict[str, Any]], str]] = {
         "seat_eliminated",
     ),
     "commander_damage": (
-        "pending",
+        "seat_eliminated",
         [
             {"source_seat": 2, "commander": 0, "target_seat": 3, "amount": 1},
             {"source_seat": 3, "commander": 0, "target_seat": 2, "amount": 1},
         ],
-        "ok",
+        "seat_eliminated",
     ),
     "poison_changed": ("pending", [{"seat": 2, "delta": 1}], "ok"),
     "counter_changed": ("pending", [{"seat": 2, "counter": "energy", "delta": 1}], "ok"),

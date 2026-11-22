@@ -451,12 +451,12 @@ describe('criterion 4: an eliminated seat takes no event, except a revert or a h
       code: 'seat_eliminated',
     },
     commander_damage: {
-      kind: 'pending',
+      kind: 'seat_eliminated',
       payloads: [
         { source_seat: 2, commander: 0, target_seat: 3, amount: 1 },
         { source_seat: 3, commander: 0, target_seat: 2, amount: 1 },
       ],
-      code: 'ok',
+      code: 'seat_eliminated',
     },
     poison_changed: { kind: 'pending', payloads: [{ seat: 2, delta: 1 }], code: 'ok' },
     counter_changed: {

@@ -1,4 +1,5 @@
-"""The lobby, seat and turn handlers (S-6.1.6, CONTRACT.md 4.4) and the life ones (S-6.1.3, 4.5).
+"""The lobby, seat and turn handlers (S-6.1.6, CONTRACT.md 4.4), the life ones (S-6.1.3, 4.5)
+and commander damage (S-6.1.4, 4.6).
 
 Pure: no clock, randomness or I/O. A handler runs after steps 1 to 7 of section 6.2 and returns
 the first failure in this order (4.4.1, 4.5.1): payload shape, phase, seat references, then its own
@@ -381,6 +382,59 @@ def _player_eliminated(
     return changed.model_copy(update={"last_seq": seq})
 
 
+def _commander_damage(state: GameState, event: EventEnvelope, seq: int) -> GameState | ReducerError:
+    """Section 4.6: add commander damage to a tally and take the same amount off the target's life.
+
+    Check order: payload shape, phase, ``unknown_seat``, ``seat_eliminated``, the amount (1 to
+    999), the commander index of the *source* seat, then the numbers in the state. One entry at
+    most goes to the elimination routine: ``commander_damage`` when the changed tally reaches the
+    threshold, else ``life`` when the new life is 0 or less.
+    """
+    payload = event.payload
+    source: Any = payload.get("source_seat")
+    target: Any = payload.get("target_seat")
+    commander: Any = payload.get("commander")
+    amount: Any = payload.get("amount")
+    if not (_is_seat_id(source) and _is_seat_id(target)):
+        return _reject("invalid_payload")
+    if not (_is_int(commander) and _is_int(amount)):
+        return _reject("invalid_payload")
+    if not _is_running(state):
+        return _reject("invalid_phase")
+    present = _seat_ids(state)
+    if source not in present or target not in present:
+        return _reject("unknown_seat")
+    if _eliminated(target, state) or _eliminated(source, state):
+        return _reject("seat_eliminated")
+    if not 1 <= amount <= MAX_LIFE_DELTA:
+        return _reject("invalid_amount")
+    source_seat = next(s for s in state.seats if s.seat == source)
+    if not 0 <= commander < len(source_seat.commanders):
+        return _reject("unknown_commander")
+    life: Any = next(s for s in state.seats if s.seat == target).life
+    threshold: Any = state.settings.commander_damage_threshold
+    if not _is_int(life) or not _is_int(threshold):
+        return _reject("invalid_amount")
+    row_key, key = str(target), f"{source}:{commander}"
+    tally = state.commander_damage.get(row_key, {}).get(key, 0) + amount
+    new_life = life - amount
+    if abs(new_life) > MAX_SAFE_INTEGER or abs(tally) > MAX_SAFE_INTEGER:
+        return _reject("invalid_amount")
+    rows = {row: dict(tallies) for row, tallies in state.commander_damage.items()}
+    rows.setdefault(row_key, {})[key] = tally
+    changed = state.model_copy(
+        update={
+            "seats": _replace_seat(state, target, {"life": new_life}),
+            "commander_damage": rows,
+        }
+    )
+    if tally >= threshold:
+        changed = eliminate(changed, seq, [Elimination(target, "commander_damage", source, None)])
+    elif new_life <= 0:
+        changed = eliminate(changed, seq, [Elimination(target, "life", source, None)])
+    return changed.model_copy(update={"last_seq": seq})
+
+
 HANDLERS: Final[Mapping[str, Handler]] = {
     "game_created": _game_created,
     "settings_changed": _settings_changed,
@@ -394,5 +448,6 @@ HANDLERS: Final[Mapping[str, Handler]] = {
     "life_changed": _life_changed,
     "player_conceded": _player_conceded,
     "player_eliminated": _player_eliminated,
+    "commander_damage": _commander_damage,
 }
-"""The twelve handlers of sections 4.4 and 4.5, by event type."""
+"""The thirteen handlers of sections 4.4 to 4.6, by event type."""

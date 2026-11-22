@@ -29,8 +29,11 @@ S_6_1_6_TYPES: tuple[str, ...] = (
     "turn_passed",
 )
 S_6_1_3_TYPES: tuple[str, ...] = ("life_changed", "player_conceded", "player_eliminated")
+S_6_1_4_TYPES: tuple[str, ...] = ("commander_damage",)
 NO_OP_TYPES: tuple[str, ...] = tuple(
-    t for t in EVENT_TYPES if t not in S_6_1_6_TYPES and t not in S_6_1_3_TYPES
+    t
+    for t in EVENT_TYPES
+    if t not in S_6_1_6_TYPES and t not in S_6_1_3_TYPES and t not in S_6_1_4_TYPES
 )
 
 DEFAULT_SETTINGS = Settings(

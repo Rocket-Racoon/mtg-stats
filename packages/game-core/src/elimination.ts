@@ -2,7 +2,7 @@ import type { EliminationReason, GameState, WinCondition } from './types';
 
 /*
  * The elimination routine (CONTRACT.md 4.5.2). Every event that eliminates a seat calls it: the
- * life, concession and declared eliminations of S-6.1.3 now, and later commander damage (S-6.1.4),
+ * life, concession and declared eliminations of S-6.1.3, commander damage (S-6.1.4), and later
  * poison (S-6.1.5) and group events (S-6.1.7). Pure: nothing here reads a clock, randomness or I/O.
  */
 

@@ -1,46 +1,26 @@
+import {
+  fail,
+  field,
+  hasSeat,
+  isEliminated,
+  isInt,
+  isRecord,
+  isSeatId,
+  payloadOf,
+} from './handler-utils';
+import type { Handler } from './handler-utils';
 import { MAX_SEATS, MIN_SEATS, SETTING_DEFAULTS, SETTING_RANGES, TRUST_MODES } from './types';
-import type {
-  ApplyResult,
-  Commander,
-  EventEnvelope,
-  GameSettings,
-  GameState,
-  ReducerErrorCode,
-  Seat,
-} from './types';
+import type { ApplyResult, Commander, GameSettings, GameState, Seat } from './types';
 
 /*
  * Handlers of S-6.1.6 (CONTRACT.md section 4.4): the lobby, the seats and the turn order.
  * Pure: nothing here reads a clock, randomness or I/O (section 7).
  */
 
-export type Handler = (state: GameState, event: EventEnvelope, seq: number) => ApplyResult;
-
-type Payload = Record<string, unknown>;
-
-const fail = (code: ReducerErrorCode): ApplyResult => ({ ok: false, error: { code } });
-
 const done = (state: GameState, seq: number, change: Partial<GameState>): ApplyResult => ({
   ok: true,
   state: { ...state, ...change, last_seq: seq },
 });
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
-
-function isInt(v: unknown): v is number {
-  return typeof v === 'number' && Number.isSafeInteger(v);
-}
-
-function isSeatId(v: unknown): v is number {
-  return isInt(v) && v >= 1 && v <= MAX_SEATS;
-}
-
-/** A payload value by key, never one inherited from the prototype. */
-function field(payload: Payload, key: string): unknown {
-  return Object.hasOwn(payload, key) ? payload[key] : undefined;
-}
 
 function isNonEmptyString(v: unknown): v is string {
   return typeof v === 'string' && v !== '';
@@ -72,12 +52,6 @@ function parseCommanders(value: unknown): Commander[] | null {
   return out;
 }
 
-const hasSeat = (state: GameState, seat: number): boolean =>
-  state.seats.some((s) => s.seat === seat);
-
-const isEliminated = (state: GameState, seat: number): boolean =>
-  state.seats.some((s) => s.seat === seat && s.eliminated_at_seq !== null);
-
 function newSeat(seat: number, playerId: string | null, name: string, life: number): Seat {
   return {
     seat,
@@ -97,8 +71,6 @@ function newSeat(seat: number, playerId: string | null, name: string, life: numb
     elimination_cause: null,
   };
 }
-
-const payloadOf = (event: EventEnvelope): Payload => event.payload;
 
 export const gameCreated: Handler = (state, event, seq) => {
   const given = field(payloadOf(event), 'settings');

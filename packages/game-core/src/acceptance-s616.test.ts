@@ -1135,8 +1135,8 @@ describe('vector coverage of the nine handlers (8.4.1)', () => {
     expect(wrong).toEqual([]);
   });
 
-  it('the types that are still no-ops are exactly the 17 that are not S-6.1.6 or S-6.1.3 types', () => {
-    expect(NO_OP_TYPES).toHaveLength(17);
+  it('the types that are still no-ops are exactly the 16 that are not S-6.1.6, S-6.1.3 or S-6.1.4 types', () => {
+    expect(NO_OP_TYPES).toHaveLength(16);
     expect(S_6_1_6_TYPES).toHaveLength(9);
   });
 });

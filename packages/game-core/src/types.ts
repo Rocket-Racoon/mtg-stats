@@ -130,6 +130,8 @@ export interface GameState {
   /** Seat ids in turn order. */
   order: number[];
   active_seat: number | null;
+  /** Seat that took the first turn: null until `game_started`, never changed afterwards. */
+  first_seat: number | null;
   /** Individual turn counter, 0 before `game_started`. */
   turn: number;
   /** The game's "turn count" for results (D4), 0 before `game_started`. */

@@ -20,7 +20,7 @@ function event(overrides: Record<string, unknown> = {}): EventEnvelope {
   return {
     event_id: '00000000-0000-4000-8000-000000000001',
     game_id: GAME_ID,
-    type: 'turn_passed',
+    type: 'seat_claimed',
     payload: {},
     actor: { kind: 'player', player_id: 'p1' },
     on_behalf_of_seat: null,

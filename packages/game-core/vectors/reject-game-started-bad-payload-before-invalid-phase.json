@@ -1,0 +1,79 @@
+{
+  "format": 1,
+  "kind": "reducer",
+  "name": "reject-game-started-bad-payload-before-invalid-phase",
+  "description": "The payload shape comes before the phase.",
+  "game_id": "018f0000-0000-7000-8000-000000000001",
+  "settings": {
+    "starting_life": 40,
+    "commander_damage_threshold": 21,
+    "poison_threshold": 10,
+    "trust_mode": "casual"
+  },
+  "events": [
+    {
+      "event_id": "00000000-0000-4000-8000-000000000001",
+      "type": "seat_joined",
+      "payload": {
+        "seat": 1,
+        "player_id": "018f0000-0000-7000-8000-0000000000b1",
+        "name": "Seat 1"
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000002",
+      "type": "seat_joined",
+      "payload": {
+        "seat": 2,
+        "player_id": "018f0000-0000-7000-8000-0000000000b2",
+        "name": "Seat 2"
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000003",
+      "type": "game_started",
+      "payload": {
+        "first_seat": 1,
+        "started_at": "2026-11-21T12:00:00.000Z"
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000004",
+      "type": "game_started",
+      "payload": {
+        "first_seat": 9,
+        "started_at": "2026-11-21T12:00:00.000Z"
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    }
+  ],
+  "expect": {
+    "error": {
+      "index": 3,
+      "code": "invalid_payload"
+    }
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "format": 1,
+  "kind": "reducer",
+  "name": "reject-deck-assigned-commanders-not-an-array",
+  "description": "deck_assigned with commanders {\"card_id\":\"a\",\"name\":\"A\"} is invalid_payload (4.4.1).",
+  "game_id": "018f0000-0000-7000-8000-000000000001",
+  "settings": {
+    "starting_life": 40,
+    "commander_damage_threshold": 21,
+    "poison_threshold": 10,
+    "trust_mode": "casual"
+  },
+  "events": [
+    {
+      "event_id": "00000000-0000-4000-8000-000000000001",
+      "type": "seat_joined",
+      "payload": {
+        "seat": 1,
+        "player_id": "018f0000-0000-7000-8000-0000000000b1",
+        "name": "Seat 1"
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000002",
+      "type": "seat_joined",
+      "payload": {
+        "seat": 2,
+        "player_id": "018f0000-0000-7000-8000-0000000000b2",
+        "name": "Seat 2"
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000003",
+      "type": "deck_assigned",
+      "payload": {
+        "seat": 1,
+        "deck_version_id": "018f0000-0000-7000-8000-0000000000d1",
+        "commanders": {
+          "card_id": "a",
+          "name": "A"
+        }
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    }
+  ],
+  "expect": {
+    "error": {
+      "index": 2,
+      "code": "invalid_payload"
+    }
+  }
+}

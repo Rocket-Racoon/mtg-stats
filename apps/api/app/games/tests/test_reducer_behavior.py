@@ -36,6 +36,13 @@ from app.games.core import (
     reduce,
     replay,
 )
+from app.games.tests.lobby_helpers import (
+    CARRIER_TYPE,
+    NO_OP_TYPES,
+    S_6_1_6_TYPES,
+    active_game,
+    seated,
+)
 from app.games.tests.repo_files import load_vector
 
 GAME_ID = "018f0000-0000-7000-8000-000000000001"
@@ -50,7 +57,7 @@ def event(**overrides: Any) -> dict[str, Any]:
     base: dict[str, Any] = {
         "event_id": f"00000000-0000-4000-8000-{next(_counter):012d}",
         "game_id": GAME_ID,
-        "type": "turn_passed",
+        "type": CARRIER_TYPE,
         "payload": {},
         "actor": {"kind": "player", "player_id": PLAYER_ID},
         "on_behalf_of_seat": None,
@@ -159,12 +166,12 @@ def test_apply_runs_every_registered_type_with_clock_randomness_and_io_trapped(
         t: canonical_json(
             ok_state(state, event(type=t, ts="2026-11-21T12:00:00.000Z")).to_json_value()
         )
-        for t in EVENT_TYPES
+        for t in NO_OP_TYPES
     }
     with monkeypatch.context() as m:
         _install_traps(m)
         trapped = {}
-        for t in EVENT_TYPES:
+        for t in NO_OP_TYPES:
             result = apply(state, event(type=t, ts="2026-11-21T12:00:00.000Z"))
             assert isinstance(result, ApplyOk)
             trapped[t] = canonical_json(result.state.to_json_value())
@@ -240,19 +247,60 @@ def test_apply_returns_a_new_state_and_leaves_the_input_state_unchanged() -> Non
     assert result.last_seq == 42
 
 
-def test_game_started_time_and_first_seat_are_accepted_from_the_payload_only() -> None:
-    state = lobby()
+def test_game_started_time_and_first_seat_are_taken_from_the_payload_only() -> None:
+    state = seated(3)
     started = event(
         type="game_started", payload={"first_seat": 3, "started_at": "2026-11-21T12:00:00.000Z"}
     )
     result = ok_state(state, started)
-    # Until S-6.1.6 the handler is a no-op: only last_seq changes (contract 4 and 6.2).
-    assert result == state.model_copy(update={"last_seq": 1})
+    assert (result.started_at, result.active_seat) == ("2026-11-21T12:00:00.000Z", 3)
+    # The same payload always gives the same state; another payload gives that payload's values.
+    assert ok_state(state, started) == result
     other = ok_state(
-        state,
-        event(type="game_started", payload={"first_seat": 8, "started_at": "whenever"}),
+        state, event(type="game_started", payload={"first_seat": 1, "started_at": "whenever"})
     )
-    assert other == result
+    assert (other.started_at, other.active_seat) == ("whenever", 1)
+
+
+_HANDLED_PAYLOADS: dict[str, tuple[Any, dict[str, Any]]] = {
+    "game_created": (
+        lobby(),
+        {
+            "settings": {
+                "starting_life": 30,
+                "commander_damage_threshold": 21,
+                "poison_threshold": 10,
+                "trust_mode": "casual",
+            }
+        },
+    ),
+    "settings_changed": (lobby(), {"trust_mode": "strict"}),
+    "seat_joined": (lobby(), {"seat": 1, "player_id": None, "name": "Ana"}),
+    "seat_left": (seated(2), {"seat": 2}),
+    "seat_moved": (seated(3), {"from": 1, "to": 3}),
+    "deck_assigned": (
+        seated(2),
+        {"seat": 1, "deck_version_id": "d", "commanders": [{"card_id": None, "name": "C"}]},
+    ),
+    "commanders_set": (seated(2), {"seat": 1, "commanders": [{"card_id": "c", "name": "C"}]}),
+    "game_started": (seated(3), {"first_seat": 3, "started_at": "any text"}),
+    "turn_passed": (active_game([1, 2, 3], 3, 3), {}),
+}
+
+
+@pytest.mark.parametrize("event_type", S_6_1_6_TYPES)
+def test_each_s_6_1_6_handler_runs_with_clock_randomness_and_io_trapped(
+    monkeypatch: pytest.MonkeyPatch, event_type: str
+) -> None:
+    state, payload = _HANDLED_PAYLOADS[event_type]
+    raw = event(type=event_type, payload=payload, ts="2026-11-21T12:00:00.000Z")
+    plain = ok_state(state, raw)
+    with monkeypatch.context() as m:
+        _install_traps(m)
+        trapped = apply(state, raw)
+    assert isinstance(trapped, ApplyOk)
+    assert canonical_json(trapped.state.to_json_value()) == canonical_json(plain.to_json_value())
+    assert trapped.state.last_seq == state.last_seq + 1
 
 
 # --- every registered type is a no-op -----------------------------------------------------------
@@ -263,16 +311,16 @@ def test_the_registry_has_29_types() -> None:
     assert len(set(EVENT_TYPES)) == 29
 
 
-@pytest.mark.parametrize("event_type", EVENT_TYPES)
-def test_every_registered_type_from_the_initial_state_only_advances_last_seq(
+@pytest.mark.parametrize("event_type", NO_OP_TYPES)
+def test_every_still_noop_type_from_the_initial_state_only_advances_last_seq(
     event_type: str,
 ) -> None:
     state = lobby()
     assert ok_state(state, event(type=event_type)) == state.model_copy(update={"last_seq": 1})
 
 
-@pytest.mark.parametrize("event_type", EVENT_TYPES)
-def test_every_registered_type_from_a_populated_state_only_advances_last_seq(
+@pytest.mark.parametrize("event_type", NO_OP_TYPES)
+def test_every_still_noop_type_from_a_populated_state_only_advances_last_seq(
     event_type: str,
 ) -> None:
     state = populated()

@@ -3,10 +3,23 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Index, String, false, func, text, true
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    false,
+    func,
+    text,
+    true,
+)
+from sqlalchemy.engine.default import DefaultExecutionContext
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base, IdMixin, UtcDateTime, _utcnow
+from app.identity.names import display_name_key
 
 AVATAR_COLORS: tuple[str, ...] = (
     "red",
@@ -27,6 +40,12 @@ AVATAR_COLORS: tuple[str, ...] = (
 DISPLAY_NAME_MAX_LENGTH = 32
 
 _AVATAR_COLOR_LIST = ", ".join(f"'{color}'" for color in AVATAR_COLORS)
+
+
+def _default_name_key(context: DefaultExecutionContext) -> str:
+    """Column default: the key of the ``display_name`` being inserted."""
+    parameters = context.get_current_parameters()  # type: ignore[no-untyped-call]
+    return display_name_key(str(parameters["display_name"]))
 
 
 class User(IdMixin, Base):
@@ -73,6 +92,13 @@ class Player(IdMixin, Base):
     user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"), unique=True, default=None)
     is_guest: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     display_name: Mapped[str] = mapped_column(String(DISPLAY_NAME_MAX_LENGTH))
+    display_name_key: Mapped[str] = mapped_column(
+        Text, default=_default_name_key, server_default=""
+    )
+    """``display_name_key(display_name)``, stored so SQL can search and sort by it (S-2.2.4).
+
+    Filled on insert by the column default; every code path that changes ``display_name`` must
+    set it too (``rename_guest_player`` does). The server default only serves the migration."""
     avatar_color: Mapped[str] = mapped_column(String(16))
     # No foreign key to ``playgroups``: ``identity`` is the lower domain and cannot import it, so a
     # ``ForeignKey`` here would make every ``Player`` flush need ``playgroups`` in the metadata,

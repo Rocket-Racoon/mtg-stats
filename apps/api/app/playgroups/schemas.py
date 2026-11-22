@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Annotated, Literal, Self
 from uuid import UUID
 
+from fastapi import Query
 from pydantic import (
     AfterValidator,
     BaseModel,
@@ -279,6 +280,41 @@ class GuestOut(BaseModel):
     avatar_color: str
     created_by: UUID | None = Field(description="The player who added the guest.")
     created_at: datetime
+
+
+PLAYER_QUERY_MAX_LENGTH = 64
+
+
+def _check_player_query(value: str | None) -> str | None:
+    return value if value is None else _reject_control_characters(value)
+
+
+PlayerQuery = Annotated[
+    str | None,
+    Query(
+        max_length=PLAYER_QUERY_MAX_LENGTH,
+        description="Keep the players with a name word starting with this text, ignoring case "
+        "and accents. Empty, or only spaces or invisible characters, keeps everyone.",
+    ),
+    AfterValidator(_check_player_query),
+]
+
+
+class PlaygroupPlayerOut(BaseModel):
+    """A member or guest of a playgroup (the picker and roster row). No email or username."""
+
+    id: UUID = Field(description="The player id.")
+    display_name: str
+    avatar_color: str
+    is_guest: bool
+    role: Literal["owner", "admin", "member"] | None = Field(
+        description="The member's role; null for a guest."
+    )
+    created_by: UUID | None = Field(description="For a guest, the player who added it; else null.")
+
+
+class PlaygroupPlayerPageOut(Page[PlaygroupPlayerOut]):
+    """One page of a playgroup's players: members first, then guests."""
 
 
 class CommonPlaygroupOut(BaseModel):

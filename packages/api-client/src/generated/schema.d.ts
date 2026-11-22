@@ -602,6 +602,39 @@ export interface paths {
         patch: operations["playgroups_change_member_role"];
         trace?: never;
     };
+    "/api/v1/playgroups/{playgroup_id}/players": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a playgroup's players
+         * @description The player picker and roster: active members first (owner, admins and members, with their
+         *     `role`), then the playgroup's guests (`role` null, `created_by` set), each group in
+         *     alphabetical order. Any member may call it; a non-member, an unknown id or an unparseable id
+         *     gets 404.
+         *
+         *     `q` keeps the players with a name word starting with it (the name starts with it, or it
+         *     follows a space or a hyphen), ignoring case, accents and invisible characters, so `jo`
+         *     finds "Jöel" and "Mary Jo". It is at most 64 characters with no control characters (else
+         *     422 `validation_error`); an empty `q`, or one with only spaces or invisible characters,
+         *     lists everyone. Order is the accent- and case-insensitive name, compared by code point,
+         *     then the player id. Paging is `?cursor=&limit=` (422 `invalid_cursor` for a bad cursor).
+         *     Players nobody changed between two pages are never skipped or repeated; a renamed one can
+         *     appear twice or not at all. A former member is not listed; a merged guest is not listed; a
+         *     deactivated account that is still a member is. Never email or username.
+         */
+        get: operations["playgroups_list_playgroup_players"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/playgroups/{playgroup_id}/transfer-ownership": {
         parameters: {
             query?: never;
@@ -1149,6 +1182,47 @@ export interface components {
         PlaygroupPageOut: {
             /** Items */
             items: components["schemas"]["PlaygroupOut"][];
+            /**
+             * Next Cursor
+             * @description Opaque cursor for the next page, or null on the last page.
+             */
+            next_cursor: string | null;
+        };
+        /**
+         * PlaygroupPlayerOut
+         * @description A member or guest of a playgroup (the picker and roster row). No email or username.
+         */
+        PlaygroupPlayerOut: {
+            /** Avatar Color */
+            avatar_color: string;
+            /**
+             * Created By
+             * @description For a guest, the player who added it; else null.
+             */
+            created_by: string | null;
+            /** Display Name */
+            display_name: string;
+            /**
+             * Id
+             * Format: uuid
+             * @description The player id.
+             */
+            id: string;
+            /** Is Guest */
+            is_guest: boolean;
+            /**
+             * Role
+             * @description The member's role; null for a guest.
+             */
+            role: ("owner" | "admin" | "member") | null;
+        };
+        /**
+         * PlaygroupPlayerPageOut
+         * @description One page of a playgroup's players: members first, then guests.
+         */
+        PlaygroupPlayerPageOut: {
+            /** Items */
+            items: components["schemas"]["PlaygroupPlayerOut"][];
             /**
              * Next Cursor
              * @description Opaque cursor for the next page, or null on the last page.
@@ -4214,6 +4288,116 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MemberOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    playgroups_list_playgroup_players: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor from `next_cursor`. */
+                cursor?: string | null;
+                /** @description Page size (1 to 200). */
+                limit?: number;
+                /** @description Keep the players with a name word starting with this text, ignoring case and accents. Empty, or only spaces or invisible characters, keeps everyone. */
+                q?: string | null;
+            };
+            header?: never;
+            path: {
+                playgroup_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Client error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaygroupPlayerPageOut"];
                 };
             };
             /** @description Unauthorized */

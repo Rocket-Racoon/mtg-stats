@@ -46,6 +46,11 @@ from app.playgroups.services.members import (
     change_member_role,
     transfer_ownership,
 )
+from app.playgroups.services.players import (
+    PlaygroupPlayer,
+    PlaygroupPlayerPage,
+    list_playgroup_players,
+)
 from app.playgroups.services.playgroups import (
     PlaygroupInfo,
     PlaygroupPage,
@@ -81,6 +86,8 @@ __all__ = [
     "PlaygroupInfo",
     "PlaygroupOwnerDep",
     "PlaygroupPage",
+    "PlaygroupPlayer",
+    "PlaygroupPlayerPage",
     "TransferOwnershipFirstError",
     "add_guest",
     "change_member_role",
@@ -97,6 +104,7 @@ __all__ = [
     "join_with_invite",
     "list_invites",
     "list_playgroup_invites",
+    "list_playgroup_players",
     "list_playgroups",
     "lock_invite",
     "preview_invite",

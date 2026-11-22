@@ -166,6 +166,16 @@ async def active_member_player_ids(session: AsyncSession, playgroup_id: UUID) ->
     return list(result.scalars())
 
 
+async def active_member_roles(session: AsyncSession, playgroup_id: UUID) -> dict[UUID, str]:
+    """The role of each active member of the playgroup, by player id, in one query."""
+    result = await session.execute(
+        select(Membership.player_id, Membership.role).where(
+            Membership.playgroup_id == playgroup_id, Membership.left_at.is_(None)
+        )
+    )
+    return {row.player_id: row.role for row in result.all()}
+
+
 async def common_playgroups(
     session: AsyncSession,
     viewer_player_id: UUID,

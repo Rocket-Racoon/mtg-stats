@@ -1,6 +1,8 @@
 """Player and user creation and lookup. Everything here runs in the caller's session."""
 
 import asyncio
+import base64
+import json
 import unicodedata
 from collections.abc import Collection
 from dataclasses import dataclass
@@ -10,10 +12,11 @@ from uuid import UUID
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import DomainError, NotFoundError
+from app.core.errors import DomainError, InvalidCursorError, NotFoundError
 from app.core.ids import uuid7
 from app.identity import repository
 from app.identity.models import AVATAR_COLORS, DISPLAY_NAME_MAX_LENGTH, Player, User
+from app.identity.names import display_name_key
 from app.identity.services.auth import replace_password
 from app.identity.services.passwords import hash_password, validate_password, validate_username
 
@@ -116,25 +119,6 @@ def normalize_display_name(value: str) -> str:
     ):
         raise InvalidDisplayNameError(details={"max_length": DISPLAY_NAME_MAX_LENGTH})
     return name
-
-
-def display_name_key(value: str) -> str:
-    """The comparison key of a display name: equal keys mean "the same name" (S-2.3.1).
-
-    Ignores case, accents and invisible characters: NFKD-decompose, drop every combining mark
-    (category ``Mn``) and every format character (category ``Cf``), casefold, and collapse runs of
-    whitespace. ``"José"``, ``"JOSE"`` and ``"jose"`` share a key, and so do ``"Bob"`` and
-    ``"Bob"`` followed by a zero-width space. Pure; no length check. An empty key means the name
-    has nothing visible to compare (only marks or format characters).
-
-    ``Cf`` was chosen over the Unicode default-ignorable set: the standard library has no property
-    for the latter, and ``Cf`` covers zero-width space and joiners, soft hyphen, word joiner, BOM,
-    Mongolian vowel separator (U+180E) and the tag characters. Variation selectors are ``Mn``.
-    Not covered: default-ignorable letters such as the Hangul fillers (category ``Lo``).
-    """
-    decomposed = unicodedata.normalize("NFKD", value)
-    kept = "".join(ch for ch in decomposed if unicodedata.category(ch) not in ("Mn", "Cf"))
-    return " ".join(kept.casefold().split())
 
 
 def normalize_email(value: str) -> str:
@@ -264,6 +248,97 @@ async def list_guest_players(session: AsyncSession, playgroup_id: UUID) -> list[
     return [_to_info(p) for p in await repository.get_guests_of_playgroup(session, playgroup_id)]
 
 
+@dataclass(frozen=True, slots=True)
+class PlayerPage:
+    """One page of players and the cursor of the next one (None on the last page)."""
+
+    items: list[PlayerInfo]
+    next_cursor: str | None
+
+
+_PLAYER_CURSOR_ID = "players:g,k,id"
+_PLAYER_CURSOR_MAX_LENGTH = 4096
+
+
+def _encode_player_cursor(group: int, key: str, player_id: UUID) -> str:
+    payload = [_PLAYER_CURSOR_ID, group, key, str(player_id)]
+    raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+def _decode_player_cursor(cursor: str) -> tuple[int, str, UUID]:
+    """Decode a player cursor; any defect is an ``InvalidCursorError``."""
+    try:
+        if len(cursor) > _PLAYER_CURSOR_MAX_LENGTH:
+            raise ValueError("cursor too long")
+        raw = base64.urlsafe_b64decode(cursor.encode("ascii") + b"=" * (-len(cursor) % 4))
+        payload = json.loads(raw)
+        if (
+            not isinstance(payload, list)
+            or len(payload) != 4
+            or payload[0] != _PLAYER_CURSOR_ID
+            or type(payload[1]) is not int
+            or payload[1] not in (0, 1)
+            or not isinstance(payload[2], str)
+            or "\0" in payload[2]
+            or not isinstance(payload[3], str)
+        ):
+            raise ValueError("wrong shape")
+        payload[2].encode("utf-8")  # a lone surrogate raises UnicodeEncodeError (a ValueError)
+        return payload[1], payload[2], UUID(payload[3])
+    except (ValueError, RecursionError) as exc:
+        raise InvalidCursorError from exc
+
+
+async def search_playgroup_players(
+    session: AsyncSession,
+    *,
+    member_ids: Collection[UUID],
+    guest_playgroup_id: UUID,
+    query: str | None,
+    cursor: str | None,
+    limit: int,
+) -> PlayerPage:
+    """One page of a playgroup's players, members first and then guests (S-2.2.4).
+
+    ``member_ids`` are the players that count as members (``playgroups`` owns membership and
+    passes them in); the guests are the unmerged guests whose home is ``guest_playgroup_id``.
+    Both groups are ordered by the name key (:func:`display_name_key`, compared by code point,
+    so "Alvaro" and "alvaro" and "Álvaro" sit together), then by id. The filter keeps names
+    with a word that starts with the key of ``query`` (word starts follow a space or a hyphen);
+    a missing query, or one whose key is empty (spaces or invisible characters only), keeps
+    everyone. Case, accents and invisible characters are ignored, as for guest-name uniqueness,
+    because both use the stored key. One SQL statement, whatever the size of the group.
+
+    The cursor is ``(group, key, id)`` of the last row, so a page boundary is exact across the
+    member to guest switch. Rows that nobody changed between two requests are never skipped or
+    repeated; a row added meanwhile shows up iff it sorts after the cursor, and a renamed row
+    shows up according to its new position (so it can appear twice, or not at all, in one scan).
+
+    Raises:
+        InvalidCursorError: the cursor is malformed.
+    """
+    members = set(member_ids)
+    after = None if cursor is None else _decode_player_cursor(cursor)
+    key = "" if query is None else display_name_key(query)
+    rows = await repository.search_playgroup_players(
+        session,
+        member_ids=members,
+        playgroup_id=guest_playgroup_id,
+        key=key,
+        after=after,
+        limit=limit + 1,
+    )
+    page = rows[:limit]
+    next_cursor = None
+    if len(rows) > limit:
+        last = page[-1]
+        next_cursor = _encode_player_cursor(
+            0 if last.id in members else 1, last.display_name_key, last.id
+        )
+    return PlayerPage(items=[_to_info(p) for p in page], next_cursor=next_cursor)
+
+
 async def rename_guest_player(
     session: AsyncSession, player_id: UUID, *, display_name: str
 ) -> PlayerInfo:
@@ -277,6 +352,7 @@ async def rename_guest_player(
     if player is None or not player.is_guest or player.merged_into_id is not None:
         raise NotFoundError
     player.display_name = normalize_display_name(display_name)
+    player.display_name_key = display_name_key(player.display_name)
     await session.flush()
     return _to_info(player)
 

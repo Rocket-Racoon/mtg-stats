@@ -418,6 +418,8 @@ A runner validates each file before running it. Validation reports **every** pro
 
 **Whole-file failures.** Text that is not valid JSON gives the single message `<file>: invalid JSON: <parser detail>` (the detail is the parser's and is not compared). A top-level value that is not an object gives `<file>: $ must be an object`.
 
+**Encoding.** A vector file is UTF-8 **without** a byte order mark. A file whose bytes are not valid UTF-8 (decoded strictly, never with replacement characters), and a file that starts with a byte order mark (U+FEFF), is not valid JSON text: the runner reports the single message `<file>: invalid JSON: <detail>` (the detail is not compared). The same holds for the TypeScript loader, which decodes strictly and keeps the BOM, and for any Python loader.
+
 **Order of the checks.** A message is reported only when its condition holds; "required" means the key is absent.
 
 1. Header, in this order:
@@ -428,7 +430,7 @@ A runner validates each file before running it. Validation reports **every** pro
 2. The checks of the file's kind (only for a valid `kind`), in the order of the tables below.
 3. Unknown top-level keys, in document order: `<key> is not a known key`. The known keys are the header keys plus `game_id settings events expect` for `reducer`, or `cases` for `canonical_json`. (Skipped when `kind` is invalid.)
 4. Number tokens of the raw text, in document order (8.3.1).
-5. Duplicate keys of the raw text, in document order: `<path> is a duplicate key` (the path of the second occurrence).
+5. Duplicate keys of the raw text, in document order: `<path> is a duplicate key`, **one message for every repeated occurrence** (a key written three times gives two messages, each with the same path). The other rules see the **last** value of a repeated key, as `JSON.parse` and Python's `json` do.
 
 **Reducer files**, in order:
 
@@ -442,6 +444,15 @@ A runner validates each file before running it. Validation reports **every** pro
 | `events[i].type` | For every event that is **applied** (an index below `expect.error.index`, or every index when `expect.state` is used): `events[i].type must be a string`. The rejected event and the events after it may have any `type`, or none, which is how the `reject-type-*` vectors build a non-string type.                                                                                                                                                   |
 
 The registry membership of a `type` is **not** validated: the `reject-unknown-event-type*` vectors use unregistered types on purpose. Only the events of a reducer vector may break the envelope or payload rules, and the structural checks never look inside `payload`, `actor` or the other envelope keys.
+
+**Details that fix the rules above** (both implementations apply them):
+
+- **A token message replaces the field rule for an integral float.** A header or integer field written as an integral float (`"format": 1.0`, `"index": 1.0`) gets only the 8.3.1 token message. The field rules treat a value as the integer it equals, so `format must be the integer 1` and `expect.error.index must be a non-negative integer` do not fire for `1.0`.
+- **Events not an array.** When `events` is not an array, the check `expect.error.index must be less than the number of events (<N>)` is skipped.
+- **Which events are "applied" for the `events[i].type must be a string` rule.** When `expect.error.index` is a valid index (a non-negative integer below the number of events), the applied events are those below it, even if `expect.state` is also present. In every other case, including a missing, invalid or out-of-range index, an `expect.error` that is not an object, and an `expect` with neither key, all events are applied. An applied item that is not an object gets only `events[i] must be an object`, no `type` message.
+- **Case names.** A case whose `name` is missing or is not a non-empty string does not take part in the duplicate-name check.
+- **"Non-empty" is a length check.** `description` and `cases[i].name` must have length greater than zero; a whitespace-only value is accepted. A `name` that is not a string gives `name must equal "<stem>"`.
+- **A missing `invalid.kind`** gives only `cases[i].invalid.kind is required`; the `invalid.value` rules are skipped.
 
 **Canonical-JSON files**: `cases is required`; `cases must be a non-empty array`. Then for each case `i`, in order:
 
@@ -467,7 +478,7 @@ The `invalid.value` formats (a string in every case). Each message below follows
 
 TypeScript cannot tell `1.0` from `1` after parsing, and Python reads `1.0` as a float, so a vector must never rely on an integral float. A runner therefore checks the **raw text**, not the parsed value, with a scanner that lists every number token with the path of the value it is (`events[0].v`, `cases[2].input[1].a`; text inside strings is not a token). Python can use `parse_float` and `parse_int` hooks that record the token text with the path, or the same small scanner as the TypeScript one (`scanText` in `src/vector-validator.ts`). The rules, by where the token is:
 
-- **Inside `events`** (the path starts with `events[`): an integer token is accepted as written, whatever its size (a vector may hold an integer outside the safe range and expect `invalid_payload`; in TypeScript such a token loses precision when parsed, but every integer beyond the safe range is rejected in both languages, so the outcome is the same). A token with a fraction or exponent is accepted **only if** its value is finite and not an integer (`1.5`, `1e-7`): both languages read that as a non-integer number. Any other token with a fraction or exponent (`1.0`, `1e2`, `1e999`) gives `<path> has the number token <token>; write an integral value as an integer`.
+- **Inside `events`** (the path starts with `events[`): an integer token is accepted as written, whatever its size (a vector may hold an integer outside the safe range and expect `invalid_payload`; in TypeScript such a token loses precision when parsed, but every integer beyond the safe range is rejected in both languages, so the outcome is the same). A token with a fraction or exponent is accepted **only if** its value, **as an IEEE-754 double** (the value both languages parse it to), is finite and not an integer (`1.5`, `1e-7`). So `1e-400` (a double 0) and `1.0000000000000001` (a double 1) count as integral and are rejected. The same double rule decides `invalid.value` of kind `float` in 8.3 (`1e-400` and `1.0000000000000001` are not valid there). Any other token with a fraction or exponent (`1.0`, `1e2`, `1e999`) gives `<path> has the number token <token>; write an integral value as an integer`.
 - **Everywhere else** (`settings`, `expect`, `cases`, the header): a token with a fraction or exponent gives `<path> must be an integer (found the number token <token>)`, and an integer token with an absolute value above 9007199254740991 gives `<path> must be an integer in the safe range (found <token>)`.
 - `-0` is accepted everywhere (canonical JSON writes it as `0`, 5.2, and the integer vectors rely on it).
 
@@ -484,11 +495,13 @@ Only reducer vectors that pass validation count; a file that fails validation fa
 
 ### 8.5 Runners
 
-- **Loading.** A runner reads every `*.json` file directly in `packages/game-core/vectors/`, sorted by name. A missing directory, or one with no `.json` file, fails loudly (TypeScript: `vectors directory not found: <dir>` and `vectors directory has no .json files: <dir>`) instead of passing with zero tests.
+- **Loading.** A runner reads every `*.json` **regular file** directly in `packages/game-core/vectors/`, sorted by name. Directories (even one named `x.json`) are ignored and nested directories are not searched. A missing directory, or one with no `.json` file, fails loudly (TypeScript: `vectors directory not found: <dir>` and `vectors directory has no .json files: <dir>`) instead of passing with zero tests.
 - **One test per file, named by the file**, so a failure names the vector file: Vitest `shared vectors > <file>.json`; pytest parametrized with the file name as the test id (`test_vector[<file>.json]`). A validation problem (including an unknown `kind`) or a mismatch fails that file's test, and the message starts with the file name. For a canonical file the one test runs every case, and a failing case reports `<file>: case "<name>": <detail>`. For a reducer file the detail is the expected and actual index and code, or the expected and actual canonical final state.
 - **A vector that passes in one language and fails in the other** fails only the suite of the language that disagrees, and that suite names the file. The gate (`pnpm verify`, which the `api` and `ts` jobs of CI call) runs both suites, so the gate fails and the output names the file.
 - **Where the code lives (TypeScript).** The validator and the coverage rule are pure functions in `src/vector-validator.ts` (no file access, not exported from `index.ts`, so no bundle ships it). The file loader and the per-file runner are in `src/vector-loader.test.helpers.ts` (Node file access; the `.test.` in the name keeps it under the purity guard's test-code rule and out of any bundle). The runner is `src/vectors.test.ts`, and the unit tests of the rules are `src/vector-validator.test.ts`.
 
 ### 8.6 The vectors
+
+The shared conformance corpus for the validator and the coverage rule is `packages/game-core/vector-cases/` (format in its `README.md`): the TypeScript and Python suites both run every case there and must return exactly the messages it lists.
 
 Reducer vectors are named `accept-*` (the events are accepted and the final state is compared) and `reject-*` (one event is rejected with a given code). They cover every envelope and payload rule of sections 2 and 6.2, including the check order (`reject-precedence-*`). `canonical-json*.json` hold the serializer cases, `initial-state*.json` the initial state, and `canonical-json-game-state.json` realistic full states as serialization cases (seats cannot be built through no-op handlers). `accept-all-registered-event-types*.json` apply every registered type, which satisfies the coverage rule of 8.4. When handlers gain behaviour, such a vector must still apply every type successfully, or the coverage rule fails.

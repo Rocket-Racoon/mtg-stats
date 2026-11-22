@@ -6,20 +6,10 @@
   "description": "Tokens are listed in document order across zones: format first, then settings, then events, then expect.",
   "file": "vec.json",
   "text": "{\"kind\":\"reducer\",\"format\":1.0,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{\"starting_life\":1e1},\"events\":[{\"type\":\"t\",\"payload\":{\"a\":2.0}}],\"expect\":{\"state\":{\"b\":3.0}}}",
-  "gap": "Includes format 1.0 (see gap-header-format-integral-float); the rest pins document order of tokens across zones.",
-  "alternatives": [
-    [
-      "vec.json: format must be an integer (found the number token 1.0)",
-      "vec.json: settings.starting_life must be an integer (found the number token 1e1)",
-      "vec.json: events[0].payload.a has the number token 2.0; write an integral value as an integer",
-      "vec.json: expect.state.b must be an integer (found the number token 3.0)"
-    ],
-    [
-      "vec.json: format must be the integer 1",
-      "vec.json: format must be an integer (found the number token 1.0)",
-      "vec.json: settings.starting_life must be an integer (found the number token 1e1)",
-      "vec.json: events[0].payload.a has the number token 2.0; write an integral value as an integer",
-      "vec.json: expect.state.b must be an integer (found the number token 3.0)"
-    ]
+  "messages": [
+    "vec.json: format must be an integer (found the number token 1.0)",
+    "vec.json: settings.starting_life must be an integer (found the number token 1e1)",
+    "vec.json: events[0].payload.a has the number token 2.0; write an integral value as an integer",
+    "vec.json: expect.state.b must be an integer (found the number token 3.0)"
   ]
 }

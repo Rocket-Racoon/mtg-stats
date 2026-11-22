@@ -6,16 +6,8 @@
   "description": "expect with both state and error and events without a type: which events count as applied?",
   "file": "vec.json",
   "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{},{}],\"expect\":{\"state\":{},\"error\":{\"index\":1,\"code\":\"invalid_event\"}}}",
-  "gap": "The contract defines `applied` for expect.state (all events) and for expect.error (below the index) but not for an expect that has both.",
-  "alternatives": [
-    [
-      "vec.json: expect must have exactly one of \"state\" or \"error\"",
-      "vec.json: events[0].type must be a string"
-    ],
-    [
-      "vec.json: expect must have exactly one of \"state\" or \"error\"",
-      "vec.json: events[0].type must be a string",
-      "vec.json: events[1].type must be a string"
-    ]
+  "messages": [
+    "vec.json: expect must have exactly one of \"state\" or \"error\"",
+    "vec.json: events[0].type must be a string"
   ]
 }

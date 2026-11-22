@@ -6,12 +6,8 @@
   "description": "expect {} and events without a type: all events applied, or none?",
   "file": "vec.json",
   "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{}],\"expect\":{}}",
-  "gap": "`applied` is not defined when expect has neither state nor error.",
-  "alternatives": [
-    [
-      "vec.json: expect must have exactly one of \"state\" or \"error\"",
-      "vec.json: events[0].type must be a string"
-    ],
-    ["vec.json: expect must have exactly one of \"state\" or \"error\""]
+  "messages": [
+    "vec.json: expect must have exactly one of \"state\" or \"error\"",
+    "vec.json: events[0].type must be a string"
   ]
 }

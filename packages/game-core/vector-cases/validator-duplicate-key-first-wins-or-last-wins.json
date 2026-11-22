@@ -6,12 +6,8 @@
   "description": "description is valid first and empty second, repeated: what do the other rules see?",
   "file": "vec.json",
   "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"description\":\"\",\"game_id\":\"g\",\"settings\":{},\"events\":[],\"expect\":{\"state\":{}}}",
-  "gap": "CONTRACT 8.3 says duplicates are found by scanning the raw text but not which value the other checks use. JSON.parse and Python json both keep the last, which is the usual reading.",
-  "alternatives": [
-    [
-      "vec.json: description must be a non-empty string",
-      "vec.json: description is a duplicate key"
-    ],
-    ["vec.json: description is a duplicate key"]
+  "messages": [
+    "vec.json: description must be a non-empty string",
+    "vec.json: description is a duplicate key"
   ]
 }

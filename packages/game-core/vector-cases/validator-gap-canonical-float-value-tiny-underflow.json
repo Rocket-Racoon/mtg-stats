@@ -6,9 +6,5 @@
   "description": "Text whose exact value is not an integer but whose double is an integer (or zero).",
   "file": "vec.json",
   "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"invalid\":{\"kind\":\"float\",\"value\":\"1e-400\"},\"error\":\"non_integer\"}]}",
-  "gap": "`finite and not an integer` is not said to be decided on the exact decimal value or on the double it parses to.",
-  "alternatives": [
-    [],
-    ["vec.json: cases[0].invalid.value must be decimal text of a non-integer number"]
-  ]
+  "messages": ["vec.json: cases[0].invalid.value must be decimal text of a non-integer number"]
 }

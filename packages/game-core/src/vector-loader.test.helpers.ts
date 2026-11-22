@@ -15,6 +15,8 @@ export interface VectorFile {
   /** Base name with `.json`. */
   name: string;
   text: string;
+  /** Set when the bytes are not valid UTF-8; `text` is then empty. */
+  decodeError?: string;
 }
 
 /**
@@ -25,11 +27,20 @@ export function loadVectorFiles(dir: string): VectorFile[] {
   if (!existsSync(dir) || !statSync(dir).isDirectory()) {
     throw new Error(`vectors directory not found: ${dir}`);
   }
+  // Only regular files directly in the directory (a directory named x.json is ignored).
   const names = readdirSync(dir)
-    .filter((f) => f.endsWith('.json'))
+    .filter((f) => f.endsWith('.json') && statSync(join(dir, f)).isFile())
     .sort();
   if (names.length === 0) throw new Error(`vectors directory has no .json files: ${dir}`);
-  return names.map((name) => ({ name, text: readFileSync(join(dir, name), 'utf8') }));
+  // Strict UTF-8; the BOM is kept so that the validator reports it as invalid JSON.
+  const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+  return names.map((name) => {
+    try {
+      return { name, text: decoder.decode(readFileSync(join(dir, name))) };
+    } catch (e) {
+      return { name, text: '', decodeError: e instanceof Error ? e.message : String(e) };
+    }
+  });
 }
 
 function chain(count: number, kind: 'array' | 'object'): unknown {
@@ -62,6 +73,9 @@ function invalidValue(spec: { kind: string; value?: string }): unknown {
  * (and the case name for a canonical case) when the file is invalid or the expectation fails.
  */
 export function runVectorFile(file: VectorFile): void {
+  if (file.decodeError !== undefined) {
+    throw new Error(`${file.name}: invalid JSON: not valid UTF-8: ${file.decodeError}`);
+  }
   const problems = validateVectorText(file.name, file.text);
   if (problems.length > 0) throw new Error(problems.join('\n'));
   const vector = JSON.parse(file.text) as Record<string, unknown>;

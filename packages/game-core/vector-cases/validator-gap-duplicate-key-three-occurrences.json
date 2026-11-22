@@ -6,9 +6,5 @@
   "description": "A key written three times: one message (the second occurrence) or two (every repeat)?",
   "file": "vec.json",
   "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"game_id\":\"g\",\"game_id\":\"g\",\"settings\":{},\"events\":[],\"expect\":{\"state\":{}}}",
-  "gap": "The message is `the path of the second occurrence`; a third occurrence is not addressed.",
-  "alternatives": [
-    ["vec.json: game_id is a duplicate key"],
-    ["vec.json: game_id is a duplicate key", "vec.json: game_id is a duplicate key"]
-  ]
+  "messages": ["vec.json: game_id is a duplicate key", "vec.json: game_id is a duplicate key"]
 }

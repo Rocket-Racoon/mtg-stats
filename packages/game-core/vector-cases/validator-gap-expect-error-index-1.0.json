@@ -6,12 +6,5 @@
   "description": "index 1.0 with 2 events: a non-negative integer, or not?",
   "file": "vec.json",
   "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1},{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1}],\"expect\":{\"error\":{\"index\":1.0,\"code\":\"invalid_event\"}}}",
-  "gap": "Same question as format 1.0: the contract does not say whether an integral float satisfies the field rule when 8.3.1 already reports its token.",
-  "alternatives": [
-    ["vec.json: expect.error.index must be an integer (found the number token 1.0)"],
-    [
-      "vec.json: expect.error.index must be a non-negative integer",
-      "vec.json: expect.error.index must be an integer (found the number token 1.0)"
-    ]
-  ]
+  "messages": ["vec.json: expect.error.index must be an integer (found the number token 1.0)"]
 }

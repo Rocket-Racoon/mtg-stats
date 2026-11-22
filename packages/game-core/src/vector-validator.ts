@@ -187,9 +187,8 @@ export function validateVectorText(fileName: string, text: string): string[] {
   }
 
   const scan = scanText(text);
-  const eventsZone = kind === 'reducer';
   for (const { path, token } of scan.tokens) {
-    const inEvents = eventsZone && path.startsWith('events[');
+    const inEvents = path.startsWith('events[');
     const isIntegerSyntax = /^-?\d+$/.test(token);
     if (!isIntegerSyntax) {
       const number = Number(token);

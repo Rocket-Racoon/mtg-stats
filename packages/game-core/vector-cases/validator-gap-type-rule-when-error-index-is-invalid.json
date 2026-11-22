@@ -6,12 +6,8 @@
   "description": "expect.error.index is -1 and events lack a type: all events applied, or none?",
   "file": "vec.json",
   "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{}],\"expect\":{\"error\":{\"index\":-1,\"code\":\"invalid_event\"}}}",
-  "gap": "`applied` depends on a usable index.",
-  "alternatives": [
-    [
-      "vec.json: expect.error.index must be a non-negative integer",
-      "vec.json: events[0].type must be a string"
-    ],
-    ["vec.json: expect.error.index must be a non-negative integer"]
+  "messages": [
+    "vec.json: expect.error.index must be a non-negative integer",
+    "vec.json: events[0].type must be a string"
   ]
 }

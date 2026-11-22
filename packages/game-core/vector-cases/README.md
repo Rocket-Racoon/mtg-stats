@@ -45,11 +45,7 @@ name.
 
 ### Gap cases
 
-Where the contract text does not decide the answer, the case has `"gap": "<what is undecided>"`
-and `"alternatives"` (a list of message lists) **instead of** `messages`. The runner accepts any
-listed alternative, so an answer outside the defensible readings still fails. A gap case is not an
-expectation: it records an open question, and the report to the orchestrator says what each side
-does. Once the contract decides, replace `gap` and `alternatives` by `messages`.
+A case may still have `"gap": "<what is undecided>"` and `"alternatives"` (a list of message lists) **instead of** `messages`; the runner then accepts any listed alternative. It records a question the contract does not decide. Every gap case of the first corpus has been decided by CONTRACT.md 8.3 and 8.3.1 and now has a single `messages` list, so no case uses the mechanism today; it stays documented for the next open question. A new gap case must say what each side does in the report to the orchestrator, and is replaced by `messages` once the contract decides.
 
 ## `kind: "coverage"`
 

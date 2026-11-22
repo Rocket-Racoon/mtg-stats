@@ -1081,3 +1081,284 @@ describe('accessibility of the new screens', () => {
     expect(liveAlerts()).toHaveLength(1);
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// Follow-ups after review: no person twice, nav current page, a hiccup never forgets the choice,
+// a failed background refetch keeps the screen, the roster asks for the API's largest page
+// ---------------------------------------------------------------------------------------------
+
+const rowsNamed = (name: string) =>
+  screen.queryAllByText(name, { exact: true }).filter((el) => el.closest('li') !== null);
+
+describe('a person is never listed twice', () => {
+  it('lists a player renamed between two page requests once, under the right group, and everyone else once', async () => {
+    // The API documents that a row renamed between page requests can come back on two pages.
+    const players = [
+      person('own', 'Olive', 'owner'),
+      person('dup', 'Zed Before', 'member'),
+      person('dup', 'Zed After', 'member'),
+      person('adm', 'Amy', 'admin'),
+      person('gst', 'Gus', null),
+      person('gst', 'Gus Renamed', null),
+      person('mem', 'Bob', 'member'),
+    ];
+    const calls = stubWorld(viewerWorld('owner', { players: { g1: players }, playersPageSize: 2 }));
+    mount('/playgroups/g1');
+    await screen.findByText('Bob');
+    const people = within(screen.getByRole('region', { name: 'People' })).getAllByRole('listitem');
+    expect(people).toHaveLength(5); // Olive, Amy, Zed, Bob, Gus: five distinct people
+    // Exactly one of the two names of each duplicated person is shown, never both.
+    expect(rowsNamed('Zed Before').length + rowsNamed('Zed After').length).toBe(1);
+    expect(rowsNamed('Gus').length + rowsNamed('Gus Renamed').length).toBe(1);
+    for (const name of ['Olive', 'Amy', 'Bob']) expect(rowsNamed(name), name).toHaveLength(1);
+    const members = within(screen.getByRole('region', { name: 'Members' })).getAllByRole(
+      'listitem',
+    );
+    expect(members).toHaveLength(2);
+    expect(
+      within(screen.getByRole('region', { name: 'Guests' })).getAllByRole('listitem'),
+    ).toHaveLength(1);
+    expect(
+      within(screen.getByRole('region', { name: 'Owner' })).getAllByRole('listitem'),
+    ).toHaveLength(1);
+    expect(
+      within(screen.getByRole('region', { name: 'Admins' })).getAllByRole('listitem'),
+    ).toHaveLength(1);
+    // The roster pages were all followed (the duplicate did not stop the chain).
+    expect(
+      calls.filter((c) => c.path === '/api/v1/playgroups/g1/players').length,
+    ).toBeGreaterThanOrEqual(4);
+  });
+
+  it('asks for the largest page the API allows (limit=200) on every roster request', async () => {
+    const calls = stubWorld(viewerWorld('owner', { playersPageSize: 3 }));
+    mount('/playgroups/g1');
+    await screen.findByText('Gus');
+    const roster = calls.filter((c) => c.path === '/api/v1/playgroups/g1/players');
+    expect(roster.length).toBeGreaterThan(0);
+    for (const call of roster) expect(call.query.get('limit')).toBe('200');
+  });
+});
+
+describe('the navigation says where the user is', () => {
+  const navCurrent = () =>
+    within(screen.getByRole('navigation', { name: 'Primary' }))
+      .getAllByRole('link')
+      .filter((a) => a.getAttribute('aria-current') === 'page')
+      .map((a) => a.textContent);
+
+  it.each([
+    ['/', ['Home'], []],
+    ['/playgroups/g1', ['Home'], ['g1']],
+    ['/playgroups/g2', ['Home'], ['g2']],
+    ['/playgroups', ['Playgroups'], []],
+    ['/playgroups/join', ['Playgroups'], []],
+  ])('marks exactly %s as current: %j', async (path, expected, groups) => {
+    // "/" is checked with no playgroups so it stays on "/" instead of redirecting to a home.
+    stubWorld(path === '/' ? { groups: [], players: {} } : threeGroups());
+    mount(path);
+    await screen.findByRole('main');
+    if (groups.length > 0) await heading2(path === '/playgroups/g2' ? 'Brew' : 'Crew');
+    else await screen.findByRole('heading', { level: 2 });
+    expect(navCurrent()).toEqual(expected);
+  });
+
+  it('keeps "Home" as the current page after switching groups on a home', async () => {
+    stubWorld(threeGroups());
+    const user = userEvent.setup();
+    mount('/playgroups/g1');
+    await heading2('Crew');
+    expect(navCurrent()).toEqual(['Home']);
+    await pick(user, 'Stew');
+    await heading2('Stew');
+    expect(navCurrent()).toEqual(['Home']);
+    await pick(user, 'Brew');
+    await heading2('Brew');
+    expect(navCurrent()).toEqual(['Home']);
+  });
+
+  it('does not mark "Playgroups" current on a group home whose id merely starts like a route', async () => {
+    stubWorld({
+      groups: [group('joinery', 'Joiners', 'owner')],
+      players: { joinery: [person('x', 'Xena', 'owner')] },
+    });
+    mount('/playgroups/joinery');
+    await heading2('Joiners');
+    expect(navCurrent()).toEqual(['Home']);
+  });
+});
+
+describe('a remembered group survives a hiccup in the membership check', () => {
+  // Three groups, two per page: the remembered "Stew" is not on the first page, so the app asks
+  // GET /playgroups/g3 to learn whether the user is still in it.
+  const remembered = async () => {
+    localStorage.setItem(STORE_KEY, JSON.stringify({ state: { activeId: 'g3' }, version: 1 }));
+    await rehydrate();
+  };
+  const pause = (ms: number) =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, ms));
+    });
+
+  it.each([
+    ['a 500', () => failure(500, 'internal_error', 'Server hiccup.')],
+    ['a network failure', () => Promise.reject(new TypeError('Failed to fetch'))],
+    ['a 404 with a different code', () => failure(404, 'route_missing', 'No such route.')],
+  ])(
+    'shows an error, not a fallback, and keeps the stored id when the check fails with %s',
+    async (_label, fail) => {
+      await remembered();
+      stubWorld(threeGroups({ pageSize: 2 }));
+      let failing = true;
+      intercept((hit) =>
+        failing && hit.path === '/api/v1/playgroups/g3' && hit.method === 'GET'
+          ? (fail() as Response | Promise<Response>)
+          : undefined,
+      );
+      const user = userEvent.setup();
+      mount('/');
+      const retry = await screen.findByRole('button', { name: 'Retry' });
+      expect(screen.queryByRole('heading', { level: 2, name: 'Crew' })).not.toBeInTheDocument();
+      expect(screen.queryByText('Olive')).not.toBeInTheDocument();
+      await pause(150);
+      expect(rememberedId()).toBe('g3'); // not overwritten with the first group
+
+      // The next successful load makes the remembered group active again.
+      failing = false;
+      await user.click(retry);
+      expect(
+        await screen.findByRole('heading', { level: 2, name: 'Stew' }, { timeout: 1500 }),
+      ).toBeInTheDocument();
+      expect(rememberedId()).toBe('g3');
+    },
+  );
+
+  it('keeps the stored id after a failed check followed by a restart with the server back', async () => {
+    await remembered();
+    stubWorld(threeGroups({ pageSize: 2 }));
+    intercept((hit) =>
+      hit.path === '/api/v1/playgroups/g3' ? failure(500, 'internal_error', 'Down.') : undefined,
+    );
+    mount('/');
+    await screen.findByRole('button', { name: 'Retry' });
+    await pause(150);
+    await restart();
+    stubWorld(threeGroups({ pageSize: 2 }));
+    const { router } = mount('/');
+    expect(await heading2('Stew')).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/playgroups/g3');
+  });
+
+  it('falls back to the first group and corrects the stored value on a 404 not_found, whatever the message', async () => {
+    await remembered();
+    stubWorld(threeGroups({ pageSize: 2 }));
+    intercept((hit) =>
+      hit.path === '/api/v1/playgroups/g3'
+        ? failure(404, 'not_found', 'Completely new wording for this.')
+        : undefined,
+    );
+    const { router } = mount('/');
+    expect(await heading2('Crew')).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/playgroups/g1');
+    await waitFor(() => {
+      expect(rememberedId()).toBe('g1');
+    });
+    expect(screen.queryByText(/Completely new wording/)).not.toBeInTheDocument();
+  });
+});
+
+describe('a failed background refetch keeps what is on screen', () => {
+  /** Lets a failed refetch finish rendering (an error flips the query status after a tick). */
+  const settle = () =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
+
+  async function loadedHome(): Promise<{ queryClient: QueryClient; world: World }> {
+    const world = viewerWorld('owner');
+    stubWorld(world);
+    const { queryClient } = mount('/playgroups/g1');
+    await heading2('Crew');
+    await screen.findByText('Olive');
+    await screen.findByRole('region', { name: 'Transfer ownership' });
+    await screen.findByRole('combobox', { name: /Crew/ });
+    return { queryClient, world };
+  }
+
+  it.each([
+    ['500s', () => failure(500, 'internal_error', 'Down.') as Response | Promise<Response>],
+    [
+      'network failures',
+      () => Promise.reject(new TypeError('Failed to fetch')) as Promise<Response>,
+    ],
+  ])(
+    'still shows the name, the people and the switcher when every later request fails with %s',
+    async (_l, fail) => {
+      const { queryClient } = await loadedHome();
+      let failed = 0;
+      intercept((hit) => {
+        if (!hit.path.startsWith('/api/v1/playgroups')) return undefined;
+        failed += 1;
+        return fail();
+      });
+      await act(async () => {
+        await queryClient.refetchQueries();
+      });
+      await waitFor(() => {
+        expect(failed).toBeGreaterThanOrEqual(3); // the list, the detail and the roster
+      });
+      expect(screen.getByRole('heading', { level: 2, name: 'Crew' })).toBeInTheDocument();
+      await settle();
+      expect(screen.getByRole('combobox', { name: /Crew/ })).toBeInTheDocument();
+      expect(screen.getByRole('region', { name: 'Transfer ownership' })).toBeInTheDocument();
+      for (const name of ['Olive', 'Amy', 'Zed', 'Gus'])
+        expect(screen.getByText(name), `${name} after a failed refetch`).toBeInTheDocument();
+      expect(
+        screen.queryByRole('heading', { level: 2, name: 'Page not found' }),
+      ).not.toBeInTheDocument();
+      expect(rememberedId()).toBe('g1');
+    },
+  );
+
+  it('still shows everything after an invalidate-and-refetch that fails, and recovers when the server is back', async () => {
+    const { queryClient, world } = await loadedHome();
+    let down = true;
+    intercept((hit) =>
+      down && hit.path.startsWith('/api/v1/playgroups')
+        ? failure(500, 'internal_error', 'Down.')
+        : undefined,
+    );
+    await act(async () => {
+      await queryClient.invalidateQueries();
+    });
+    await settle();
+    expect(screen.getByText('Olive'), 'Olive after a failed refetch').toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Crew' })).toBeInTheDocument();
+    down = false;
+    world.players.g1 = [person('a1', 'Olive', 'owner'), person('a9', 'Newbie', 'member')];
+    await act(async () => {
+      await queryClient.invalidateQueries();
+    });
+    expect(await screen.findByText('Newbie')).toBeInTheDocument();
+  });
+
+  it('replaces the home with the not-found state, and none of the old data, when the detail answers 404', async () => {
+    const { queryClient } = await loadedHome();
+    intercept((hit) =>
+      hit.path === '/api/v1/playgroups/g1'
+        ? failure(404, 'not_found', 'You were removed.')
+        : undefined,
+    );
+    await act(async () => {
+      await queryClient.invalidateQueries();
+    });
+    expect(await heading2('Page not found')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 2, name: 'Crew' })).not.toBeInTheDocument();
+    for (const name of ['Olive', 'Amy', 'Zed', 'Gus']) {
+      expect(screen.queryByText(name), name).not.toBeInTheDocument();
+    }
+    expect(document.querySelector('[data-slot]')).toBeNull();
+    expect(screen.queryByText(/Your role/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/You were removed/)).not.toBeInTheDocument();
+  });
+});

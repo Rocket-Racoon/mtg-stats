@@ -9,6 +9,7 @@ import { StrictMode } from 'react';
 import {
   act,
   configure,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -33,6 +34,7 @@ configure({ asyncUtilTimeout: 5000 });
 
 interface Hit {
   method: string;
+  origin: string;
   path: string;
   search: string;
   body: string;
@@ -49,6 +51,7 @@ function intercept(rule: Rule): void {
       const url = new URL(probe.url);
       const hit: Hit = {
         method: probe.method,
+        origin: url.origin,
         path: url.pathname,
         search: url.search,
         body: await probe.clone().text(),
@@ -733,5 +736,171 @@ describe('the join screen reached from "I have an invite"', () => {
     await user.click(joinButton());
     await screen.findByText('You joined Joined Crew.');
     expect(stub.joins).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// A press outside closes the switcher, even when the trigger never had focus
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Safari and iOS do not focus a button on click, so no blur ever follows a press elsewhere. jsdom
+ * cannot reproduce that natively (and user-event focuses on mousedown), so this simulates it:
+ * the trigger's focus() is a no-op, and the press is dispatched with fireEvent (which never moves
+ * focus). The list is opened by the events a click produces, and document.activeElement stays on
+ * <body> throughout.
+ */
+async function openWithoutFocus() {
+  stubWorld(threeGroups());
+  mount('/playgroups/g1');
+  await heading2('Crew');
+  const button = await screen.findByRole('combobox');
+  button.focus = () => undefined;
+  fireEvent.pointerDown(button);
+  fireEvent.mouseDown(button);
+  fireEvent.pointerUp(button);
+  fireEvent.mouseUp(button);
+  fireEvent.click(button);
+  expect(button).toHaveAttribute('aria-expanded', 'true');
+  expect(document.activeElement).toBe(document.body);
+  return button;
+}
+
+describe('a pointer press outside the open switcher', () => {
+  it.each([
+    ['the page heading', () => screen.getByRole('heading', { level: 2, name: 'Crew' })],
+    ['the page body', () => document.body],
+    ['the navigation', () => screen.getByRole('navigation', { name: 'Primary' })],
+  ])(
+    'closes it without selecting when pressed on %s, with the trigger never focused',
+    async (_n, target) => {
+      localStorage.setItem(
+        ACTIVE_PLAYGROUP_ITEM_NAME,
+        JSON.stringify({ state: { activeId: 'g1' }, version: 1 }),
+      );
+      const button = await openWithoutFocus();
+      expect(screen.getAllByRole('option')).toHaveLength(3);
+      fireEvent.pointerDown(target());
+      expect(button).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+      expect(button).toHaveAccessibleName(/Crew/);
+      expect(screen.getByRole('heading', { level: 2, name: 'Crew' })).toBeInTheDocument();
+      expect(rememberedId()).toBe('g1');
+      expect(document.activeElement).toBe(document.body);
+    },
+  );
+
+  it('keeps the list open for a press inside it, and a press on an option still selects', async () => {
+    const button = await openWithoutFocus();
+    const brew = screen.getAllByRole('option')[1] as HTMLElement;
+    fireEvent.pointerDown(screen.getByRole('listbox'));
+    expect(button).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.pointerDown(brew);
+    fireEvent.mouseDown(brew);
+    expect(button).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
+    fireEvent.pointerUp(brew);
+    fireEvent.mouseUp(brew);
+    fireEvent.click(brew);
+    expect(await heading2('Brew')).toBeInTheDocument();
+    await screen.findByText('Bianca');
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+    expect(rememberedId()).toBe('g2');
+  });
+
+  it('does nothing while the list is closed, and a second press on the trigger closes it', async () => {
+    stubWorld(threeGroups());
+    mount('/playgroups/g1');
+    await heading2('Crew');
+    const button = await screen.findByRole('combobox');
+    fireEvent.pointerDown(document.body);
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+    button.focus = () => undefined;
+    fireEvent.pointerDown(button);
+    fireEvent.click(button);
+    expect(button).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.pointerDown(button);
+    fireEvent.click(button);
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('closes with a real pointer press elsewhere too (user-event, which does focus)', async () => {
+    stubWorld(threeGroups());
+    const user = userEvent.setup();
+    mount('/playgroups/g1');
+    await heading2('Crew');
+    await user.click(await screen.findByRole('combobox'));
+    expect(trigger()).toHaveAttribute('aria-expanded', 'true');
+    await user.click(screen.getByRole('heading', { level: 2, name: 'Crew' }));
+    expect(trigger()).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('heading', { level: 2, name: 'Crew' })).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Join: the last /invite/<token> segment of any pasted URL, and the pasted URL is never opened
+// ---------------------------------------------------------------------------------------------
+
+describe('the join screen with pasted URLs of any shape', () => {
+  it.each([
+    ['a host with a path prefix', `https://pasted.example/app/prefix/invite/${CODE}`],
+    ['a path prefix and a trailing slash', `https://pasted.example/app/invite/${CODE}/`],
+    ['a query string after the code', `https://pasted.example/invite/${CODE}?utm_source=mail&x=1`],
+    ['a fragment after the code', `https://pasted.example/invite/${CODE}#welcome`],
+    ['a query string and a fragment', `https://pasted.example/invite/${CODE}?a=b#frag`],
+    [
+      'a prefix, query string and fragment',
+      `  https://pasted.example/p/invite/${CODE}/?a=b#frag  `,
+    ],
+    [
+      'two /invite/ segments (the last one wins)',
+      `https://pasted.example/invite/first/invite/${CODE}`,
+    ],
+    ['an app link with a query string', `mtgstats://invite/${CODE}?ref=1`],
+  ])('sends only the code for %s, and never opens the pasted URL', async (_label, pasted) => {
+    const stub = stubJoin({ groups: [group('g1', 'Crew', 'owner')], players: ROSTERS() });
+    const seen: Hit[] = [];
+    intercept((hit) => {
+      seen.push(hit);
+      return undefined;
+    });
+    const user = userEvent.setup();
+    const { router } = mount('/playgroups/join');
+    await heading2('Join a playgroup');
+    const locationBefore = window.location.href;
+    await paste(user, pasted);
+    await user.click(joinButton());
+    await screen.findByText('You joined Joined Crew.');
+    expect(stub.joins).toHaveLength(1);
+    expect(JSON.parse(stub.joins[0]?.body ?? 'null')).toEqual({ token: CODE });
+    expect(stub.joins[0]?.search).toBe('');
+    // Nothing was fetched from, or navigated to, the pasted host.
+    expect(seen.length).toBeGreaterThan(0);
+    for (const hit of seen) {
+      expect(hit.origin, `${hit.method} ${hit.path}`).not.toBe('https://pasted.example');
+      expect(hit.path).toMatch(/^\/api\/v1\//);
+    }
+    expect(new Set(seen.map((h) => h.origin)).size).toBe(1);
+    expect(seen.filter((h) => h.method === 'POST')).toHaveLength(1);
+    expect(router.state.location.pathname).toBe('/playgroups/join');
+    expect(window.location.href).toBe(locationBefore);
+  });
+
+  it.each([
+    [
+      'a link that only has a query string after /invite/',
+      'https://pasted.example/invite/?code=abc',
+    ],
+    ['/invite/ in a query string only', 'https://pasted.example/reset?next=/invite/abc'],
+    ['the word invite with no code', 'https://pasted.example/invite'],
+  ])('still sends nothing for %s', async (_label, pasted) => {
+    const stub = stubJoin({ groups: [group('g1', 'Crew', 'owner')], players: ROSTERS() });
+    const user = userEvent.setup();
+    mount('/playgroups/join');
+    await heading2('Join a playgroup');
+    await paste(user, pasted);
+    await user.click(joinButton());
+    await screen.findByText(/invite link or code/i, { selector: '[role="alert"]' });
+    expect(stub.joins).toEqual([]);
   });
 });

@@ -1,7 +1,7 @@
 """The elimination routine (CONTRACT.md section 4.5.2).
 
 Every event that eliminates seats calls :func:`eliminate`: the life, concession and declared
-eliminations of S-6.1.3 now, and later commander damage (S-6.1.4), poison (S-6.1.5) and group
+eliminations of S-6.1.3, commander damage (S-6.1.4), and later poison (S-6.1.5) and group
 events (S-6.1.7). No handler writes the elimination fields itself.
 
 Pure: no clock, randomness or I/O. The input state is never mutated.

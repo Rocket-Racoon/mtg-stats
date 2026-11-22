@@ -1,4 +1,4 @@
-"""The lobby, seat and turn handlers (S-6.1.6, CONTRACT.md 4.4) the life ones (S-6.1.3, 4.5)
+"""The lobby, seat and turn handlers (S-6.1.6, CONTRACT.md 4.4), the life ones (S-6.1.3, 4.5)
 and commander damage (S-6.1.4, 4.6).
 
 Pure: no clock, randomness or I/O. A handler runs after steps 1 to 7 of section 6.2 and returns

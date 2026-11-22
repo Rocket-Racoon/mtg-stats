@@ -26,9 +26,11 @@ import app.brackets.services as brackets_services
 import app.brackets.spellbook_cache as spellbook_cache_module
 from app.brackets.services import (
     CombosFound,
+    ComboTemplate,
     DeckCard,
     SpellbookCombo,
     Unavailable,
+    cached_deck_combos,
     find_deck_combos,
 )
 from app.brackets.spellbook_cache import SpellbookCache
@@ -58,6 +60,7 @@ def variant(
         ("Demonic Consultation", uuid.UUID(int=102)),
     ),
     features: tuple[str, ...] = ("Win the game",),
+    templates: tuple[tuple[int, str, int, bool], ...] = ((5, "Any creature", 1, False),),
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """A variant as the real API sends it (many fields we do not read)."""
@@ -76,7 +79,15 @@ def variant(
             }
             for i, (name, oracle) in enumerate(cards)
         ],
-        "requires": [{"template": {"id": 5, "name": "Any creature"}, "quantity": 1}],
+        "requires": [
+            {
+                "template": {"id": tid, "name": tname, "scryfallQuery": "t:creature"},
+                "quantity": quantity,
+                "zoneLocations": ["B"],
+                "mustBeCommander": must_be_commander,
+            }
+            for tid, tname, quantity, must_be_commander in templates
+        ],
         "produces": [
             {
                 "feature": {"id": 70 + i, "name": name, "status": "S", "uncountable": False},
@@ -396,16 +407,78 @@ async def test_the_page_cap_comes_from_the_settings() -> None:
     assert len(script.requests) == 2
 
 
-async def test_a_next_link_to_another_host_is_never_requested() -> None:
+@pytest.mark.parametrize(
+    "foreign",
+    [
+        "https://evil.example/find-my-combos?limit=1000&offset=1000",
+        "http://backend:8000/find-my-combos?limit=1000&offset=1000",
+        "https://evil.example/somewhere/else?offset=1000",
+    ],
+    ids=["other_host", "internal_name_behind_proxy", "other_path"],
+)
+async def test_a_next_link_naming_another_host_is_never_contacted_and_the_pages_merge(
+    foreign: str,
+) -> None:
     script = Harness(
-        reply(
-            body_of([variant("1-1")], next_url="https://evil.example/find-my-combos?offset=1000")
-        ),
+        reply(body_of([variant("1-1")], next_url=foreign)),
         reply(body_of([variant("2-2")])),
     )
     result = await script.lookup(deck())
+    assert ids(result) == ["1-1", "2-2"]
+    assert len(script.requests) == 2
+    for request in script.requests:
+        assert (request.url.scheme, request.url.host, request.url.path) == (
+            "https",
+            HOST,
+            "/find-my-combos",
+        )
+    assert parse_qs(script.requests[1].url.query.decode())["offset"] == ["1000"]
+
+
+@pytest.mark.parametrize(
+    "next_url",
+    [
+        f"{ENDPOINT}?limit=1000&offset=0",
+        f"{ENDPOINT}?limit=1000",
+        f"{ENDPOINT}?limit=1000&offset=abc",
+        f"{ENDPOINT}?limit=1000&offset=1.5",
+        f"{ENDPOINT}?limit=1000&offset=-1000",
+        f"{ENDPOINT}?limit=1000&offset=",
+        f"{ENDPOINT}?limit=1000&offset=1000&offset=2000",
+        "not a url",
+    ],
+    ids=[
+        "repeats_the_start",
+        "missing",
+        "not_an_integer",
+        "decimal",
+        "negative",
+        "empty",
+        "twice",
+        "garbage",
+    ],
+)
+async def test_a_first_page_next_link_with_a_bad_offset_is_schema_mismatch_with_no_more_requests(
+    next_url: str,
+) -> None:
+    script = Harness(reply(body_of([variant("1-1")], next_url=next_url)), reply(body_of()))
+    result = await script.lookup(deck())
     assert isinstance(result, Unavailable)
-    assert {request.url.host for request in script.requests} == {HOST}
+    assert result.reason.value == "schema_mismatch"
+    assert len(script.requests) == 1
+
+
+@pytest.mark.parametrize("offset", [1000, 500, 0], ids=["repeats", "goes_backwards", "to_start"])
+async def test_a_later_next_link_that_does_not_advance_is_schema_mismatch(offset: int) -> None:
+    script = Harness(
+        reply(body_of([variant("1-1")], next_url=next_link(1000))),
+        reply(body_of([variant("2-2")], next_url=next_link(offset))),
+        reply(body_of([variant("3-3")])),
+    )
+    result = await script.lookup(deck())
+    assert isinstance(result, Unavailable)
+    assert result.reason.value == "schema_mismatch"
+    assert len(script.requests) == 2
 
 
 # --- Criterion 2: User-Agent and timeout -----------------------------------------
@@ -753,7 +826,44 @@ def _one_bad_variant_among_good_ones() -> dict[str, Any]:
     return body_of([variant("1-1"), broken, variant("3-3")])
 
 
+def _requires_template_without_must_be_commander() -> dict[str, Any]:
+    broken = variant("1-1")
+    del broken["requires"][0]["mustBeCommander"]
+    return body_of([broken])
+
+
+def _requires_template_without_id() -> dict[str, Any]:
+    broken = variant("1-1")
+    del broken["requires"][0]["template"]["id"]
+    return body_of([broken])
+
+
+def _requires_template_without_name() -> dict[str, Any]:
+    broken = variant("1-1")
+    del broken["requires"][0]["template"]["name"]
+    return body_of([broken])
+
+
+def _requires_without_template() -> dict[str, Any]:
+    broken = variant("1-1")
+    del broken["requires"][0]["template"]
+    return body_of([broken])
+
+
+def _requires_quantity_not_a_number() -> dict[str, Any]:
+    broken = variant("1-1")
+    broken["requires"][0]["quantity"] = "one"
+    return body_of([broken])
+
+
 DRIFTED = {
+    "variant_without_requires": _variant_missing("requires"),
+    "requires_is_object": _variant_with(requires={"template": "x"}),
+    "requires_is_null": _variant_with(requires=None),
+    "requires_template_without_id": _requires_template_without_id,
+    "requires_template_without_name": _requires_template_without_name,
+    "requires_entry_without_template": _requires_without_template,
+    "requires_quantity_not_a_number": _requires_quantity_not_a_number,
     "no_results": _without_results,
     "results_is_array": _results_as_array,
     "no_included": _without_included,
@@ -1024,3 +1134,345 @@ async def test_a_schema_mismatch_is_logged_without_card_names_or_the_decklist(
     assert result.detail
     for secret in [*names, "Wibble Snorkelfast"]:
         assert secret not in result.detail
+
+
+# --- Templates are part of a combo (criterion 1) ----------------------------------------------
+
+
+async def test_a_combo_with_named_cards_only_has_no_templates() -> None:
+    script = Harness(reply(body_of([variant("1-1", templates=())])))
+    combo = found(await script.lookup(deck())).combos[0]
+    assert combo.templates == ()
+    assert len(combo.cards) == 2
+
+
+async def test_a_combo_with_one_template_returns_its_id_name_quantity_and_commander_flag() -> None:
+    script = Harness(
+        reply(body_of([variant("1-1", templates=((55, "Any sacrifice outlet", 1, False),))]))
+    )
+    combo = found(await script.lookup(deck())).combos[0]
+    assert combo.templates == (
+        ComboTemplate(
+            template_id=55, name="Any sacrifice outlet", quantity=1, must_be_commander=False
+        ),
+    )
+
+
+async def test_a_combo_with_several_templates_returns_them_in_order_verbatim() -> None:
+    script = Harness(
+        reply(
+            body_of(
+                [
+                    variant(
+                        "1-1",
+                        templates=(
+                            (55, "Any sacrifice outlet", 1, False),
+                            (7, "Creature with power 2 or greater", 3, False),
+                            (9, "Commander that taps for mana", 1, True),
+                        ),
+                    )
+                ]
+            )
+        )
+    )
+    combo = found(await script.lookup(deck())).combos[0]
+    assert [(t.template_id, t.name, t.quantity, t.must_be_commander) for t in combo.templates] == [
+        (55, "Any sacrifice outlet", 1, False),
+        (7, "Creature with power 2 or greater", 3, False),
+        (9, "Commander that taps for mana", 1, True),
+    ]
+
+
+async def test_a_combo_lists_named_cards_and_templates_so_the_cards_it_needs_can_be_counted() -> (
+    None
+):
+    script = Harness(
+        reply(
+            body_of(
+                [
+                    variant(
+                        "1-1",
+                        cards=(
+                            ("Kinnan, Bonder Prodigy", uuid.uuid4()),
+                            ("Basalt Monolith", uuid.uuid4()),
+                        ),
+                        templates=((55, "Any sacrifice outlet", 1, False),),
+                    )
+                ]
+            )
+        )
+    )
+    combo = found(await script.lookup(deck())).combos[0]
+    assert [card.name for card in combo.cards] == ["Kinnan, Bonder Prodigy", "Basalt Monolith"]
+    assert [template.name for template in combo.templates] == ["Any sacrifice outlet"]
+    needed = sum(card.quantity for card in combo.cards) + sum(
+        template.quantity for template in combo.templates
+    )
+    assert needed == 3  # "commander + one card + any sac outlet" is not a two-card combo
+
+
+async def test_a_template_flagged_must_be_commander_keeps_the_flag_true() -> None:
+    script = Harness(reply(body_of([variant("1-1", templates=((9, "Any commander", 1, True),))])))
+    combo = found(await script.lookup(deck())).combos[0]
+    assert combo.templates[0].must_be_commander is True
+
+
+async def test_templates_survive_the_cache_round_trip(
+    stored_keys: Callable[[], Awaitable[set[str]]],
+) -> None:
+    cards = deck()
+    script = Harness(reply(body_of([variant("1-1", templates=((55, "Any outlet", 2, True),))])))
+    cache = SpellbookCache()
+    first = await script.lookup(cards, cache=cache)
+    second = await script.lookup(cards, cache=cache)
+    assert found(second).from_cache is True
+    assert found(second).combos == found(first).combos
+    assert found(second).combos[0].templates == (ComboTemplate(55, "Any outlet", 2, True),)
+    await stored_keys()
+
+
+async def test_a_template_entry_without_must_be_commander_is_schema_mismatch() -> None:
+    """The published schema marks ``requires[].mustBeCommander`` required.
+
+    EXPECTED TO FAIL until the client reads the flag strictly (it is lenient, default False).
+    """
+    script = Harness(reply(_requires_template_without_must_be_commander()))
+    result = await script.lookup(deck())
+    assert isinstance(result, Unavailable)
+    assert result.reason.value == "schema_mismatch"
+
+
+# --- Lookup deadline --------------------------------------------------------------------------
+
+
+def test_default_lookup_deadline_setting_is_60_seconds() -> None:
+    assert Settings.model_fields["spellbook_lookup_deadline_seconds"].default == 60.0
+
+
+class HangingLimiter:
+    """A limiter whose wait never ends (nothing really waits: the deadline must cut it)."""
+
+    async def wait(self) -> None:
+        await asyncio.Event().wait()
+
+
+async def test_a_limiter_that_never_lets_the_request_through_ends_at_the_deadline() -> None:
+    script = Harness(reply(body_of([variant("1-1")])))
+    script.limiter = HangingLimiter()  # type: ignore[assignment]
+    result = await asyncio.wait_for(
+        script.lookup(deck(), settings=settings_with(spellbook_lookup_deadline_seconds=0.1)), 5
+    )
+    assert isinstance(result, Unavailable)
+    assert result.reason.value == "timeout"
+    assert script.requests == []
+
+
+async def test_429_waits_that_pass_the_deadline_end_the_lookup_as_timeout_not_a_hang() -> None:
+    script = Harness(*[httpx.Response(429, headers={"Retry-After": "5"}) for _ in range(3)])
+
+    async def hang_sleep(seconds: float) -> None:
+        await asyncio.Event().wait()
+
+    script.sleep = hang_sleep  # type: ignore[method-assign]
+    result = await asyncio.wait_for(
+        script.lookup(deck(), settings=settings_with(spellbook_lookup_deadline_seconds=0.1)), 5
+    )
+    assert isinstance(result, Unavailable)
+    assert result.reason.value == "timeout"
+    assert len(script.requests) == 1
+
+
+async def test_paging_that_never_finishes_in_time_is_unavailable_timeout_and_not_cached() -> None:
+    script = Harness()
+
+    async def slow_page(request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(0.06)
+        n = len(script.requests)
+        return reply(body_of([variant(f"p{n}-1")], next_url=next_link(1000 * n)))
+
+    script.responder = slow_page
+    cache = MemoryCache()
+    result = await script.lookup(
+        deck(),
+        cache=cache,
+        settings=settings_with(spellbook_lookup_deadline_seconds=0.1, spellbook_max_pages=50),
+    )
+    assert isinstance(result, Unavailable)
+    assert result.reason.value == "timeout"
+    assert cache.store == {}
+
+
+# --- Service entry points ---------------------------------------------------------------------
+
+
+def patch_client(
+    monkeypatch: pytest.MonkeyPatch, script: Harness, *, cache: SpellbookCache | None = None
+) -> None:
+    """Make ``SpellbookClient()`` (as ``find_deck_combos`` builds it) use the scripted transport."""
+    real_init = SpellbookClient.__init__
+
+    def init(self: SpellbookClient, **kwargs: Any) -> None:
+        real_init(
+            self,
+            transport=httpx.MockTransport(script.handler),
+            cache=cache if cache is not None else MemoryCache(),
+            limiter=script.limiter,  # type: ignore[arg-type]
+            sleep=script.sleep,
+        )
+
+    monkeypatch.setattr(SpellbookClient, "__init__", init)
+
+
+async def test_find_deck_combos_never_raises_when_building_the_client_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def broken(self: SpellbookClient, **kwargs: Any) -> None:
+        raise RuntimeError("settings are broken")
+
+    monkeypatch.setattr(SpellbookClient, "__init__", broken)
+    result = await find_deck_combos(deck())
+    assert isinstance(result, Unavailable)
+    assert result.reason.value == "internal_error"
+
+
+async def test_find_deck_combos_never_raises_when_closing_the_client_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = Harness(reply(body_of([variant("1-1")])))
+    patch_client(monkeypatch, script)
+
+    async def broken_close(self: SpellbookClient) -> None:
+        raise RuntimeError("close failed")
+
+    monkeypatch.setattr(SpellbookClient, "aclose", broken_close)
+    result = await find_deck_combos(deck())
+    assert isinstance(result, (CombosFound, Unavailable))
+
+
+async def test_find_deck_combos_does_not_swallow_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = Harness()
+    started = asyncio.Event()
+
+    async def hang(request: httpx.Request) -> httpx.Response:
+        started.set()
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+    script.responder = hang
+    patch_client(monkeypatch, script)
+    task = asyncio.create_task(find_deck_combos(deck()))
+    await asyncio.wait_for(started.wait(), 5)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+async def test_cached_deck_combos_hits_after_a_find_for_the_same_cards_in_another_order(
+    monkeypatch: pytest.MonkeyPatch,
+    stored_keys: Callable[[], Awaitable[set[str]]],
+) -> None:
+    script = Harness(reply(body_of([variant("1-1", templates=((55, "Any outlet", 1, False),))])))
+    patch_client(monkeypatch, script, cache=SpellbookCache())
+    cards = deck()
+    first = await find_deck_combos(cards)
+    assert ids(first) == ["1-1"]
+    requests_before, waits_before = len(script.requests), script.limiter.waits
+    hit = await cached_deck_combos(list(reversed(cards)))
+    assert hit is not None
+    assert hit.from_cache is True
+    assert hit.combos == found(first).combos
+    assert len(script.requests) == requests_before
+    assert script.limiter.waits == waits_before
+    await stored_keys()
+
+
+async def test_cached_deck_combos_miss_returns_none_with_no_request_and_no_limiter_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = Harness(reply(body_of([variant("1-1")])))
+    patch_client(monkeypatch, script)
+    assert await cached_deck_combos(deck()) is None
+    assert script.requests == []
+    assert script.limiter.waits == 0
+
+
+async def test_cached_deck_combos_does_not_serve_the_entry_of_another_card_set(
+    monkeypatch: pytest.MonkeyPatch,
+    stored_keys: Callable[[], Awaitable[set[str]]],
+) -> None:
+    script = Harness(reply(body_of([variant("1-1")])))
+    patch_client(monkeypatch, script, cache=SpellbookCache())
+    cards = deck()
+    await find_deck_combos(cards)
+    other = [DeckCard("Another Card", uuid.uuid4()), *cards[1:]]
+    assert await cached_deck_combos(other) is None
+    await stored_keys()
+
+
+async def test_cached_deck_combos_returns_none_on_a_redis_outage_without_raising(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = Harness()
+    patch_client(monkeypatch, script)
+    monkeypatch.setattr(spellbook_cache_module, "get_redis", DeadRedis)
+    assert await cached_deck_combos(deck()) is None
+    assert script.requests == []
+
+
+async def test_cached_deck_combos_of_an_empty_deck_has_no_combos_and_sends_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = Harness()
+    patch_client(monkeypatch, script)
+    result = await cached_deck_combos([])
+    assert result is not None
+    assert result.combos == ()
+    assert script.requests == []
+    assert script.limiter.waits == 0
+
+
+def test_the_public_interface_exports_the_cache_only_entry_point() -> None:
+    assert "cached_deck_combos" in brackets_services.__all__
+    assert "ComboTemplate" in brackets_services.__all__
+
+
+# --- Architecture: request paths never wait on Spellbook --------------------------------------
+
+
+def _write_tree(root: Path, files: dict[str, str]) -> Path:
+    for name, source in files.items():
+        target = root / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(source, encoding="utf-8")
+    return root
+
+
+def test_a_router_importing_find_deck_combos_is_flagged(tmp_path: Path) -> None:
+    root = _write_tree(
+        tmp_path,
+        {
+            "decks/router.py": "from app.brackets.services import find_deck_combos\n",
+            "stats/router.py": (
+                "from app import brackets\nx = brackets.services.find_deck_combos\n"
+            ),
+        },
+    )
+    flagged = {problem.split(":")[0] for problem in spellbook_router_violations(root)}
+    assert flagged == {"decks/router.py", "stats/router.py"}
+
+
+def test_a_router_using_cached_deck_combos_and_the_value_types_is_not_flagged(
+    tmp_path: Path,
+) -> None:
+    root = _write_tree(
+        tmp_path,
+        {
+            "decks/router.py": (
+                "from app.brackets.services import CombosFound, DeckCard, cached_deck_combos\n"
+            ),
+            "jobs/runner.py": "from app.brackets.services import find_deck_combos\n",
+        },
+    )
+    assert spellbook_router_violations(root) == []

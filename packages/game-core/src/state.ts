@@ -31,6 +31,7 @@ export function initialState(gameId: string, settings: Partial<GameSettings> = {
     seats: [],
     order: [],
     active_seat: null,
+    first_seat: null,
     turn: 0,
     round: 0,
     monarch: null,

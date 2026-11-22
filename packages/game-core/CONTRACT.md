@@ -72,6 +72,7 @@ The state is a JSON object. Every key below is always present.
 | `seats`              | array of seat objects         | Sorted by ascending `seat`. At most 8. See 3.3.                                                                                                                                                                                                                                                   |
 | `order`              | array of integers             | Seat ids in turn order. A permutation of the ids in `seats`.                                                                                                                                                                                                                                      |
 | `active_seat`        | integer or null               | Seat whose turn it is. `null` outside `active` and `ending`.                                                                                                                                                                                                                                      |
+| `first_seat`         | integer or null               | The seat that took the first turn: the `first_seat` of `game_started`, `null` before it. It never changes afterwards, whatever `seat_moved` does to `order`. It anchors the rounds (4.4.10).                                                                                                      |
 | `turn`               | integer                       | Individual turn counter. 0 before `game_started`.                                                                                                                                                                                                                                                 |
 | `round`              | integer                       | The game's "turn count" for results and stats (D4). 0 before `game_started`.                                                                                                                                                                                                                      |
 | `monarch`            | integer or null               | Seat id of the monarch.                                                                                                                                                                                                                                                                           |
@@ -140,7 +141,7 @@ Before any event the state is an empty lobby built by `initialState(game_id, set
 - `settings` is optional and may be partial. A missing key takes its default (3.2). A `settings` that is not an object, or that has a key that is not one of the four setting names, also throws.
 - Values are copied as given: **neither types nor ranges are validated**. An out-of-range value (3.2) is stored unchanged. Range validation is done by the `game_created` and `settings_changed` handlers (4.4).
 - The `settings` given here are a **placeholder**. The log of a real game starts with `game_created`, which replaces them (4.3). They exist for vectors and tests that do not start with `game_created`.
-- All keys of 3.1: `phase` `lobby`, `control_mode` `own_seat`, `seats` `[]`, `order` `[]`, every nullable key `null`, `turn` 0, `round` 0, `commander_damage` `{}`, `no_winner` `false`, `win_condition_note` `""`, `voided` `[]`, `reverted` `[]`, `last_seq` 0, `v` 1. `vectors/initial-state.json` is the reference.
+- All keys of 3.1: `phase` `lobby`, `control_mode` `own_seat`, `seats` `[]`, `order` `[]`, every nullable key `null` (`first_seat` included), `turn` 0, `round` 0, `commander_damage` `{}`, `no_winner` `false`, `win_condition_note` `""`, `voided` `[]`, `reverted` `[]`, `last_seq` 0, `v` 1. `vectors/initial-state.json` is the reference.
 
 ## 4. Event registry
 
@@ -329,7 +330,7 @@ Payload: `first_seat` (a seat id), `started_at` (a string; any string is accepte
 
 Check 3 comes before check 4: a table with 0 seats gives `unknown_seat`, and a table with a single seat gives `not_enough_players` when `first_seat` is that seat.
 
-State change: `phase` `active`; `active_seat` `first_seat`; `turn` 1; `round` 1; `started_at` the payload's; every seat's `life` `settings.starting_life`. `order`, the seats' other fields, the settings and `control_mode` are unchanged. From now on `settings_changed` is `invalid_phase` (D3).
+State change: `phase` `active`; `active_seat` `first_seat`; `turn` 1; `round` 1; `first_seat` the payload's `first_seat`; `started_at` the payload's; every seat's `life` `settings.starting_life`. `order`, the seats' other fields, the settings and `control_mode` are unchanged. From now on `settings_changed` is `invalid_phase` (D3).
 
 #### 4.4.10 `turn_passed`
 
@@ -338,33 +339,51 @@ Payload: `{}` (keys are ignored). An **eliminated** seat is one whose `eliminate
 1. `phase` is not `active`: `invalid_phase`.
 2. Every seat is eliminated: `invalid_phase`.
 
-Let `order` be the state's `order` and `a` the active seat. Then:
+Let `order` be the state's `order`, `a` the active seat and `F` the state's `first_seat` (3.1). Then:
 
 - **Next seat** `n`: scan `order` cyclically **after** the position of `a` (the positions after it to the end, then from the start up to and including `a` itself) and take the first seat that is not eliminated. `a` is scanned last, so when `a` is the only seat left, `n = a`. `a` may itself be eliminated (it was eliminated during its own turn); it is then simply never chosen.
-- **Round head** `b`: the first seat in `order`, from its first position on, that is not eliminated. It is the "first player" of the round: the seat at the head of the order, or, if that seat is eliminated, the next surviving seat after it.
-- **State change**: `active_seat` becomes `n`, `turn` goes up by 1, and `round` goes up by 1 **if and only if `n` equals `b`**, that is when play comes back to the head of the order (or to the next survivor after an eliminated head). With a single survivor `n = b = a`, so every pass is a new round.
+- **Round head** `b`: `F` if `F` is not eliminated; otherwise the first seat that is not eliminated when scanning `order` cyclically **after** the position of `F` (the positions after it to the end, then from the start up to `F` itself, which is skipped because it is eliminated). It is the "first player" of the round: the seat that took the first turn, or, if that seat is out, the next surviving seat after it.
+- **State change**: `active_seat` becomes `n`, `turn` goes up by 1, and `round` goes up by 1 **if and only if `n` equals `b`**. `first_seat` never changes.
 
-Only positions in `order` matter for this rule, never the seat ids. A `seat_moved` correction changes the positions, and so changes where the next seat and the round head are, with no other effect on `turn` and `round`. The first seat of a game is not stored: when `game_started` names a `first_seat` that is not at the head of the order, round 1 is a **partial** round that ends when play first reaches the head. D4 reads "turn count" as `round` (individual turns stay in the log).
+The rule is evaluated on the state and the `order` **as they are when `turn_passed` is applied**. Nothing is remembered about who has already played in the current round, so the counter can only follow the order as it stands. In detail:
 
-Worked examples (every seat is alive unless it is listed as eliminated):
+- **`F` not at the head of `order`:** round 1 is a full round. With order `[1,2,3,4]` and `F` 3 the turns of round 1 are 3, 4, 1, 2, and round 2 starts at 3.
+- **`F` eliminated on its own turn or between turns:** `b` is the next survivor after `F`. If `F` is the active seat and is eliminated on its turn, the next pass has `n = b` and the round goes up.
+- **One seat left:** `n = b = a` (whether `F` is that seat or has been eliminated), so **every** `turn_passed` goes up a round. This follows the rule literally; the stories do not say what a round is with one seat left, and the game is normally ended by then (S-6.7.1). Open point.
+- **`seat_moved` correction** (4.4.6) changes `order` and nothing else, not `F`, `a`, `turn` or `round`. A seat can then act twice in a round (a seat that has already played is moved after `a`) or not at all (a seat that has not played is moved before `a`), and the counter does not compensate: `round` goes up exactly when play next reaches `b`. Examples 17 to 19 below.
+- The seat ids of seats do not matter for this rule, only positions in `order` and the ids `F` and `a`.
 
-| `order`     | eliminated | active `a`                 | `n` | `b` | `turn`, `round` before | `turn`, `round` after |
-| ----------- | ---------- | -------------------------- | --- | --- | ---------------------- | --------------------- |
-| `[1,2,3,4]` | none       | 1                          | 2   | 1   | 1, 1                   | 2, 1                  |
-| `[1,2,3,4]` | none       | 4                          | 1   | 1   | 4, 1                   | 5, 2                  |
-| `[1,2,3,4]` | none       | 3 (the first seat)         | 4   | 1   | 1, 1                   | 2, 1                  |
-| `[1,2,3,4]` | 4          | 3                          | 1   | 1   | 3, 1                   | 4, 2                  |
-| `[1,2,3,4]` | 1          | 4                          | 2   | 2   | 4, 1                   | 5, 2                  |
-| `[1,2,3,4]` | 1          | 2                          | 3   | 2   | 2, 1                   | 3, 1                  |
-| `[1,2,3,4]` | 1          | 1 (eliminated on its turn) | 2   | 2   | 1, 1                   | 2, 2                  |
-| `[1,2,3,4]` | 2, 3, 4    | 1                          | 1   | 1   | 1, 1                   | 2, 2                  |
-| `[1,2,3,4]` | 1, 2, 3    | 4                          | 4   | 4   | 4, 3                   | 5, 4                  |
-| `[3,2,1,4]` | none       | 3                          | 2   | 3   | 1, 1                   | 2, 1                  |
-| `[3,2,1,4]` | none       | 4                          | 3   | 3   | 4, 1                   | 5, 2                  |
-| `[1,4,3,2]` | none       | 3                          | 2   | 1   | 3, 1                   | 4, 1                  |
-| `[1,4,3,2]` | none       | 2                          | 1   | 1   | 4, 1                   | 5, 2                  |
+Worked examples (every seat is alive unless it is listed as eliminated; `turn` and `round` are those of the state before and after the pass). Rows 1 to 16 pass with no correction; rows 17 to 19 are the state right after a `seat_moved` correction.
 
-The last two rows follow `seat_moved {from: 4, to: 2, correction: true}` in an active game where seat 3 is active and the order was `[1,2,3,4]`: the same seat 3 is still active, and the next two passes go 3 to 2, then 2 to 1 with the round going up. No event can eliminate a seat before S-6.1.3, so the rows with eliminated seats have no vector in `vectors/` yet. `src/lobby.test.ts` pins them with hand-built states, and S-6.1.3 adds vectors.
+| #   | `order`     | `F` | eliminated | active `a`                 | `n` | `b` | before | after |
+| --- | ----------- | --- | ---------- | -------------------------- | --- | --- | ------ | ----- |
+| 1   | `[1,2,3,4]` | 1   | none       | 1                          | 2   | 1   | 1, 1   | 2, 1  |
+| 2   | `[1,2,3,4]` | 1   | none       | 4                          | 1   | 1   | 4, 1   | 5, 2  |
+| 3   | `[1,2,3,4]` | 3   | none       | 3 (the first turn)         | 4   | 3   | 1, 1   | 2, 1  |
+| 4   | `[1,2,3,4]` | 3   | none       | 4                          | 1   | 3   | 2, 1   | 3, 1  |
+| 5   | `[1,2,3,4]` | 3   | none       | 2 (last turn of round 1)   | 3   | 3   | 4, 1   | 5, 2  |
+| 6   | `[1,2,3,4]` | 3   | none       | 2 (round 3, turn 12)       | 3   | 3   | 12, 3  | 13, 4 |
+| 7   | `[1,2,3,4]` | 1   | 4          | 3                          | 1   | 1   | 3, 1   | 4, 2  |
+| 8   | `[1,2,3,4]` | 3   | 4          | 3                          | 1   | 3   | 1, 1   | 2, 1  |
+| 9   | `[1,2,3,4]` | 1   | 1          | 2 (`F` out between turns)  | 3   | 2   | 2, 1   | 3, 1  |
+| 10  | `[1,2,3,4]` | 1   | 1          | 4                          | 2   | 2   | 4, 1   | 5, 2  |
+| 11  | `[1,2,3,4]` | 1   | 1          | 1 (`F` out on its turn)    | 2   | 2   | 1, 1   | 2, 2  |
+| 12  | `[1,2,3,4]` | 3   | 3          | 2                          | 4   | 4   | 4, 1   | 5, 2  |
+| 13  | `[1,2,3,4]` | 4   | 4          | 3 (`b` found by wrapping)  | 1   | 1   | 4, 1   | 5, 2  |
+| 14  | `[3,2,1,4]` | 1   | none       | 4                          | 3   | 1   | 2, 1   | 3, 1  |
+| 15  | `[1,2,3,4]` | 1   | 2, 3, 4    | 1 (one seat left)          | 1   | 1   | 1, 1   | 2, 2  |
+| 16  | `[1,2,3,4]` | 1   | 1, 2, 3    | 4 (one seat left, `F` out) | 4   | 4   | 4, 3   | 5, 4  |
+| 17  | `[3,2,1,4]` | 1   | none       | 2                          | 1   | 1   | 2, 1   | 3, 2  |
+| 18  | `[1,3,2,4]` | 1   | none       | 3                          | 2   | 1   | 3, 1   | 4, 1  |
+| 19  | `[4,2,3,1]` | 1   | none       | 3                          | 1   | 1   | 3, 1   | 4, 2  |
+
+Rows 17 to 19 come from `[1,2,3,4]` with `F` 1:
+
+- **Row 17:** seat 2 is active (turn 2) and `seat_moved {from: 1, to: 3, correction: true}` gives `[3,2,1,4]`. The next pass goes 2 to 1 and starts round 2 at turn 3, so seats 3 and 4 do not act in round 1 at all.
+- **Row 18:** seat 3 is active (turn 3) and the correction `{from: 3, to: 2}` gives `[1,3,2,4]`. The next seat is 2, which already played in round 1, so it acts twice in the round, and the counter stays at 1; round 2 starts when play reaches seat 1, two passes later.
+- **Row 19:** seat 3 is active (turn 3) and the correction `{from: 1, to: 4}` gives `[4,2,3,1]`. `F` is still seat 1 (the id), now last in `order`. The next seat is 1 and starts round 2 at turn 4, so seat 4 did not act in round 1.
+
+No event can eliminate a seat before S-6.1.3, so the rows with eliminated seats have no vector in `vectors/` yet. `src/lobby.test.ts` pins them with hand-built states, and S-6.1.3 adds vectors.
 
 ## 5. Canonical JSON
 

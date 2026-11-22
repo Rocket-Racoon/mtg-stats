@@ -2,7 +2,7 @@
   "format": 1,
   "kind": "reducer",
   "name": "accept-seat-moved-correction-changes-where-the-round-ends",
-  "description": "The round ticks when play reaches the head of the order (4.4.10). Seat 4 active, correction 1<->4 gives [4,2,3,1]: the head is now 4, so the next pass 4 to 2 is not a new round, and the round ticks only when play returns to 4.",
+  "description": "The first seat is 4 and it stays the round head after a correction moves other seats (4.4.10). Seat 4 active, correction 1<->4 gives [4,2,3,1]; the passes go 4, 2, 3, 1 and the round ticks only when play returns to 4.",
   "game_id": "018f0000-0000-7000-8000-000000000001",
   "settings": {
     "starting_life": 40,
@@ -250,6 +250,7 @@
       ],
       "order": [4, 2, 3, 1],
       "active_seat": 4,
+      "first_seat": 4,
       "turn": 5,
       "round": 2,
       "monarch": null,

@@ -224,6 +224,7 @@
       ],
       "order": [1, 2, 3, 4],
       "active_seat": 4,
+      "first_seat": 1,
       "turn": 4,
       "round": 1,
       "monarch": null,

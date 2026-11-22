@@ -229,12 +229,25 @@ export const gameStarted: Handler = (state, event, seq) => {
   return done(state, seq, {
     phase: 'active',
     active_seat: firstSeat,
+    first_seat: firstSeat,
     turn: 1,
     round: 1,
     started_at: startedAt,
     seats: state.seats.map((s) => ({ ...s, life: state.settings.starting_life })),
   });
 };
+
+/** The seat whose turn starts a round: `first_seat`, or the next surviving seat after it (4.4.10). */
+function roundHead(state: GameState): number | null {
+  const order = state.order;
+  const at = order.indexOf(state.first_seat ?? -1);
+  if (at < 0) return null;
+  for (let step = 0; step < order.length; step++) {
+    const candidate = order[(at + step) % order.length]!;
+    if (!isEliminated(state, candidate)) return candidate;
+  }
+  return null;
+}
 
 export const turnPassed: Handler = (state, _event, seq) => {
   if (state.phase !== 'active' || state.active_seat === null) return fail('invalid_phase');
@@ -249,7 +262,7 @@ export const turnPassed: Handler = (state, _event, seq) => {
     }
   }
   if (next === null) return fail('invalid_phase');
-  const head = order.find((id) => !isEliminated(state, id));
+  const head = roundHead(state);
   return done(state, seq, {
     active_seat: next,
     turn: state.turn + 1,

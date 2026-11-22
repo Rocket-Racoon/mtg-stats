@@ -353,7 +353,7 @@ describe('seat_moved (4.4.6)', () => {
       const one = after(corrected, make('turn_passed'));
       expect([one.active_seat, one.turn, one.round]).toEqual([2, 2, 1]);
       const two = after(one, make('turn_passed'));
-      expect([two.active_seat, two.turn, two.round]).toEqual([1, 3, 2]);
+      expect([two.active_seat, two.turn, two.round]).toEqual([1, 3, 1]);
     });
   });
 
@@ -470,6 +470,7 @@ describe('game_started (4.4.9)', () => {
       ...before,
       phase: 'active',
       active_seat: 3,
+      first_seat: 3,
       turn: 1,
       round: 1,
       started_at: '2026-11-21T12:00:00.000Z',
@@ -570,12 +571,17 @@ describe('turn_passed (4.4.10)', () => {
     });
   });
 
-  it('with a first seat in the middle, round 1 is partial and ends at the head of the order', () => {
+  it('with a first seat in the middle, rounds are full rounds that start at the first seat', () => {
     let s = activeGame(4, 3);
-    s = pass(s);
-    expect(at(s)).toEqual([4, 2, 1]);
-    s = pass(s);
-    expect(at(s)).toEqual([1, 3, 2]);
+    const seen = [at(s)];
+    for (let i = 0; i < 12; i++) seen.push(at((s = pass(s))));
+    expect(seen.map(([a, , r]) => `${a}/${r}`)).toEqual([
+      ...[3, 4, 1, 2].map((a) => `${a}/1`),
+      ...[3, 4, 1, 2].map((a) => `${a}/2`),
+      ...[3, 4, 1, 2].map((a) => `${a}/3`),
+      '3/4',
+    ]);
+    expect(s.first_seat).toBe(3);
   });
 
   it('with two seats, the round goes up every second pass', () => {
@@ -617,58 +623,90 @@ describe('turn_passed (4.4.10)', () => {
   });
 
   describe('with eliminated seats (hand-built states: no event can eliminate yet)', () => {
-    const game = (active: number, ...dead: number[]): GameState => {
-      const g = withEliminated(activeGame(4), ...dead);
-      return { ...g, active_seat: active, turn: active, round: 1 };
-    };
+    /** A state of the shape the contract's example table starts from (4.4.10). */
+    const game = (
+      order: number[],
+      first: number,
+      dead: number[],
+      active: number,
+      turn = 1,
+      round = 1,
+    ): GameState => ({
+      ...withEliminated(activeGame(4), ...dead),
+      order,
+      first_seat: first,
+      active_seat: active,
+      turn,
+      round,
+    });
+    const natural = [1, 2, 3, 4];
 
-    // The rows of the worked-example table in CONTRACT.md 4.4.10: [order, eliminated, a, n, round after].
+    // Rows 1 to 19 of the worked-example table in CONTRACT.md 4.4.10:
+    // [row, order, F, eliminated, a, turn, round, n, turn after, round after].
     it.each([
-      [[1, 2, 3, 4], [4], 3, 1, 2],
-      [[1, 2, 3, 4], [1], 4, 2, 2],
-      [[1, 2, 3, 4], [1], 2, 3, 1],
-      [[1, 2, 3, 4], [1], 1, 2, 2],
-      [[1, 2, 3, 4], [2, 3, 4], 1, 1, 2],
-      [[3, 2, 1, 4], [], 3, 2, 1],
-      [[3, 2, 1, 4], [], 4, 3, 2],
-      [[3, 2, 1, 4], [3], 4, 2, 2],
-      [[3, 2, 1, 4], [3], 2, 1, 1],
+      [1, natural, 1, [], 1, 1, 1, 2, 2, 1],
+      [2, natural, 1, [], 4, 4, 1, 1, 5, 2],
+      [3, natural, 3, [], 3, 1, 1, 4, 2, 1],
+      [4, natural, 3, [], 4, 2, 1, 1, 3, 1],
+      [5, natural, 3, [], 2, 4, 1, 3, 5, 2],
+      [6, natural, 3, [], 2, 12, 3, 3, 13, 4],
+      [7, natural, 1, [4], 3, 3, 1, 1, 4, 2],
+      [8, natural, 3, [4], 3, 1, 1, 1, 2, 1],
+      [9, natural, 1, [1], 2, 2, 1, 3, 3, 1],
+      [10, natural, 1, [1], 4, 4, 1, 2, 5, 2],
+      [11, natural, 1, [1], 1, 1, 1, 2, 2, 2],
+      [12, natural, 3, [3], 2, 4, 1, 4, 5, 2],
+      [13, natural, 4, [4], 3, 4, 1, 1, 5, 2],
+      [14, [3, 2, 1, 4], 1, [], 4, 2, 1, 3, 3, 1],
+      [15, natural, 1, [2, 3, 4], 1, 1, 1, 1, 2, 2],
+      [16, natural, 1, [1, 2, 3], 4, 4, 3, 4, 5, 4],
+      [17, [3, 2, 1, 4], 1, [], 2, 2, 1, 1, 3, 2],
+      [18, [1, 3, 2, 4], 1, [], 3, 3, 1, 2, 4, 1],
+      [19, [4, 2, 3, 1], 1, [], 3, 3, 1, 1, 4, 2],
     ])(
-      'order %j, eliminated %j, active %i: next %i, round after %i',
-      (order, dead, a, n, round) => {
-        const base = { ...game(a, ...dead), order };
-        const next = pass(base);
-        expect(next.active_seat).toBe(n);
-        expect(next.turn).toBe(base.turn + 1);
-        expect(next.round).toBe(round);
+      'example row %i: order %j, F %i, eliminated %j, active %i',
+      (_row, order, f, dead, a, turn, round, n, turnAfter, roundAfter) => {
+        const next = pass(game(order, f, dead, a, turn, round));
+        expect([next.active_seat, next.turn, next.round]).toEqual([n, turnAfter, roundAfter]);
+        expect(next.first_seat).toBe(f);
       },
     );
 
     it('skips an eliminated seat (criterion 6): seat 3 active, seat 4 out, seat 1 next, round + 1', () => {
-      const next = pass(game(3, 4));
+      const next = pass(game(natural, 1, [4], 3, 3));
       expect([next.active_seat, next.turn, next.round]).toEqual([1, 4, 2]);
     });
 
     it('skips several eliminated seats in a row', () => {
-      const next = pass(game(1, 2, 3));
+      const next = pass(game(natural, 1, [2, 3], 1));
       expect(next.active_seat).toBe(4);
       expect(next.round).toBe(1);
     });
 
     it('passes to itself when it is the only seat left, and every pass is a new round', () => {
-      const next = pass(game(4, 1, 2, 3));
+      const next = pass(game(natural, 1, [1, 2, 3], 4));
       expect([next.active_seat, next.round]).toEqual([4, 2]);
       expect(pass(next).round).toBe(3);
     });
 
     it('is invalid_phase when every seat is eliminated', () => {
-      expect(codeOf(game(1, 1, 2, 3, 4), make('turn_passed'))).toBe('invalid_phase');
+      expect(codeOf(game(natural, 1, [1, 2, 3, 4], 1), make('turn_passed'))).toBe('invalid_phase');
     });
 
     it('moves on from an active seat that was itself eliminated', () => {
-      const next = pass(game(2, 2));
+      const next = pass(game(natural, 1, [2], 2));
       expect(next.active_seat).toBe(3);
     });
+  });
+});
+
+describe('first_seat (3.1)', () => {
+  it('is null before the start, set by game_started, and never changed afterwards', () => {
+    expect(seated(3).first_seat).toBeNull();
+    let s = activeGame(4, 3);
+    expect(s.first_seat).toBe(3);
+    s = run(s, moved(3, 1, true), make('turn_passed'), make('turn_passed'), moved(2, 4, true));
+    expect(s.first_seat).toBe(3);
   });
 });
 

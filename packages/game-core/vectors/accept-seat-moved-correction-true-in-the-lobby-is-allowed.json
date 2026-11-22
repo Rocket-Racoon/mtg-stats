@@ -155,6 +155,7 @@
       ],
       "order": [3, 2, 1],
       "active_seat": null,
+      "first_seat": null,
       "turn": 0,
       "round": 0,
       "monarch": null,

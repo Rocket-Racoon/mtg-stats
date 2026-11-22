@@ -530,6 +530,7 @@
       ],
       "order": [2, 1],
       "active_seat": 1,
+      "first_seat": 2,
       "turn": 2,
       "round": 1,
       "monarch": null,

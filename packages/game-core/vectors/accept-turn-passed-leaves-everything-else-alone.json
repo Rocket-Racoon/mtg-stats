@@ -141,6 +141,7 @@
       ],
       "order": [1, 2],
       "active_seat": 2,
+      "first_seat": 1,
       "turn": 2,
       "round": 1,
       "monarch": null,

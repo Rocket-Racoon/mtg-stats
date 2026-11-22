@@ -10,6 +10,8 @@ import { PlaceholderPage } from './pages/Placeholder';
 import { InvitePage } from './pages/auth/InvitePage';
 import { SignInPage } from './pages/auth/SignInPage';
 import { AccountPage } from './pages/AccountPage';
+import { JoinWithInvitePage } from './pages/JoinWithInvitePage';
+import { PlaygroupHomePage } from './pages/PlaygroupHomePage';
 import { PlaygroupsPage } from './pages/PlaygroupsPage';
 import { SharedLinkPage } from './pages/SharedLinkPage';
 import { RequireSession } from './session/RequireSession';
@@ -51,6 +53,9 @@ export const routes: RouteObject[] = [
             children: [
               { index: true, element: <HomePage /> },
               { path: 'playgroups', element: <PlaygroupsPage /> },
+              // "I have an invite" (S-2.4.5); a static segment, so it wins over :playgroupId.
+              { path: 'playgroups/join', element: <JoinWithInvitePage /> },
+              { path: 'playgroups/:playgroupId', element: <PlaygroupHomePage /> },
               { path: 'games', element: <PlaceholderPage title="Games" /> },
               { path: 'decks', element: <PlaceholderPage title="Decks" /> },
               { path: 'stats', element: <PlaceholderPage title="Stats" /> },

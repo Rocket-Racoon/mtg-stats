@@ -8,6 +8,7 @@ import { render } from '@testing-library/react';
 import { createMemoryRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { AppProviders } from '../providers/AppProviders';
 import { routes } from '../routes';
 import { useSessionStore } from '../session/store';
 
@@ -49,7 +50,11 @@ beforeEach(() => {
 });
 
 function renderApp() {
-  return render(<RouterProvider router={createMemoryRouter(routes, { initialEntries: ['/'] })} />);
+  return render(
+    <AppProviders>
+      <RouterProvider router={createMemoryRouter(routes, { initialEntries: ['/'] })} />
+    </AppProviders>,
+  );
 }
 
 const INTERACTIVE =

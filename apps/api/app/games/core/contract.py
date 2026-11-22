@@ -128,6 +128,21 @@ WIN_CONDITION_CODES: Final[tuple[str, ...]] = get_args(WinCondition)
 TRUST_MODES: Final[tuple[str, ...]] = get_args(TrustMode)
 
 
+def _plain(value: Any) -> Any:
+    """Plain JSON containers around the values exactly as stored (no typed coercion).
+
+    Models become dicts in field-declaration order; lists and dicts are copied, so the result
+    never aliases the state. Every other value (bool, str, None, int, float...) is returned as is.
+    """
+    if isinstance(value, BaseModel):
+        return {name: _plain(getattr(value, name)) for name in type(value).model_fields}
+    if isinstance(value, list):
+        return [_plain(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _plain(item) for key, item in value.items()}
+    return value
+
+
 class _Frozen(BaseModel):
     model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
 
@@ -226,8 +241,11 @@ class GameState(_Frozen):
 
     def to_json_value(self) -> dict[str, Any]:
         """Return the state as plain JSON values, ready for ``canonical_json``."""
-        # warnings=False: initial_state stores unvalidated settings (section 3.5).
-        return self.model_dump(mode="json", warnings=False)
+        # Not model_dump: its typed serializer turns a stored ``True`` in an integer field into
+        # ``1`` (initial_state and seat_joined store unvalidated settings, section 3.5). Values
+        # come out exactly as stored, in field order, like the TypeScript state.
+        plain: dict[str, Any] = _plain(self)
+        return plain
 
 
 @dataclass(frozen=True)

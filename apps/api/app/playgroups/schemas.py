@@ -66,12 +66,17 @@ PlaygroupDescription = Annotated[
 
 
 class InviteCreate(BaseModel):
-    """Optional body of ``POST /invites``."""
+    """Optional body of ``POST /invites`` and ``POST /playgroups/{id}/invites``."""
 
     model_config = ConfigDict(strict=True)
 
     expires_in_days: int = Field(default=7, ge=1, le=30, description="Days until it expires.")
-    max_uses: int = Field(default=1, ge=1, le=20, description="How many sign-ups it allows.")
+    max_uses: int = Field(
+        default=1,
+        ge=1,
+        le=20,
+        description="How many uses it allows; each sign-up or join counts one.",
+    )
 
 
 class InviteOut(BaseModel):
@@ -96,7 +101,7 @@ class InviteCreated(InviteOut):
 
 
 class InvitePageOut(Page[InviteOut]):
-    """A page of the caller's invites."""
+    """A page of invites: the caller's site-level ones, or one playgroup's."""
 
 
 class InvitePreviewRequest(BaseModel):

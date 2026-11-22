@@ -73,7 +73,8 @@ async def create_invite(
 async def preview_invite(
     body: InvitePreviewRequest, session: SessionDep, _rate_limit: PublicRateLimitDep
 ) -> InvitePreviewOut:
-    """Show the inviter's display name and the expiry of an invite. No authentication.
+    """Show the inviter's display name, the expiry and, for a playgroup invite, the playgroup's
+    name (`playgroup_name`, null for a site-level invite). No authentication.
 
     Limited to 30 requests per IP address per 15 minutes by default, shared with registration (429
     `rate_limited`, with `Retry-After`). The token is in the body so it never reaches a URL or an

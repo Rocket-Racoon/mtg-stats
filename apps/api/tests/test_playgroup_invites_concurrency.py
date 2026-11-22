@@ -22,6 +22,7 @@ from app.core import db
 from app.core.errors import DomainError
 from app.identity.services import create_user_with_player
 from app.playgroups import repository, services
+from app.playgroups.models import Membership
 from tests.migration_support import alembic_config, temporary_database
 
 WAIT_SECONDS = 20.0
@@ -139,9 +140,9 @@ async def _run_behind_invite_lock(
                 task.cancel()
 
 
-async def _scalar(live: Live, sql: str) -> Any:
+async def _scalar(live: Live, sql: str, **params: Any) -> Any:
     async with live.engine.connect() as conn:
-        return (await conn.execute(text(sql))).scalar_one()
+        return (await conn.execute(text(sql), params)).scalar_one()
 
 
 async def test_two_users_racing_for_a_single_use_invite_admit_exactly_one(live: Live) -> None:
@@ -175,16 +176,45 @@ async def test_one_user_joining_twice_at_once_is_counted_once(live: Live) -> Non
     assert await _scalar(live, "SELECT count(*) FROM memberships WHERE role = 'member'") == 1
 
 
-async def test_one_user_racing_through_two_invites_ends_with_one_membership_and_one_use(
+async def test_a_join_losing_the_unique_index_race_rolls_back_its_use(live: Live) -> None:
+    """Deterministic: another transaction (a join through a second invite, say) has inserted the
+    user's membership but not committed. Our join passes the member check, takes the invite
+    lock, and blocks on the unique index; when the other commits it gets an IntegrityError,
+    rolls back its savepoint (and its use) and answers ``already_member``."""
+    seed = await _seed(max_uses=5, joiners=1)
+    async with db.get_sessionmaker()() as holder:
+        group_id = await _scalar(live, "SELECT playgroup_id FROM invites")
+        player_id = await _scalar(
+            live, "SELECT id FROM players WHERE user_id = :u", u=seed.users[0]
+        )
+        repository.add_membership(
+            holder, Membership(playgroup_id=group_id, player_id=player_id, role="member")
+        )
+        await holder.flush()  # inserted, uncommitted: holds the unique index entry
+        task = asyncio.ensure_future(_join(seed.users[0], seed.tokens[0]))
+        try:
+            await _wait_until_blocked(live.engine, waiters=1)
+            await asyncio.sleep(0.3)
+            assert not task.done()
+            await holder.commit()
+            assert await asyncio.wait_for(task, WAIT_SECONDS) is True
+        finally:
+            if not task.done():
+                task.cancel()
+    assert await _scalar(live, "SELECT use_count FROM invites") == 0
+    assert await _scalar(live, "SELECT count(*) FROM memberships WHERE role = 'member'") == 1
+
+
+async def test_a_double_tap_on_a_single_use_invite_answers_already_member_to_the_second(
     live: Live,
 ) -> None:
-    seed = await _seed(invites=2, max_uses=5, joiners=1)
-    # No shared invite row to queue on: the unique index arbitrates, the loser rolls back its use.
-    outcomes = await asyncio.gather(
-        _join(seed.users[0], seed.tokens[0]),
-        _join(seed.users[0], seed.tokens[1]),
-        return_exceptions=True,
+    seed = await _seed(max_uses=1, joiners=1)
+    outcomes = await _run_behind_invite_lock(
+        live,
+        seed.invite_ids[0],
+        lambda: _join(seed.users[0], seed.tokens[0]),
+        lambda: _join(seed.users[0], seed.tokens[0]),
     )
-    assert all(isinstance(o, bool) for o in outcomes), outcomes
+    assert sorted(str(o) for o in outcomes) == ["False", "True"]  # joined, then "already in"
+    assert await _scalar(live, "SELECT use_count FROM invites") == 1
     assert await _scalar(live, "SELECT count(*) FROM memberships WHERE role = 'member'") == 1
-    assert await _scalar(live, "SELECT coalesce(sum(use_count), 0) FROM invites") == 1

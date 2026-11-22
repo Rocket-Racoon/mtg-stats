@@ -347,7 +347,10 @@ async def join_with_invite(session: AsyncSession, *, user_id: UUID, token: str) 
        tokens are all the same 410. A former member, or a member of another playgroup, is a
        non-member here.
     4. Otherwise lock the invite (:func:`lock_invite`, 410 if it is not active), count one use
-       and insert a ``member`` membership. A former member gets a new row.
+       and insert a ``member`` membership. A former member gets a new row. If the lock shows
+       the invite dead, the caller's membership is read once more: a double-tap on a single-use
+       link has its second request wait on the first, which commits the membership and uses the
+       invite up, so that second request answers ``already_member`` instead of 410.
 
     Lock order stays invite row first, then memberships; step 3 takes no lock, so it cannot
     deadlock with a concurrent join. If a concurrent join of the same user through another invite
@@ -371,7 +374,15 @@ async def join_with_invite(session: AsyncSession, *, user_id: UUID, token: str) 
     existing = await repository.get_active_membership(session, playgroup_id, player_id)
     if existing is not None:
         return JoinResult(already_member=True, playgroup=info_of(existing))
-    invite = await lock_invite(session, token)
+    try:
+        invite = await lock_invite(session, token)
+    except InviteNoLongerValidError:
+        # A concurrent join by this same user may have used up a single-use invite and committed
+        # while we waited for the lock; under READ COMMITTED this read now sees that membership.
+        raced = await repository.get_active_membership(session, playgroup_id, player_id)
+        if raced is None:
+            raise
+        return JoinResult(already_member=True, playgroup=info_of(raced))
     try:
         async with session.begin_nested():
             await consume_invite(session, invite.id, player_id=player_id)

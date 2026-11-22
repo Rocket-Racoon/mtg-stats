@@ -77,7 +77,7 @@
         "type": "object"
       },
       "InviteCreate": {
-        "description": "Optional body of ``POST /invites``.",
+        "description": "Optional body of ``POST /invites`` and ``POST /playgroups/{id}/invites``.",
         "properties": {
           "expires_in_days": {
             "default": 7,
@@ -89,7 +89,7 @@
           },
           "max_uses": {
             "default": 1,
-            "description": "How many sign-ups it allows.",
+            "description": "How many uses it allows; each sign-up or join counts one.",
             "maximum": 20.0,
             "minimum": 1.0,
             "title": "Max Uses",
@@ -292,7 +292,7 @@
         "type": "object"
       },
       "InvitePageOut": {
-        "description": "A page of the caller's invites.",
+        "description": "A page of invites: the caller's site-level ones, or one playgroup's.",
         "properties": {
           "items": {
             "items": {
@@ -2588,7 +2588,7 @@
     },
     "/api/v1/invites/preview": {
       "post": {
-        "description": "Show the inviter's display name and the expiry of an invite. No authentication.\n\nLimited to 30 requests per IP address per 15 minutes by default, shared with registration (429\n`rate_limited`, with `Retry-After`). The token is in the body so it never reaches a URL or an\naccess log. A revoked, expired, used-up or unknown token is a 410 `invite_no_longer_valid`.",
+        "description": "Show the inviter's display name, the expiry and, for a playgroup invite, the playgroup's\nname (`playgroup_name`, null for a site-level invite). No authentication.\n\nLimited to 30 requests per IP address per 15 minutes by default, shared with registration (429\n`rate_limited`, with `Retry-After`). The token is in the body so it never reaches a URL or an\naccess log. A revoked, expired, used-up or unknown token is a 410 `invite_no_longer_valid`.",
         "operationId": "playgroups_preview_invite",
         "requestBody": {
           "content": {

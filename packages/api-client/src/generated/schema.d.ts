@@ -343,7 +343,8 @@ export interface paths {
         put?: never;
         /**
          * Preview an invite
-         * @description Show the inviter's display name and the expiry of an invite. No authentication.
+         * @description Show the inviter's display name, the expiry and, for a playgroup invite, the playgroup's
+         *     name (`playgroup_name`, null for a site-level invite). No authentication.
          *
          *     Limited to 30 requests per IP address per 15 minutes by default, shared with registration (429
          *     `rate_limited`, with `Retry-After`). The token is in the body so it never reaches a URL or an
@@ -557,7 +558,7 @@ export interface components {
         };
         /**
          * InviteCreate
-         * @description Optional body of ``POST /invites``.
+         * @description Optional body of ``POST /invites`` and ``POST /playgroups/{id}/invites``.
          */
         InviteCreate: {
             /**
@@ -568,7 +569,7 @@ export interface components {
             expires_in_days: number;
             /**
              * Max Uses
-             * @description How many sign-ups it allows.
+             * @description How many uses it allows; each sign-up or join counts one.
              * @default 1
              */
             max_uses: number;
@@ -677,7 +678,7 @@ export interface components {
         };
         /**
          * InvitePageOut
-         * @description A page of the caller's invites.
+         * @description A page of invites: the caller's site-level ones, or one playgroup's.
          */
         InvitePageOut: {
             /** Items */

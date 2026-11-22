@@ -587,9 +587,13 @@ async def test_a_deactivated_member_gets_401_before_the_already_member_answer(
     client: httpx.AsyncClient, app_schema: AppSession
 ) -> None:
     owner_id, _, owner = await make_user(app_schema)
-    user_id, headers = await make_account(app_schema, active=False)
+    user_id, player_id, headers = await make_user(app_schema)
     group_id = await _group(client, owner)
+    await join(app_schema, group_id, player_id)
     token = await _group_invite(app_schema, group_id, owner_id)
+    await app_schema.execute(
+        text("UPDATE users SET is_active = false WHERE id = :u"), {"u": user_id}
+    )
+    await app_schema.commit()
     response = await client.post(JOIN, json={"token": token}, headers=headers)
     assert_envelope(response, 401, "unauthenticated")
-    assert user_id is not None

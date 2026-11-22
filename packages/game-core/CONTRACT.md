@@ -78,7 +78,7 @@ The state is a JSON object. Every key below is always present.
 | `monarch`            | integer or null               | Seat id of the monarch.                                                                                                                                                                                                                                                                                                         |
 | `initiative`         | integer or null               | Seat id holding the initiative.                                                                                                                                                                                                                                                                                                 |
 | `commander_damage`   | object of objects of integers | `commander_damage[target seat id as a decimal string][source_key]`. `source_key` is `"<source seat id>:<commander index>"`, for example `"1:0"`. A target key and a source key are created by the first damage that reaches them and are never removed, even when a tally returns to 0 (S-6.1.4).                               |
-| `no_winner`          | boolean                       | `true` only for a full draw (S-6.1.3, S-6.7.1).                                                                                                                                                                                                                                                                                 |
+| `no_winner`          | boolean                       | `true` only for a full draw (S-6.1.3, 4.5.2; S-6.7.1).                                                                                                                                                                                                                                                                          |
 | `winner_seat`        | integer or null               | The provisional or final winner. `null` while none, and when `no_winner` is `true`.                                                                                                                                                                                                                                             |
 | `win_condition`      | string or null                | A D5 code (section 3.4) or `null`.                                                                                                                                                                                                                                                                                              |
 | `win_condition_note` | string                        | Free text, required by S-6.7 when `win_condition` is `other`. `""` when none.                                                                                                                                                                                                                                                   |
@@ -145,7 +145,7 @@ Before any event the state is an empty lobby built by `initialState(game_id, set
 
 ## 4. Event registry
 
-The registry is closed: a type that is not in this table is rejected with `unknown_event_type`. "Introduced by" names the story that defines the handler's behaviour; until then the handler is a no-op that only advances `last_seq`. The nine S-6.1.6 handlers are specified in 4.4. Payload keys marked `?` are optional (absent or `null`). Unknown payload keys MUST be ignored by reducers, and they stay in the log as sent. In the payloads below, "commanders" means an array of 1 or 2 `{"card_id": string or null, "name": string}` objects.
+The registry is closed: a type that is not in this table is rejected with `unknown_event_type`. "Introduced by" names the story that defines the handler's behaviour; until then the handler is a no-op that only advances `last_seq`. The nine S-6.1.6 handlers are specified in 4.4 and the three S-6.1.3 handlers in 4.5. Payload keys marked `?` are optional (absent or `null`). Unknown payload keys MUST be ignored by reducers, and they stay in the log as sent. In the payloads below, "commanders" means an array of 1 or 2 `{"card_id": string or null, "name": string}` objects.
 
 | Type                   | Payload                                                                                | Introduced by |
 | ---------------------- | -------------------------------------------------------------------------------------- | ------------- |
@@ -182,7 +182,7 @@ The registry is closed: a type that is not in this table is rejected with `unkno
 ### 4.1 Payload value rules
 
 - `seat`, `from`, `to`, `source_seat`, `target_seat`, `first_seat`, `winner_seat`: seat ids, 1 to 8. A seat id that is an integer from 1 to 8 but is not at the table is `unknown_seat`. A seat id that is not an integer, or is outside 1 to 8, is `invalid_payload` (it can never be a seat; compare `on_behalf_of_seat` in section 2, which is `invalid_event` for the same reason).
-- `delta` is a non-zero integer (positive or negative); `amount` is a positive integer. The permitted magnitudes (for example 1 to 999 for life) and which sign a counter may take are part of each handler's story, and a violation is `invalid_amount`.
+- `delta` is a non-zero integer (positive or negative); `amount` is a positive integer. **Type versus value:** a `delta` or `amount` that is not an integer at all (a string, a boolean, `null`, an array, an object, or absent) is `invalid_payload`, and a fraction or an integer outside the safe range is `invalid_payload` too (6.2, step 5). An integer that breaks the rule of the handler (zero, a magnitude above the limit, for example 1 to 999 for life, or a sign a counter may not take) is `invalid_amount`. The permitted magnitudes are part of each handler's story.
 - `value_set.field` is one of `life`, `poison`, `energy`, `experience`, `commander_damage`, `commander_cast`. `commander_damage` needs `source_seat` and `commander`; `commander_cast` needs `commander`; the other fields use neither.
 - `game_abandoned` records which phase it left, so `game_resumed` can restore it (`resume_phase`).
 - `event_reverted` and `value_set`/`player_revived` follow the revert and correction rules of S-6.6.1 and S-6.6.5.
@@ -193,7 +193,7 @@ The registry is closed: a type that is not in this table is rejected with `unkno
 
 - `invalid_setting` (S-6.1.3, S-6.1.4, S-6.1.5, S-6.1.6). `settings_changed` outside `lobby`: `invalid_phase`.
 - `invalid_amount` (S-6.1.3 to S-6.1.7). `unknown_commander` for a commander index the seat does not have (S-6.1.4).
-- `seat_eliminated` for an eliminated target or source (S-6.1.3, S-6.1.7).
+- `seat_eliminated` for an eliminated target or source (S-6.1.3, S-6.1.7). Enforced from S-6.1.3 by `life_changed`, `player_conceded` and `player_eliminated`; its place in the check order is fixed in 4.5.1.
 - `table_full` (`seat_joined` with 8 seats), `not_enough_players` (`game_started` with fewer than 2 seats), `invalid_phase` (for example `seat_moved` without `correction: true` in an active game), all S-6.1.6.
 - `game_closed`: any event other than `game_resumed` on a `finished` or `abandoned` game (S-6.2.9, S-6.3.3). Handler-level, introduced by later stories; no-op handlers do not check it.
 - `not_revertible` (`game_created`, `game_started`, `game_ended`) and `already_reverted` (S-6.6.1).
@@ -213,11 +213,12 @@ These rules are part of the contract so that the later stories implement them wi
 - **`game_closed`.** See 4.2 and 6.2. Owner: S-6.2.8, S-6.2.9, S-6.7.3.
 - **Reverts.** See 6.5. Owner: S-6.6.1.
 - **Settings ranges.** See 3.2. Owner: S-6.1.6. **Enforced** by S-6.1.6 (4.4.2 and 4.4.3).
+- **Eliminations and `seat_eliminated`.** An eliminated seat takes no more events, except a revert or a host correction. The elimination routine (4.5.2) sets the five elimination fields and the full draw. Owner: S-6.1.3. **Enforced** by S-6.1.3 for life, concession and declared eliminations (4.5). Eliminations by commander damage, poison and group events call the same routine in S-6.1.4, S-6.1.5 and S-6.1.7, which add the vectors for several seats eliminated by one event.
 - **Message size.** The wire reader (5.6) has no size limit, and unknown payload keys are stored as sent. S-6.3.2 and S-6.3.3 MUST cap the size of a message (and may cap the payload) before the reader runs.
 
 ### 4.4 Lobby, seat and turn handlers (S-6.1.6)
 
-These nine handlers replace the no-ops. Everything else in section 4 is still a no-op. They are pure (section 7): timestamps and random choices come in the payload.
+These nine handlers replace the no-ops. Everything else in section 4 is still a no-op, except the three handlers of S-6.1.3 (4.5). They are pure (section 7): timestamps and random choices come in the payload.
 
 #### 4.4.1 Rules shared by the nine handlers
 
@@ -251,7 +252,7 @@ In every other phase (`finished`, `abandoned`, and `lobby`, `active` or `ending`
 - A **seat id** is an integer 1 to 8. A **player id**, a **deck version id** and a **card id** are non-empty strings when they are not `null`. A **name** is any string, `""` included. Strings are never trimmed, normalised or compared case-insensitively.
 - **Commanders** (`deck_assigned`, `commanders_set`): an array of **1 or 2** items, each an object with the keys `card_id` (a non-empty string or `null`; the key MUST be present) and `name` (a string; the key MUST be present). Other keys of an item are ignored and are not stored. An array of 0 or of 3 or more items, a non-array, or a bad item is `invalid_payload`. The array order is kept: the index is the commander index (3.3).
 - **A new seat** has: the `seat`, `player_id` and `name` of the payload; `deck_version_id` `null`; `commanders` `[{"card_id": null, "name": ""}]`; `life` equal to `settings.starting_life` at that moment; `poison`, `energy` and `experience` 0; `commander_cast` `[0]`; and the five elimination fields `null`.
-- **Lobby invariant.** While `phase` is `lobby`, every seat's `life` equals `settings.starting_life`. `seat_joined` creates a seat that way and `settings_changed` of `starting_life` rewrites every seat's `life`. Nothing else in the lobby changes `life`, `poison`, `energy` or `experience`.
+- **Lobby invariant.** While `phase` is `lobby`, every seat's `life` equals `settings.starting_life`. `seat_joined` creates a seat that way and `settings_changed` of `starting_life` rewrites every seat's `life`. Nothing else in the lobby changes `life`, `poison`, `energy` or `experience` (the S-6.1.3 handlers are `invalid_phase` in the lobby, 4.5.1).
 - `seats` stays sorted by ascending `seat`. `order` keeps the relative order of the seats that stay.
 
 **Settings values (`invalid_setting`).** `starting_life` MUST be an integer from 1 to 999, `commander_damage_threshold` and `poison_threshold` integers from 1 to 99, and `trust_mode` the string `casual` or `strict`. Any other value is `invalid_setting`, whatever its type: `0`, `1000`, `"40"`, `true`, `null`, `"STRICT"`.
@@ -389,7 +390,141 @@ Rows 17 to 19 come from `[1,2,3,4]` with `F` 1:
 - **Row 18:** seat 3 is active (turn 3) and the correction `{from: 3, to: 2}` gives `[1,3,2,4]`. The next seat is 2, which already played in round 1, so it acts twice in the round, and the counter stays at 1; round 2 starts when play reaches seat 1, two passes later.
 - **Row 19:** seat 3 is active (turn 3) and the correction `{from: 1, to: 4}` gives `[4,2,3,1]`. `F` is still seat 1 (the id), now last in `order`. The next seat is 1 and starts round 2 at turn 4, so seat 4 did not act in round 1.
 
-No event can eliminate a seat before S-6.1.3, so the rows with eliminated seats have no vector in `vectors/` yet. `src/lobby.test.ts` pins them with hand-built states, and S-6.1.3 adds vectors.
+Rows 7 to 13, 15 and 16 have eliminated seats. S-6.1.3 added vectors for them, built with real events (`player_conceded`, 4.5.4): the `accept-turn-passed-*` vectors named after the rule of the row. `src/lobby.test.ts` and `src/acceptance-s616.test.ts` also pin every row, and every order, first seat and eliminated set, with hand-built states.
+
+### 4.5 Life, concession and elimination handlers (S-6.1.3)
+
+These three handlers replace the no-ops of `life_changed`, `player_conceded` and `player_eliminated`. They are pure (section 7). Every type of section 4 that 4.4 and this section do not name is still a no-op. The elimination bookkeeping is one routine (4.5.2) that the later stories call too.
+
+#### 4.5.1 Rules shared by the three handlers
+
+**Order of the handler's checks.** After steps 1 to 7 of 6.2, a handler returns the **first** failure in this order:
+
+1. **Payload shape** (`invalid_payload`), as in 4.4.1, and in addition:
+   - `delta` MUST be an integer. A string, a boolean, `null`, an array, an object or an absent key is `invalid_payload`. A fraction, or an integer outside the safe range, never reaches the handler: it is `invalid_payload` at step 5 of 6.2.
+   - `source_seat` is optional (absent or `null` mean "no source") and otherwise a seat id.
+   - `cause` is optional and otherwise one of the ten D5 codes of 3.4, compared exactly. `"Mill"`, `""`, `"draw"`, a number or `false` are `invalid_payload`, because 6.2 gives that code to an unknown enumerated value.
+2. **Phase** (`invalid_phase`): the event is allowed when `phase` is `active` or `ending`, and in no other phase. In the `lobby` nothing changes `life` (lobby invariant, 4.4.1) and nobody has been eliminated; a player who leaves a lobby uses `seat_left`. `finished` and `abandoned` are closed (`game_closed` is not produced yet, 6.2). `ending` follows `active` (4.4.1): S-6.7.1 says events are still accepted there, and it may narrow this.
+3. **Seat references** (`unknown_seat`): `seat`, then `source_seat` when given, that is not at the table.
+4. **`seat_eliminated`**: `seat` is eliminated, then `source_seat` (when given) is eliminated. An eliminated seat is one whose `eliminated_at_seq` is not `null` (3.3). `source_seat` is checked whatever the sign of `delta`.
+5. **The handler's own rules**, in the order its subsection lists them (for `life_changed`, the amount rules).
+
+`seat_eliminated` comes after `unknown_seat` because only a seat at the table can be eliminated. It comes **before** the amount rules because criterion 4 of S-6.1.3 says that an event aimed at an eliminated seat is rejected with `seat_eliminated`: a client that sends a bad amount to an eliminated seat is told that the seat is out. It also gives S-6.1.4, S-6.1.5 and S-6.1.7 one order to follow: shape, phase, `unknown_seat`, `seat_eliminated`, then their own rules (`invalid_amount`, `unknown_commander`).
+
+**What may still target an eliminated seat.** Criterion 4 exempts "a revert or a host correction". In the registry these are:
+
+- `event_reverted` (S-6.6.1), and `value_set` and `player_revived` (S-6.6.5): not specified yet.
+- `seat_moved` with `correction: true` (4.4.6): it reorders `order` and does not touch a seat's values, so it may name an eliminated seat.
+
+No other S-6.1.6 handler can reach an eliminated seat: `turn_passed` names no seat, and every other one needs the `lobby`, where no seat is eliminated.
+
+Who may send these events (the seat's owner, the host, trust mode) is the server's rule (S-6.3.3), not the reducer's.
+
+**A life that is not an integer.** `initialState` does not validate the settings (3.5), and `seat_joined` and `game_started` copy `settings.starting_life` into `life` as it is (4.4.1). A seat's `life` can therefore be a string, `null`, a boolean or an out-of-range number (vector `accept-seat-joined-with-unvalidated-starting-life`). "An integer" here is the one of section 1: from -(2^53 - 1) to 2^53 - 1. A boolean, a float of any value, a string, `null`, an array and an object are not integers (in Python `bool` is checked before `int`, as in 5.4). A handler MUST NOT throw and MUST NOT guess. The rule is: **`life_changed` on a seat whose `life` is not an integer is `invalid_amount`**. A concession and a declared elimination do not read `life`, so they work on such a seat. No new code is added: `invalid_amount` already means that the amount cannot be applied (6.2).
+
+#### 4.5.2 The elimination routine
+
+Every event that eliminates seats calls this routine, and no handler writes the elimination fields (3.3) itself. S-6.1.3 calls it for one seat at a time. S-6.1.4 (commander damage), S-6.1.5 (poison) and S-6.1.7 (group events) call it with one entry or several. In TypeScript it is `eliminate(state, seq, eliminations)` in `src/elimination.ts`; the Python reducer has the same routine. It is not an event and has no payload.
+
+**Input.** The state **after** the event's own changes (the new life, the new counters), the `seq` the event is applied with (`last_seq + 1`, 6.4), and a list of entries `(seat, reason, by, cause)`: `reason` is one of the five of 3.3, `by` a seat id or `null`, `cause` a D5 code or `null`. The caller decides which seats to eliminate and with which reason (the precedence `commander_damage` > `poison` > `life` is S-6.1.4's rule), and has already returned `seat_eliminated` for an eliminated target.
+
+**Steps.**
+
+1. Let `standing` be the seats of the state that are not eliminated.
+2. Go through the entries in order. An entry is **applied** unless its seat is not in `standing` (not at the table, or eliminated before this call) or an earlier entry of the list names the same seat. A skipped entry has no effect and is not an error. For every applied entry, and for no other seat:
+   - `elimination_reason` is the entry's `reason`, `eliminated_by` its `by` and `elimination_cause` its `cause`;
+   - `eliminated_at_seq` is `seq`, **the same value for every applied entry** (criterion 6: equal values mean "eliminated at the same time", and the seats share a placement, D6);
+   - `eliminated_round` is the state's `round` (the routine never changes `round`).
+3. **Full draw.** If at least one entry was applied and the applied seats are **every** seat of `standing` (nobody is left in the game), `no_winner` becomes `true`. In every other case `no_winner` is left as it is (criterion 7). A seat eliminated by an earlier event keeps its own `eliminated_at_seq` and stays a loss (D6, X1).
+
+The routine changes nothing else: not `last_seq` (the handler sets it), `phase`, `active_seat`, `turn`, `round`, `winner_seat`, `win_condition`, `monarch`, `initiative` or `commander_damage`. In particular:
+
+- **The phase does not move.** A full draw leaves `phase` at `active` (or `ending`). With every seat eliminated, `turn_passed` is `invalid_phase` (4.4.10) and every event naming a seat is `seat_eliminated`. S-6.7.1 owns the `ending` phase and the provisional result.
+- **`winner_seat` stays `null`** when one seat is left standing. Choosing the provisional winner is S-6.7.1's.
+- **The drawing seats are derived, not stored.** When `no_winner` is `true` because of this routine, the drawing seats are the seats whose `eliminated_at_seq` equals the greatest `eliminated_at_seq` of the table, that is every seat eliminated by the event that ended the game. Seats eliminated earlier are losses. No state key is added for it. S-6.7.1 may refine this when it reads the final state.
+- **Nothing in S-6.1.3 sets `no_winner` back to `false`.** A revert rebuilds the state by folding the log (6.5), so it needs no such rule. Whether a revive (`player_revived`, S-6.6.5) clears it is that story's decision.
+- **The single-seat case.** With one seat left, an event that eliminates it "eliminates every seat still in the game", so the literal rule makes it a full draw: the last seat conceding gives `no_winner` `true`. The criteria do not exclude it. S-6.7.1 decides what a game with one seat left is (4.4.10 has the same open point), and may change when the winner is picked. S-6.1.3 implements the literal rule and pins it with vectors.
+- **Monarch and initiative.** The routine leaves them as they are for now. S-6.1.5 owns the hand-off: its criterion 4 says that when the monarch is eliminated the active player becomes the monarch, or the next non-eliminated seat in turn order if the monarch was the active player, and that the initiative follows the same rule. This routine is where S-6.1.5 hooks that in, so S-6.1.5 will amend the list above.
+
+Worked examples (`standing` before the call; every applied seat gets `seq`):
+
+| #   | `standing` | entries                        | applied   | `no_winner` after | note                                                          |
+| --- | ---------- | ------------------------------ | --------- | ----------------- | ------------------------------------------------------------- |
+| 1   | 1, 2, 3, 4 | seat 2 `life` by 1             | 2         | unchanged         | one seat, the case of S-6.1.3                                 |
+| 2   | 1, 2, 3, 4 | seats 2, 3                     | 2, 3      | unchanged         | the same `eliminated_at_seq` for both (criterion 6)           |
+| 3   | 1, 2, 3, 4 | seats 1, 2, 3, 4               | all four  | `true`            | nobody is left (criterion 7)                                  |
+| 4   | 3, 4       | seats 3, 4                     | 3, 4      | `true`            | seats 1 and 2 were out earlier and keep their own seq: losses |
+| 5   | 4          | seat 4                         | 4         | `true`            | the single-seat case (literal rule)                           |
+| 6   | 1, 2, 3, 4 | seat 2 `poison`, seat 2 `life` | 2 (first) | unchanged         | a seat named twice takes its first entry                      |
+| 7   | 1, 2       | none, or seat 5                | none      | unchanged         | the state is returned as it is                                |
+| 8   | none       | seat 1                         | none      | unchanged         | nobody to eliminate: skipped, and `no_winner` is not set      |
+
+**Vectors.** A single event cannot eliminate several seats before S-6.1.7 (`group_drain`), so criterion 6 and the "every seat at once" half of criterion 7 have no shared vector yet. They are pinned by direct unit tests of the routine with several seats (`src/elimination.test.ts`, and its Python twin), as the eliminated-seat rows of 4.4.10 were before this story. **S-6.1.7 adds the vectors** for them. The shared vectors cover the one-seat cases, including the full draw when the last seat in the game is eliminated (examples 4 and 5, built with consecutive events).
+
+#### 4.5.3 `life_changed`
+
+Payload: `seat`, `delta` (a non-zero integer with |delta| at most 999) and `source_seat?`.
+
+1. Payload shape (4.5.1): `invalid_payload`.
+2. Phase (4.5.1): `invalid_phase`.
+3. `seat`, then `source_seat`, not at the table: `unknown_seat`.
+4. `seat`, then `source_seat`, eliminated: `seat_eliminated`.
+5. `delta` is `0`, or its absolute value is more than 999: `invalid_amount`.
+6. The `life` of `seat` is not an integer (4.5.1), or `life + delta` is outside -(2^53 - 1) to 2^53 - 1: `invalid_amount`. Python integers do not overflow, so the bound is checked explicitly.
+
+State change: the seat's `life` becomes `life + delta`.
+
+- **Life is not clamped**, in either direction: it can go below 0, and above any earlier total. There is no upper bound and no lower bound other than the safe-integer range of check 6. A gain above the starting life is normal.
+- **Elimination.** When `delta` is negative and the new `life` is 0 or less, the seat is eliminated by the routine (4.5.2) with the entry `(seat, life, by, null)`, where `by` is `source_seat` when given and `null` otherwise. `source_seat` may equal `seat` (a self-inflicted loss), and `eliminated_by` is then that seat. `source_seat` is stored nowhere else, so it only matters for an elimination.
+- **A positive `delta` never eliminates.** With valid settings a seat cannot be at 0 life or less and still in the game, but a log that starts from unvalidated settings (3.5) can hold one (starting life 0 or -5). A gain on it adds to its life, and it stays in the game even when the total is still 0 or less. Only a later negative `delta` can eliminate it. Nothing in S-6.1.3 revives a seat (that is `player_revived`, S-6.6.5).
+- The active seat, the turn, the round, the order and the other seats do not change. An eliminated active seat stays `active_seat` until the next `turn_passed` (4.4.10).
+
+Worked examples (4 seats, default settings, all alive, round 1, unless stated):
+
+| #   | situation before                        | event                                                            | result                                                                                       |
+| --- | --------------------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| 1   | seat 2 at 40                            | `{seat: 2, delta: -5}`                                           | life 35, in the game                                                                         |
+| 2   | seat 1 at 40                            | `{seat: 1, delta: 10, source_seat: 2}`                           | life 50, in the game                                                                         |
+| 3   | seat 3 at 3 (criterion 2)               | `{seat: 3, delta: -3, source_seat: 1}`                           | life 0; reason `life`, `eliminated_by` 1, `eliminated_at_seq` this seq, `eliminated_round` 1 |
+| 4   | seat 2 at 5 (criterion 3)               | `{seat: 2, delta: -8}`                                           | life -3; reason `life`, `eliminated_by` `null`                                               |
+| 5   | seat 1 at 5                             | `{seat: 1, delta: -4}`                                           | life 1, in the game                                                                          |
+| 6   | seat 2 at 40                            | `{seat: 2, delta: -40, source_seat: 2}`                          | life 0; `eliminated_by` 2                                                                    |
+| 7   | seat 2 at 40                            | `{seat: 2, delta: -40, source_seat: null}`                       | life 0; `eliminated_by` `null`                                                               |
+| 8   | seat 1 at -5, in the game (unvalidated) | `{seat: 1, delta: 3}`                                            | life -2, in the game                                                                         |
+| 9   | seat 1 at -5, in the game (unvalidated) | `{seat: 1, delta: -1}`                                           | life -6, eliminated                                                                          |
+| 10  | seat 1 at 40                            | `{seat: 1, delta: 0}`, `1000` or `-1000`                         | `invalid_amount`                                                                             |
+| 11  | seat 1 at 40                            | `{seat: 1, delta: "3"}`, `true`, `null`, `1.5`, or no `delta`    | `invalid_payload`                                                                            |
+| 12  | seat 1's life is the string `"40"`      | `{seat: 1, delta: -3}`                                           | `invalid_amount` (4.5.1)                                                                     |
+| 13  | seat 1 at 9007199254740991              | `{seat: 1, delta: 1}`                                            | `invalid_amount`                                                                             |
+| 14  | seat 2 eliminated                       | `{seat: 2, delta: 0}`, or `{seat: 1, delta: -1, source_seat: 2}` | `seat_eliminated` (before the amount check)                                                  |
+| 15  | lobby                                   | `{seat: 1, delta: -1}`                                           | `invalid_phase`                                                                              |
+| 16  | seats 1 and 2 out earlier, seat 3 alone | `{seat: 3, delta: -40}`                                          | seat 3 eliminated and `no_winner` `true`: the single-seat case (4.5.2)                       |
+
+#### 4.5.4 `player_conceded`
+
+Payload: `seat`.
+
+1. Payload shape: `invalid_payload`.
+2. Phase: `invalid_phase`.
+3. `seat` not at the table: `unknown_seat`.
+4. `seat` eliminated: `seat_eliminated`.
+
+State change: the routine (4.5.2) eliminates `seat` with the entry `(seat, concession, null, null)`, **whatever its life** (the life is neither read nor changed). `eliminated_by` and `elimination_cause` are `null`. A concession by the active seat leaves it the `active_seat` until the next `turn_passed`.
+
+#### 4.5.5 `player_eliminated`
+
+Payload: `seat` and `cause?` (a D5 code, 3.4). This is the host's declaration that a seat is out by a rule the tracker does not model (milled out, a combo, an alternate win condition).
+
+1. Payload shape: `invalid_payload`, including a `cause` that is not one of the ten codes. Every D5 code is accepted, `concession`, `last_standing` and `other` included: the reducer does not judge which cause makes sense.
+2. Phase: `invalid_phase`.
+3. `seat` not at the table: `unknown_seat`.
+4. `seat` eliminated: `seat_eliminated`.
+
+State change: the routine (4.5.2) eliminates `seat` with the entry `(seat, declared, null, cause)`, where `cause` is the payload's, or `null` when it is absent or `null`. The life is neither read nor changed. Nothing else changes: this event does not set `winner_seat` or `win_condition`, which are S-6.7.1's.
+
+#### 4.5.6 Vectors of S-6.1.3
+
+The vectors of this story are named `accept-life-changed-*`, `reject-life-changed-*`, `accept-player-conceded-*`, `reject-player-conceded-*`, `accept-player-eliminated-*` and `reject-player-eliminated-*`. Each one builds its table with `seat_joined` and `game_started`. They cover criteria 1 to 5 and 7 (the S-6.1.6 vectors already pinned criterion 1 with the default, with a `game_created` and with a changed `starting_life`), the check order, the non-integer life and the safe-range rule. The `accept-turn-passed-*` vectors with eliminated seats build rows 7 to 13, 15 and 16 of the table in 4.4.10 with `player_conceded`. For criterion 6 and the multi-seat half of criterion 7, see 4.5.2.
 
 ## 5. Canonical JSON
 
@@ -475,31 +610,31 @@ The state before the first event comes from `initialState(game_id, settings?)` (
 7. `seq` (when present and valid) is not exactly `state.last_seq + 1`: `out_of_order`. With `seq` absent the event is applied as `last_seq + 1`.
 8. The type's handler runs, may return its own codes, and on success sets `last_seq` to the event's seq.
 
-The nine handlers of S-6.1.6 (`game_created`, `settings_changed`, `seat_joined`, `seat_left`, `seat_moved`, `deck_assigned`, `commanders_set`, `game_started`, `turn_passed`) follow section 4.4. Every other handler is still a no-op that only sets `last_seq`, whatever the phase. **`game_closed` is a handler-level code, not a generic check in `apply`**: later stories (S-6.2.8, S-6.2.9, S-6.7.3) introduce it in their handlers. Until then an event is accepted in a `finished` or `abandoned` game.
+The nine handlers of S-6.1.6 (`game_created`, `settings_changed`, `seat_joined`, `seat_left`, `seat_moved`, `deck_assigned`, `commanders_set`, `game_started`, `turn_passed`) follow section 4.4, and the three of S-6.1.3 (`life_changed`, `player_conceded`, `player_eliminated`) follow section 4.5. Every other handler is still a no-op that only sets `last_seq`, whatever the phase. **`game_closed` is a handler-level code, not a generic check in `apply`**: later stories (S-6.2.8, S-6.2.9, S-6.7.3) introduce it in their handlers. Until then an event is accepted in a `finished` or `abandoned` game.
 
 A fractional number can never be in a vector's accept path, because the state and the payloads hold integers only. Python's wire reader (5.6) rejects float tokens as `invalid_event` before `apply` is called; an in-memory Python `float` given to `apply` is `invalid_payload`.
 
-| Code                  | Meaning                                                                                                                                  |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `unsupported_version` | `v` is an integer the reducer does not support.                                                                                          |
-| `unknown_event_type`  | `type` is not registered.                                                                                                                |
-| `invalid_event`       | The envelope is malformed.                                                                                                               |
-| `game_mismatch`       | The event belongs to another game.                                                                                                       |
-| `out_of_order`        | `seq` is not the next one (a gap, a repeat or a rewind).                                                                                 |
-| `invalid_payload`     | The payload is not a canonical value (step 5), or a handler finds a missing key, a wrong type or an unknown enumerated value.            |
-| `game_closed`         | Handler-level, from S-6.2.8 on: the game is `finished` or `abandoned` and the event is not `game_resumed`. Not produced by this version. |
-| `invalid_phase`       | The event is not allowed in the current phase.                                                                                           |
-| `invalid_setting`     | A setting is outside its range or is not an allowed value.                                                                               |
-| `invalid_amount`      | A `delta`, `amount` or `value` is out of range, zero where not allowed, or would make a counter negative.                                |
-| `unknown_seat`        | A seat id in the payload is not at the table.                                                                                            |
-| `unknown_commander`   | A commander index that the seat does not have.                                                                                           |
-| `seat_eliminated`     | The event targets or originates from an eliminated seat.                                                                                 |
-| `seat_not_eliminated` | A revive for a seat that is still in the game.                                                                                           |
-| `seat_taken`          | `seat_joined` for a seat id that is already in use.                                                                                      |
-| `table_full`          | `seat_joined` when 8 seats are taken.                                                                                                    |
-| `not_enough_players`  | `game_started` with fewer than 2 seats.                                                                                                  |
-| `not_revertible`      | `event_reverted` targets a `game_created`, `game_started` or `game_ended` event.                                                         |
-| `already_reverted`    | `event_reverted` targets an event that is already reverted.                                                                              |
+| Code                  | Meaning                                                                                                                                                                                                     |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `unsupported_version` | `v` is an integer the reducer does not support.                                                                                                                                                             |
+| `unknown_event_type`  | `type` is not registered.                                                                                                                                                                                   |
+| `invalid_event`       | The envelope is malformed.                                                                                                                                                                                  |
+| `game_mismatch`       | The event belongs to another game.                                                                                                                                                                          |
+| `out_of_order`        | `seq` is not the next one (a gap, a repeat or a rewind).                                                                                                                                                    |
+| `invalid_payload`     | The payload is not a canonical value (step 5), or a handler finds a missing key, a wrong type or an unknown enumerated value.                                                                               |
+| `game_closed`         | Handler-level, from S-6.2.8 on: the game is `finished` or `abandoned` and the event is not `game_resumed`. Not produced by this version.                                                                    |
+| `invalid_phase`       | The event is not allowed in the current phase.                                                                                                                                                              |
+| `invalid_setting`     | A setting is outside its range or is not an allowed value.                                                                                                                                                  |
+| `invalid_amount`      | A `delta`, `amount` or `value` is out of range, zero where not allowed, or would make a counter negative or a life leave the safe range, or a `life_changed` meets a `life` that is not an integer (4.5.1). |
+| `unknown_seat`        | A seat id in the payload is not at the table.                                                                                                                                                               |
+| `unknown_commander`   | A commander index that the seat does not have.                                                                                                                                                              |
+| `seat_eliminated`     | The event targets or originates from an eliminated seat.                                                                                                                                                    |
+| `seat_not_eliminated` | A revive for a seat that is still in the game.                                                                                                                                                              |
+| `seat_taken`          | `seat_joined` for a seat id that is already in use.                                                                                                                                                         |
+| `table_full`          | `seat_joined` when 8 seats are taken.                                                                                                                                                                       |
+| `not_enough_players`  | `game_started` with fewer than 2 seats.                                                                                                                                                                     |
+| `not_revertible`      | `event_reverted` targets a `game_created`, `game_started` or `game_ended` event.                                                                                                                            |
+| `already_reverted`    | `event_reverted` targets an event that is already reverted.                                                                                                                                                 |
 
 ### 6.3 Server-only reject codes
 
@@ -682,7 +817,7 @@ Only reducer vectors that pass validation count; a file that fails validation fa
 
 #### 8.4.1 Note for the handler stories
 
-A type that is covered only as an **applied prefix event of a rejecting vector** is run through its handler, but its effect is never asserted: the vector ends in an error and compares no state. While handlers are no-ops this does not matter. Once a handler gains behaviour (S-6.1.3 onward), each registered type should also appear in at least one vector that expects a **state**, so that the handler's effect is pinned. The coverage rule of this section does not require it.
+A type that is covered only as an **applied prefix event of a rejecting vector** is run through its handler, but its effect is never asserted: the vector ends in an error and compares no state. While handlers are no-ops this does not matter. Once a handler gains behaviour, each registered type should also appear in at least one vector that expects a **state**, so that the handler's effect is pinned. The coverage rule of this section does not require it. The S-6.1.6 and S-6.1.3 types all do: `life_changed`, `player_conceded` and `player_eliminated` have `accept-*` vectors with a state. The types that are still no-ops (17 of the 29) only have to be applied successfully by the `accept-all-registered-event-types*.json` vectors.
 
 ### 8.5 Runners
 
@@ -695,4 +830,4 @@ A type that is covered only as an **applied prefix event of a rejecting vector**
 
 The shared conformance corpus for the validator and the coverage rule is `packages/game-core/vector-cases/` (format in its `README.md`): the TypeScript and Python suites both run every case there and must return exactly the messages it lists. A case states one list of messages (there are no alternative readings), and a suite fails if a case carries `alternatives` or `gap`.
 
-Reducer vectors are named `accept-*` (the events are accepted and the final state is compared) and `reject-*` (one event is rejected with a given code). They cover every envelope and payload rule of sections 2 and 6.2, including the check order (`reject-precedence-*`). `canonical-json*.json` hold the serializer cases, `initial-state*.json` the initial state, and `canonical-json-game-state.json` realistic full states as serialization cases (seats cannot be built through no-op handlers). `accept-all-registered-event-types*.json` apply every registered type in one legal log (a lobby with seats, the start, then the types whose handlers are still no-ops), which satisfies the coverage rule of 8.4. When handlers gain behaviour, such a vector must still apply every type successfully, or the coverage rule fails. The S-6.1.6 vectors are named `accept-<event type>-*` and `reject-<event type>-*` with the type's underscores written as hyphens (`accept-seat-moved-*`, `reject-game-started-*`); each one starts from an empty lobby and builds its seats with `seat_joined`.
+Reducer vectors are named `accept-*` (the events are accepted and the final state is compared) and `reject-*` (one event is rejected with a given code). They cover every envelope and payload rule of sections 2 and 6.2, including the check order (`reject-precedence-*`). `canonical-json*.json` hold the serializer cases, `initial-state*.json` the initial state, and `canonical-json-game-state.json` realistic full states as serialization cases (seats cannot be built through no-op handlers). `accept-all-registered-event-types*.json` apply every registered type in one legal log (a lobby with seats, the start, then the types whose handlers are still no-ops), which satisfies the coverage rule of 8.4. When handlers gain behaviour, such a vector must still apply every type successfully, or the coverage rule fails. The S-6.1.6 vectors are named `accept-<event type>-*` and `reject-<event type>-*` with the type's underscores written as hyphens (`accept-seat-moved-*`, `reject-game-started-*`); each one starts from an empty lobby and builds its seats with `seat_joined`. The S-6.1.3 vectors follow the same naming (`accept-life-changed-*`, `reject-player-conceded-*`, 4.5.6). `accept-all-registered-event-types*.json` give `life_changed`, `player_conceded` and `player_eliminated` real payloads, and apply the 17 other types that are still no-ops with an empty payload.

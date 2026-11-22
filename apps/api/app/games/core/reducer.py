@@ -1,7 +1,8 @@
 """The reducer entry point ``apply(state, event)`` (CONTRACT.md section 6).
 
 Pure: no clock, randomness or I/O. ``ts`` is never read; time and chance arrive in payloads.
-The lobby, seat and turn handlers (S-6.1.6, section 4.4) are in ``handlers.py``. Every other
+The lobby, seat and turn handlers (S-6.1.6, section 4.4) and the life, concession and
+declared-elimination handlers (S-6.1.3, section 4.5) are in ``handlers.py``. Every other
 handler is a no-op that only advances ``last_seq`` until the story that introduces it
 (section 4, "Introduced by") fills it in.
 """
@@ -76,7 +77,7 @@ def _noop(state: GameState, event: EventEnvelope, seq: int) -> GameState:
 
 
 REGISTRY: Final[Mapping[str, Handler]] = {**dict.fromkeys(EVENT_TYPES, _noop), **HANDLERS}
-"""One handler per registered type (section 4); the nine of S-6.1.6 live in ``handlers.py``."""
+"""One handler per registered type (section 4); the twelve real ones are in ``handlers.py``."""
 
 
 def _reject(code: ReducerErrorCode) -> ApplyError:

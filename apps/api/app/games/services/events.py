@@ -38,12 +38,20 @@ from app.games.core import (
     apply,
     canonical_json,
 )
+from app.games.core.canonical import has_lone_surrogate
 from app.games.core.contract import EVENT_ID_PATTERN, ReducerErrorCode
 from app.games.models import GameEvent
 
 logger = logging.getLogger(__name__)
 
 _SERVER_SET_KEYS = ("seq", "ts", "actor")
+
+
+class InvalidActorError(ValueError):
+    """The authenticated ``actor`` handed to :func:`append_event` is not storable (a server bug).
+
+    The actor comes from authentication, not from the client, so this is not a ``Rejected``.
+    """
 
 
 class GameLogCorruptError(RuntimeError):
@@ -175,6 +183,25 @@ def _same_body(stored: GameEvent, submission: Mapping[str, Any]) -> bool:
         return False
 
 
+def _check_actor(actor: Actor) -> None:
+    """Raise :class:`InvalidActorError` unless ``actor`` has the CONTRACT.md section 2 shape.
+
+    ``Actor`` validates itself on construction, but ``model_construct`` skips that, and a
+    U+0000 character passes it while ``jsonb`` cannot store it. Checked before any lock or write.
+    """
+    if actor.kind == "player":
+        player_id = actor.player_id
+        if not isinstance(player_id, str) or player_id == "":
+            raise InvalidActorError("a player actor needs a non-empty player_id")
+        if has_lone_surrogate(player_id) or "\0" in player_id:
+            raise InvalidActorError("player_id has a lone surrogate or U+0000 character")
+    elif actor.kind == "system":
+        if actor.player_id is not None:
+            raise InvalidActorError("a system actor has player_id null")
+    else:
+        raise InvalidActorError(f"unknown actor kind {actor.kind!r}")
+
+
 def _load_state(game_id: UUID, snapshot: dict[str, Any], last_seq: int) -> GameState:
     try:
         state = GameState.model_validate(snapshot)
@@ -211,6 +238,14 @@ async def append_event(
     ``loads_wire``). ``actor`` is who the server authenticated; the client's ``actor``, ``seq``
     and ``ts`` are replaced. ``now`` stamps ``ts`` (default: the current UTC time).
 
+    **Server-authority boundary.** The server owns ``seq``, ``ts`` and ``actor``, so those three
+    keys of the submission are dropped *before* the envelope is validated, whatever they hold.
+    A submission with ``seq: null``, ``ts: 5`` or no ``actor`` is therefore accepted, although
+    CONTRACT.md section 2 calls those ``invalid_event`` for an envelope as sent. Every other
+    key is validated as the contract says. Whether a submission that carries ``seq``, ``ts`` or
+    ``actor`` at all is rejected is the wire layer's decision (S-6.3.2, S-6.3.3); this function
+    does not do it.
+
     - A new event the reducer accepts is stored at ``last_seq + 1`` together with the new
       ``games.state`` and ``games.last_seq``, and returned as :class:`Appended`.
     - An ``event_id`` already stored in this game returns the stored event (original ``seq``),
@@ -221,10 +256,15 @@ async def append_event(
       payload has a U+0000 character (``jsonb`` cannot store it; the code is ``invalid_payload``).
       Nothing is written.
 
+    No input can reach the database as a value it cannot store: ``event_id`` and ``type`` are
+    checked by the reducer, the payload for U+0000 (above), and the actor before anything else.
+
     Raises:
+        InvalidActorError: ``actor`` is not a storable contract actor (a server-side bug).
         NotFoundError: there is no game ``game_id``.
         GameLogCorruptError: the stored snapshot disagrees with ``last_seq``.
     """
+    _check_actor(actor)
     game = await repository.lock_game(session, game_id)
     if game is None:
         raise NotFoundError("Game not found.")

@@ -7,6 +7,11 @@
 - :func:`reassign_player` and :func:`delete_playgroup_data`, the two audited exceptions
   (S-2.3.4, S-2.6.3). They are interface stubs until those stories define the audit table.
 
+**Status of the audited operations:** :func:`reassign_player` and :func:`delete_playgroup_data`
+are stubs that raise ``NotImplementedError`` until S-2.3.4 and S-2.6.3. They are not exposed
+through ``games.services`` yet, and no audit table exists (the decision on its owner and shape is
+pending), so neither can write its audit row today.
+
 ``tests/architecture/test_game_events_append_only.py`` enforces that list and that no other
 module issues UPDATE or DELETE against ``game_events``. The rest of this module touches the
 ``games`` table: :func:`lock_game`, :func:`get_game`, :func:`add_game` and :func:`save_snapshot`.

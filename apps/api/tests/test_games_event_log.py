@@ -6,14 +6,17 @@ from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import NotFoundError
 from app.games import repository
+from app.games.core import Actor
 from app.games.models import Game, GameEvent
 from app.games.services import (
     Appended,
     GameLogCorruptError,
+    InvalidActorError,
     Rejected,
     append_event,
     canonical_json,
@@ -23,6 +26,7 @@ from app.games.services import (
     initial_state,
     read_events_since,
 )
+from tests.factories import GameFactory, PlaygroupFactory, create
 from tests.games_support import SYSTEM_ACTOR, make_game, player_actor, submission
 
 pytestmark = pytest.mark.usefixtures("app_schema")
@@ -308,3 +312,103 @@ async def test_get_event_finds_an_event_by_its_client_id_within_its_game(
     event_id = UUID(result.event.event_id)
     assert await get_event(app_schema, game_id, event_id) == result.event
     assert await get_event(app_schema, other, event_id) is None
+
+
+@pytest.mark.parametrize(
+    "actor",
+    [
+        Actor.model_construct(kind="player", player_id="bad\x00id"),
+        Actor.model_construct(kind="player", player_id="bad\ud800id"),
+        Actor.model_construct(kind="player", player_id=""),
+        Actor.model_construct(kind="player", player_id=None),
+        Actor.model_construct(kind="system", player_id="someone"),
+        Actor.model_construct(kind="robot", player_id=None),
+    ],
+)
+async def test_an_actor_that_cannot_be_stored_raises_before_anything_is_written(
+    app_schema: AsyncSession, actor: Actor
+) -> None:
+    game_id = await make_game(app_schema)
+    with pytest.raises(InvalidActorError):
+        await append_event(app_schema, game_id, submission(game_id), actor=actor)
+    assert await _count(app_schema, game_id) == 0
+    assert (await app_schema.execute(select(1))).scalar_one() == 1  # no DataError poisoned it
+
+
+async def test_a_nul_in_type_or_event_id_is_rejected_not_a_database_error(
+    app_schema: AsyncSession,
+) -> None:
+    game_id = await make_game(app_schema)
+    bad_type = {**submission(game_id), "type": "turn_passed\x00"}
+    bad_id = {**submission(game_id), "event_id": "\x00" + str(uuid4())[1:]}
+    assert await append_event(app_schema, game_id, bad_type, actor=player_actor()) == Rejected(
+        "unknown_event_type"
+    )
+    assert await append_event(app_schema, game_id, bad_id, actor=player_actor()) == Rejected(
+        "invalid_event"
+    )
+    assert await _count(app_schema, game_id) == 0
+
+
+async def test_a_lone_surrogate_in_a_payload_is_rejected_not_a_database_error(
+    app_schema: AsyncSession,
+) -> None:
+    game_id = await make_game(app_schema)
+    for payload in ({"a": "\ud800"}, {"\udc00": 1}):
+        result = await append_event(
+            app_schema, game_id, submission(game_id, payload=payload), actor=player_actor()
+        )
+        assert result == Rejected("invalid_payload")
+    assert await _count(app_schema, game_id) == 0
+
+
+async def test_a_duplicate_whose_new_payload_is_not_canonical_is_flagged_as_different(
+    app_schema: AsyncSession,
+) -> None:
+    game_id = await make_game(app_schema)
+    first = await _appended(app_schema, game_id, payload={"n": 1})
+    again = await append_event(
+        app_schema,
+        game_id,
+        submission(game_id, payload={"n": 1.5}, event_id=first.event.event_id),
+        actor=player_actor(),
+    )
+    assert isinstance(again, Appended)
+    assert (again.duplicate, again.body_differs) == (True, True)
+
+
+async def test_a_submission_without_seq_ts_or_actor_keys_is_accepted_the_server_owns_them(
+    app_schema: AsyncSession,
+) -> None:
+    game_id = await make_game(app_schema)
+    sent = submission(game_id)
+    del sent["actor"]
+    first = await append_event(app_schema, game_id, sent, actor=player_actor())
+    sent2 = {**submission(game_id), "seq": None, "ts": 5}
+    second = await append_event(app_schema, game_id, sent2, actor=player_actor())
+    assert isinstance(first, Appended)
+    assert isinstance(second, Appended)
+    assert second.event.seq == 2
+
+
+async def test_add_game_and_get_game_round_trip_a_game_row(app_schema: AsyncSession) -> None:
+    group = await create(app_schema, PlaygroupFactory)
+    game = GameFactory.build(playgroup_id=group.id)
+    repository.add_game(app_schema, game)
+    await app_schema.flush()
+    assert await repository.get_game(app_schema, game.id) is game
+    assert await repository.get_game(app_schema, uuid4()) is None
+
+
+async def test_a_seq_collision_that_is_not_a_duplicate_event_id_is_raised(
+    app_schema: AsyncSession,
+) -> None:
+    game_id = await make_game(app_schema)
+    await _appended(app_schema, game_id)
+    game = await app_schema.get_one(Game, game_id)
+    game.last_seq = 0  # a damaged counter: the next seq (1) is already taken
+    game.state = initial_state(str(game_id)).to_json_value()
+    await app_schema.flush()
+    with pytest.raises(IntegrityError):
+        await append_event(app_schema, game_id, submission(game_id), actor=player_actor())
+    assert (await app_schema.execute(select(1))).scalar_one() == 1

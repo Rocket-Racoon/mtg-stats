@@ -1349,36 +1349,11 @@ def _implementers_architecture_test_passes(root: Path) -> bool:
     return outcome.returncode == 0
 
 
-GAPS_IN_THE_IMPLEMENTERS_SCAN = {
-    "raw_schema_qualified",
-    "orm_bulk_delete_alias",
-    "orm_table_delete",
-    "core_table_delete",
-    "session_delete_loaded_row",
-    "merge",
-    "attribute_write_on_loaded_row",  # its docstring says the trigger test covers this one
-}
-
-
 def test_the_implementers_architecture_test_passes_on_the_unmodified_tree(app_copy: Path) -> None:
     assert _implementers_architecture_test_passes(app_copy)
 
 
-@pytest.mark.parametrize(
-    "name",
-    [
-        pytest.param(
-            n,
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="known gap in tests/architecture/test_game_events_append_only.py",
-            ),
-        )
-        if n in GAPS_IN_THE_IMPLEMENTERS_SCAN
-        else n
-        for n in sorted(SYNTHETIC_OFFENDERS)
-    ],
-)
+@pytest.mark.parametrize("name", sorted(SYNTHETIC_OFFENDERS))
 def test_the_implementers_architecture_test_fails_when_a_module_mutates_game_events(
     app_copy: Path, name: str
 ) -> None:

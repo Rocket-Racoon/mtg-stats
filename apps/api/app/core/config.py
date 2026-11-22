@@ -98,6 +98,9 @@ class Settings(BaseSettings):
     deck_site_timeout_seconds: float = Field(
         default=10.0, gt=0, le=120, validation_alias="DECK_SITE_TIMEOUT_SECONDS"
     )
+    deck_site_total_deadline_seconds: float = Field(
+        default=45.0, gt=0, le=300, validation_alias="DECK_SITE_TOTAL_DEADLINE_SECONDS"
+    )
     deck_site_cache_ttl_seconds: int = Field(
         default=900, ge=1, le=86400, validation_alias="DECK_SITE_CACHE_TTL_SECONDS"
     )

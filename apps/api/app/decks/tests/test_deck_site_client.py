@@ -1,6 +1,7 @@
 """Unit tests of the deck-site client internals (S-4.2.1); no network, ``httpx.MockTransport``."""
 
 import asyncio
+import math
 import uuid
 from collections.abc import AsyncIterator, Callable
 
@@ -8,7 +9,7 @@ import httpx
 import pytest
 from redis.exceptions import ConnectionError as RedisConnectionError
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.redis import get_redis
 from app.core.retry_after import parse_retry_after
 from app.core.spacing_limiter import SpacingLimiter
@@ -91,7 +92,7 @@ async def test_second_fetch_of_the_same_deck_is_served_from_cache() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
-        return httpx.Response(200, content=b"body", headers={"Content-Type": "text/plain"})
+        return httpx.Response(200, content=b"body", headers={"Content-Type": "application/json"})
 
     deck = _deck_id()
     async with _client(handler) as client:
@@ -102,7 +103,7 @@ async def test_second_fetch_of_the_same_deck_is_served_from_cache() -> None:
     assert isinstance(second, DeckFetched)
     assert second.from_cache
     assert second.body == b"body"
-    assert second.content_type == "text/plain"
+    assert second.content_type == "application/json"
     ttl = await get_redis().ttl(cache_key(SITE.name, deck))
     assert 0 < ttl <= get_settings().deck_site_cache_ttl_seconds
 
@@ -469,3 +470,177 @@ async def test_cache_ignores_the_url_and_keys_on_site_and_deck_id() -> None:
     assert calls == 1
     assert isinstance(again, DeckFetched)
     assert again.from_cache
+
+
+def _with(**changes: float) -> Settings:
+    return get_settings().model_copy(update=changes)
+
+
+class _NeverLimiter(SpacingLimiter):
+    async def wait(self) -> None:
+        await asyncio.Event().wait()
+
+
+async def test_a_hanging_limiter_ends_at_the_total_deadline_as_timeout() -> None:
+    async with DeckSiteClient(
+        settings=_with(deck_site_total_deadline_seconds=0.05),
+        sites={SITE.name: SITE},
+        transport=httpx.MockTransport(lambda request: httpx.Response(200)),
+        limiter_factory=lambda s: _NeverLimiter("k", 100),
+    ) as client:
+        result = await client.fetch(SITE.name, _deck_id(), _url("1"))
+    assert isinstance(result, DeckFetchFailed)
+    assert result.reason is DeckFetchFailure.TIMEOUT
+
+
+async def test_a_retry_after_that_would_cross_the_deadline_is_not_slept() -> None:
+    calls = 0
+    rec = _Recorder()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(429, headers={"Retry-After": "20"})
+
+    async with DeckSiteClient(
+        settings=_with(deck_site_total_deadline_seconds=5.0),
+        sites={SITE.name: SITE},
+        transport=httpx.MockTransport(handler),
+        limiter_factory=_fast_limiter,
+        sleep=rec.sleep,
+    ) as client:
+        result = await client.fetch(SITE.name, _deck_id(), _url("1"))
+    assert isinstance(result, DeckFetchFailed)
+    assert result.reason is DeckFetchFailure.RATE_LIMITED
+    assert calls == 1
+    assert 20.0 not in rec.delays
+
+
+async def test_non_finite_retry_after_is_above_the_cap() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(429, headers={"Retry-After": "1e400"})
+
+    async with _client(handler) as client:
+        result = await client.fetch(SITE.name, _deck_id(), _url("1"))
+    assert isinstance(result, DeckFetchFailed)
+    assert result.reason is DeckFetchFailure.RATE_LIMITED
+    assert calls == 1
+
+
+def test_core_retry_after_non_finite_uses_the_given_value() -> None:
+    assert parse_retry_after("inf", default=5.0, non_finite=math.inf) == math.inf
+    assert parse_retry_after("nan", default=5.0, non_finite=math.inf) == math.inf
+    assert parse_retry_after("inf", default=5.0) == 5.0
+
+
+async def test_html_200_for_a_json_fetch_is_returned_but_not_cached() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            200, content=b"<html>maintenance</html>", headers={"Content-Type": "text/html"}
+        )
+
+    deck = _deck_id()
+    async with _client(handler) as client:
+        first = await client.fetch(SITE.name, deck, _url("1"))
+        await client.fetch(SITE.name, deck, _url("1"))
+    assert isinstance(first, DeckFetched)
+    assert first.body == b"<html>maintenance</html>"
+    assert calls == 2
+    assert await get_redis().get(cache_key(SITE.name, deck)) is None
+
+
+@pytest.mark.parametrize(
+    ("accept", "content_type", "cached"),
+    [
+        ("application/json", "application/json", True),
+        ("application/json", "Application/JSON; charset=utf-8", True),
+        ("application/json", "", True),
+        ("application/json", "text/html", False),
+        ("*/*", "", True),
+        ("*/*", "text/html", True),
+        ("application/json, text/plain;q=0.5", "text/plain", True),
+        ("text/*", "text/csv", True),
+    ],
+)
+async def test_only_the_requested_media_type_is_cached(
+    accept: str, content_type: str, cached: bool
+) -> None:
+    headers = {"Content-Type": content_type} if content_type else {}
+    deck = _deck_id()
+    async with _client(
+        lambda request: httpx.Response(200, content=b"x", headers=headers)
+    ) as client:
+        await client.fetch(SITE.name, deck, _url("1"), accept=accept)
+    assert (await get_redis().get(cache_key(SITE.name, deck)) is not None) is cached
+
+
+async def test_cookies_are_never_stored_or_replayed() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, content=b"x", headers={"Set-Cookie": "sid=secret; Path=/"})
+
+    async with _client(handler) as client:
+        await client.fetch(SITE.name, _deck_id(), _url("1"))
+        await client.fetch(SITE.name, _deck_id(), _url("2"))
+    assert len(seen) == 2
+    assert "cookie" not in seen[1].headers
+
+
+async def test_requests_ask_for_identity_encoding() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, content=b"x")
+
+    async with _client(handler) as client:
+        await client.fetch(SITE.name, _deck_id(), _url("1"))
+    assert seen[0].headers["Accept-Encoding"] == "identity"
+
+
+async def test_two_concurrent_fetches_of_one_deck_make_one_request() -> None:
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0.02)
+        return httpx.Response(200, content=b"x", headers={"Content-Type": "application/json"})
+
+    one = SiteConfig(SITE.name, SITE.hosts, min_interval_ms=100, max_concurrency=1)
+    deck = _deck_id()
+    async with DeckSiteClient(
+        sites={one.name: one},
+        transport=httpx.MockTransport(handler),
+        limiter_factory=_fast_limiter,
+    ) as client:
+        results = await asyncio.gather(
+            client.fetch(SITE.name, deck, _url("1")), client.fetch(SITE.name, deck, _url("1"))
+        )
+    assert calls == 1
+    assert all(isinstance(r, DeckFetched) for r in results)
+    assert sorted(r.from_cache for r in results if isinstance(r, DeckFetched)) == [False, True]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        f"https://{HOST}:443:80/",
+        "https://0177.0.0.1/",
+        f"https://{HOST}/" + "a" * 70_000,
+    ],
+)
+async def test_urls_httpx_cannot_parse_are_refused(url: str) -> None:
+    async with _client(lambda request: httpx.Response(200)) as client:
+        with pytest.raises(DeckSiteHostError, match="not valid"):
+            await client.fetch(SITE.name, _deck_id(), url)

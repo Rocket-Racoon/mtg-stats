@@ -16,14 +16,31 @@ is not a reason here.
 * A 429 is retried at most ``deck_site_max_retries`` (2) times, waiting for ``Retry-After`` (5 s
   when missing); a ``Retry-After`` above the cap is not waited for and fails at once. 5xx and
   transport errors are not retried: they are reported, and the user falls back to text paste.
+* One ``fetch`` is bounded by ``DECK_SITE_TOTAL_DEADLINE_SECONDS`` (default 45 s): the semaphore
+  wait, the limiter waits (whose queue is otherwise uncapped), every attempt and every
+  ``Retry-After`` wait. Reaching it returns ``timeout``; a ``Retry-After`` that would end after the
+  deadline is not slept and returns ``rate_limited`` at once. Worst case: the deadline (the
+  cache re-check and write are inside it) plus the first cache read, bounded by
+  ``REDIS_CALL_TIMEOUT_SECONDS``.
+  A cache hit never waits.
+* A 200 whose media type is not the one asked for (a maintenance page served as ``text/html`` for
+  an ``Accept: application/json`` fetch) is still returned, for the mappers to judge, but never
+  cached. Media types are compared ignoring parameters and case; ``Accept`` may list several
+  types, ``type/*`` and ``*/*`` match as usual; a missing ``Content-Type`` cannot contradict
+  the request, so it is cached.
+* The client is stateless: cookies are never stored or sent, and ``Accept-Encoding: identity`` is
+  sent so a small compressed body cannot expand in memory before the size check (any HTTP server
+  must serve identity).
 * Routers never import this module (an architecture test enforces it).
 """
 
 import asyncio
 import enum
 import logging
+import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from http.cookiejar import DefaultCookiePolicy
 from types import TracebackType
 from typing import Self
 
@@ -130,7 +147,7 @@ def validate_url(config: SiteConfig, url: str) -> httpx.URL:
     if parsed.port not in (None, 443):
         raise DeckSiteHostError("URL has a non-default port")
     if not parsed.host or parsed.host not in config.hosts:
-        raise DeckSiteHostError(f"not a {config.name} URL: {parsed.host}")
+        raise DeckSiteHostError(f"URL host is not one of the {config.name} hosts: {parsed.host}")
     return parsed
 
 
@@ -175,11 +192,16 @@ class DeckSiteClient:
             name: asyncio.Semaphore(site.max_concurrency) for name, site in self._sites.items()
         }
         self._http = httpx.AsyncClient(
-            headers={"User-Agent": build_user_agent(self._settings)},
+            headers={
+                "User-Agent": build_user_agent(self._settings),
+                "Accept-Encoding": "identity",
+            },
             timeout=httpx.Timeout(self._settings.deck_site_timeout_seconds),
             transport=transport,
             follow_redirects=False,
         )
+        # Stateless: an empty allow-list refuses to store or return any cookie.
+        self._http.cookies.jar.set_policy(DefaultCookiePolicy(allowed_domains=[]))
 
     async def __aenter__(self) -> Self:
         return self
@@ -219,14 +241,35 @@ class DeckSiteClient:
         if cached is not None:
             return DeckFetched(site, deck_id, cached.body, cached.content_type, from_cache=True)
 
-        async with self._semaphores[site]:
-            result = await self._fetch_with_retries(config, deck_id, target, accept)
-        if isinstance(result, DeckFetched):
-            await self._cache.set(site, deck_id, CachedBody(result.body, result.content_type))
+        deadline = (
+            asyncio.get_running_loop().time() + self._settings.deck_site_total_deadline_seconds
+        )
+        try:
+            async with asyncio.timeout_at(deadline):
+                async with self._semaphores[site]:
+                    # Another fetch of this deck may have filled the cache while we queued.
+                    cached = await self._cache.get(site, deck_id)
+                    if cached is not None:
+                        return DeckFetched(
+                            site, deck_id, cached.body, cached.content_type, from_cache=True
+                        )
+                    result = await self._fetch_with_retries(
+                        config, deck_id, target, accept, deadline
+                    )
+                    # Written before the slot is released, so a queued fetch finds it.
+                    if isinstance(result, DeckFetched) and _media_type_matches(
+                        accept, result.content_type
+                    ):
+                        await self._cache.set(
+                            site, deck_id, CachedBody(result.body, result.content_type)
+                        )
+        except TimeoutError:
+            logger.warning("deck site %s fetch hit the total deadline", site)
+            return DeckFetchFailed(site, deck_id, DeckFetchFailure.TIMEOUT)
         return result
 
     async def _fetch_with_retries(
-        self, config: SiteConfig, deck_id: str, url: httpx.URL, accept: str
+        self, config: SiteConfig, deck_id: str, url: httpx.URL, accept: str, deadline: float
     ) -> DeckFetchResult:
         limiter = self._limiters[config.name]
         max_retries = self._settings.deck_site_max_retries
@@ -241,7 +284,8 @@ class DeckSiteClient:
             assert failed is not None  # noqa: S101  (an _Attempt always has one of the two)
             if failed.reason is not DeckFetchFailure.RATE_LIMITED:
                 return failed
-            if attempt >= max_retries or outcome.retry_after > cap:
+            remaining = deadline - asyncio.get_running_loop().time()
+            if attempt >= max_retries or outcome.retry_after > min(cap, remaining):
                 logger.warning(
                     "deck site %s rate limited us (Retry-After %.0fs, attempt %d); giving up",
                     config.name,
@@ -276,7 +320,9 @@ class DeckSiteClient:
         if status == 429:
             outcome = _failed(site, deck_id, DeckFetchFailure.RATE_LIMITED, status)
             outcome.retry_after = parse_retry_after(
-                response.headers.get("Retry-After"), default=DEFAULT_RETRY_AFTER_SECONDS
+                response.headers.get("Retry-After"),
+                default=DEFAULT_RETRY_AFTER_SECONDS,
+                non_finite=math.inf,
             )
             return outcome
         if status in (401, 403):
@@ -300,6 +346,16 @@ class DeckSiteClient:
             chunks.append(chunk)
         content_type = response.headers.get("Content-Type", "")
         return _Attempt(fetched=DeckFetched(site, deck_id, b"".join(chunks), content_type, False))
+
+
+def _media_type_matches(accept: str, content_type: str) -> bool:
+    """Whether ``content_type`` is one of the media ranges in ``accept`` (parameters ignored)."""
+    wanted = [part.split(";")[0].strip().lower() for part in accept.split(",")]
+    got = content_type.split(";", maxsplit=1)[0].strip().lower()
+    if "*/*" in wanted or not got:
+        return True
+    major = got.split("/")[0]
+    return got in wanted or f"{major}/*" in wanted
 
 
 def _failed(

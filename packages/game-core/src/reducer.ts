@@ -1,6 +1,8 @@
 import { CanonicalJsonError, canonicalJson } from './canonical-json';
 import { commanderDamage } from './commander-damage';
+import { commanderCast, counterChanged, poisonChanged } from './counters';
 import type { Handler } from './handler-utils';
+import { initiativeSet, monarchSet } from './holders';
 import { lifeChanged, playerConceded, playerEliminated } from './life';
 import {
   commandersSet,
@@ -50,6 +52,11 @@ const HANDLERS: Readonly<Record<EventType, Handler>> = {
   turn_passed: turnPassed,
   life_changed: lifeChanged,
   commander_damage: commanderDamage,
+  poison_changed: poisonChanged,
+  counter_changed: counterChanged,
+  commander_cast: commanderCast,
+  monarch_set: monarchSet,
+  initiative_set: initiativeSet,
   player_conceded: playerConceded,
   player_eliminated: playerEliminated,
 };

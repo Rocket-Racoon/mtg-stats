@@ -1,8 +1,9 @@
 """The elimination routine (CONTRACT.md section 4.5.2).
 
 Every event that eliminates seats calls :func:`eliminate`: the life, concession and declared
-eliminations of S-6.1.3, commander damage (S-6.1.4), and later poison (S-6.1.5) and group
-events (S-6.1.7). No handler writes the elimination fields itself.
+eliminations of S-6.1.3, commander damage (S-6.1.4), poison (S-6.1.5) and later group
+events (S-6.1.7). No handler writes the elimination fields itself. The routine also hands the
+monarch and the initiative on when their holder is eliminated (step 4 of 4.5.2).
 
 Pure: no clock, randomness or I/O. The input state is never mutated.
 """
@@ -26,6 +27,35 @@ class Elimination(NamedTuple):
     """The D5 code of a host ``player_eliminated``, else ``None``."""
 
 
+def next_standing_seat(state: GameState, start: int | None) -> int | None:
+    """The "next seat" of CONTRACT.md 4.4.10, shared by ``turn_passed`` and the hand-off.
+
+    Scan ``order`` cyclically after the position of ``start`` (``start`` itself last) and return
+    the first seat that is not eliminated. A ``start`` that is ``None`` or not in ``order`` begins
+    the scan at the head of ``order``. Returns ``None`` when no seat qualifies.
+    """
+    order = state.order
+    position = order.index(start) if start in order else -1
+    eliminated = {s.seat for s in state.seats if s.eliminated_at_seq is not None}
+    for candidate in [*order[position + 1 :], *order[: position + 1]]:
+        if candidate not in eliminated:
+            return candidate
+    return None
+
+
+def _hand_off(
+    state: GameState, holder: int | None, applied: set[int], survivors: set[int]
+) -> int | None:
+    """Step 4 of 4.5.2 for one key (``monarch`` or ``initiative``): who holds it afterwards."""
+    if holder is None or holder not in applied:
+        return holder
+    if not survivors:
+        return None
+    if state.active_seat is not None and state.active_seat in survivors:
+        return state.active_seat
+    return next_standing_seat(state, state.active_seat)
+
+
 def _fields(entry: Elimination, seq: int, round_: int) -> dict[str, object]:
     return {
         "elimination_reason": entry.reason,
@@ -46,6 +76,11 @@ def eliminate(state: GameState, seq: int, eliminations: Sequence[Elimination]) -
     - ``no_winner`` becomes ``True`` iff at least one entry was applied and the applied seats are
       every seat that was standing. In every other case it is left as it is.
 
+    - The monarch and the initiative (step 4) are judged independently: a key whose holder this
+      call eliminated becomes ``None`` when nobody is left standing, else the active seat when it
+      is standing, else the next standing seat of ``order`` (:func:`next_standing_seat`). Any
+      other key is left as it is.
+
     Nothing else is touched (not ``last_seq``, ``phase``, ``round``, ``winner_seat``...). Returns
     a new state, or ``state`` itself when no entry was applied.
     """
@@ -63,6 +98,13 @@ def eliminate(state: GameState, seq: int, eliminations: Sequence[Elimination]) -
         for seat in state.seats
     ]
     full_draw = len(applied) == len(standing)
-    return state.model_copy(
+    after = state.model_copy(
         update={"seats": seats, "no_winner": True if full_draw else state.no_winner}
+    )
+    survivors = standing - set(applied)
+    return after.model_copy(
+        update={
+            "monarch": _hand_off(after, state.monarch, set(applied), survivors),
+            "initiative": _hand_off(after, state.initiative, set(applied), survivors),
+        }
     )

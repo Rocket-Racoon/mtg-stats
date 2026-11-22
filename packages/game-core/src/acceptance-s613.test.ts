@@ -458,19 +458,34 @@ describe('criterion 4: an eliminated seat takes no event, except a revert or a h
       ],
       code: 'seat_eliminated',
     },
-    poison_changed: { kind: 'pending', payloads: [{ seat: 2, delta: 1 }], code: 'ok' },
+    // S-6.1.5 (4.7): the five handlers follow 4.5.1, so each rejects an eliminated seat before its
+    // amount rules (the second payload of a row has a bad amount as well).
+    poison_changed: {
+      kind: 'seat_eliminated',
+      payloads: [
+        { seat: 2, delta: 1 },
+        { seat: 1, delta: 0, source_seat: 2 },
+      ],
+      code: 'seat_eliminated',
+    },
     counter_changed: {
-      kind: 'pending',
-      payloads: [{ seat: 2, counter: 'energy', delta: 1 }],
-      code: 'ok',
+      kind: 'seat_eliminated',
+      payloads: [
+        { seat: 2, counter: 'energy', delta: 1 },
+        { seat: 2, counter: 'experience', delta: 0 },
+      ],
+      code: 'seat_eliminated',
     },
     commander_cast: {
-      kind: 'pending',
-      payloads: [{ seat: 2, commander: 0, delta: 1 }],
-      code: 'ok',
+      kind: 'seat_eliminated',
+      payloads: [
+        { seat: 2, commander: 0, delta: 1 },
+        { seat: 2, commander: 5, delta: 7 },
+      ],
+      code: 'seat_eliminated',
     },
-    monarch_set: { kind: 'pending', payloads: [{ seat: 2 }], code: 'ok' },
-    initiative_set: { kind: 'pending', payloads: [{ seat: 2 }], code: 'ok' },
+    monarch_set: { kind: 'seat_eliminated', payloads: [{ seat: 2 }], code: 'seat_eliminated' },
+    initiative_set: { kind: 'seat_eliminated', payloads: [{ seat: 2 }], code: 'seat_eliminated' },
     drain: {
       kind: 'pending',
       payloads: [
@@ -838,14 +853,16 @@ describe('the elimination routine (criteria 6 and 7), called directly', () => {
     expect(after.winner_seat).toBeNull();
   });
 
-  it('changes nothing but the elimination fields of the seats applied and no_winner', () => {
+  it('changes nothing but the elimination fields of the seats applied, no_winner and the hand-off of the monarch and the initiative (S-6.1.5: nobody stands, so both become null)', () => {
     const before: GameState = { ...table([1, 2, 3, 4]), monarch: 2, initiative: 3 };
     const withDamage: GameState = { ...before, commander_damage: { '2': { '1:0': 7 } } };
     const after = eliminate(withDamage, SEQ, [entry(1), entry(2), entry(3), entry(4)]);
-    expect({ ...after, seats: [], no_winner: false }).toEqual({
+    expect({ ...after, seats: [], no_winner: false, monarch: null, initiative: null }).toEqual({
       ...withDamage,
       seats: [],
       no_winner: false,
+      monarch: null,
+      initiative: null,
     });
     expect([after.phase, after.active_seat, after.last_seq, after.round, after.turn]).toEqual([
       'active',
@@ -854,9 +871,10 @@ describe('the elimination routine (criteria 6 and 7), called directly', () => {
       3,
       9,
     ]);
+    // 4.5.2: with every seat eliminated nobody can hold them (S-6.1.5 amended the old "unchanged").
     expect([after.monarch, after.initiative, after.winner_seat, after.win_condition]).toEqual([
-      2,
-      3,
+      null,
+      null,
       null,
       null,
     ]);

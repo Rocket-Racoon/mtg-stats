@@ -1,0 +1,12 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-settings-integer-above-safe-range-negative",
+  "rule": "8.3.1 everywhere else",
+  "description": "Outside events an integer token with an absolute value above 9007199254740991 is reported with its text.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{\"poison_threshold\":-9007199254740992},\"events\":[],\"expect\":{\"state\":{}}}",
+  "messages": [
+    "vec.json: settings.poison_threshold must be an integer in the safe range (found -9007199254740992)"
+  ]
+}

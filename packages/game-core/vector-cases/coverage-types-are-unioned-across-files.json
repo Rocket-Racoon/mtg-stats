@@ -1,0 +1,23 @@
+{
+  "format": 1,
+  "kind": "coverage",
+  "name": "coverage-types-are-unioned-across-files",
+  "rule": "8.4",
+  "description": "Each file covers one type.",
+  "registry": ["alpha", "beta", "gamma"],
+  "files": [
+    {
+      "file": "v1.json",
+      "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"v1\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"alpha\",\"payload\":{}}],\"expect\":{\"state\":{}}}"
+    },
+    {
+      "file": "v2.json",
+      "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"v2\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"beta\",\"payload\":{}}],\"expect\":{\"state\":{}}}"
+    },
+    {
+      "file": "v3.json",
+      "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"v3\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"gamma\",\"payload\":{}}],\"expect\":{\"state\":{}}}"
+    }
+  ],
+  "messages": []
+}

@@ -1,0 +1,18 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-combo-wrong-kind-and-bad-tokens-and-duplicates",
+  "rule": "8.3 order of checks",
+  "description": "With a bad kind: kind message, other header messages, then tokens and duplicates (steps 2 and 3 skipped).",
+  "file": "vec.json",
+  "text": "{\"kind\":\"x\",\"format\":1.5,\"name\":\"y\",\"description\":\"\",\"events\":[1.0],\"a\":1,\"a\":2}",
+  "messages": [
+    "vec.json: kind must be \"reducer\" or \"canonical_json\"",
+    "vec.json: format must be the integer 1",
+    "vec.json: name must equal \"vec\"",
+    "vec.json: description must be a non-empty string",
+    "vec.json: format must be an integer (found the number token 1.5)",
+    "vec.json: events[0] has the number token 1.0; write an integral value as an integer",
+    "vec.json: a is a duplicate key"
+  ]
+}

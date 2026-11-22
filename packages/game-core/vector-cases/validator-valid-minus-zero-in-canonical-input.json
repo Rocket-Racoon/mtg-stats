@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-valid-minus-zero-in-canonical-input",
+  "rule": "8.3.1",
+  "description": "-0 inside cases of a canonical file is accepted.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"z\",\"input\":[-0],\"output\":\"[0]\"}]}",
+  "messages": []
+}

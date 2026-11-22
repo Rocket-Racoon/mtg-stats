@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "kind": "coverage",
+  "name": "coverage-rejected-event-and-later-events-do-not-count",
+  "rule": "8.4",
+  "description": "Error at index 1: alpha (index 0) counts, beta (rejected) and gamma (after) do not.",
+  "registry": ["alpha", "beta", "gamma"],
+  "files": [
+    {
+      "file": "v1.json",
+      "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"v1\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"alpha\",\"payload\":{}},{\"type\":\"beta\",\"payload\":{}},{\"type\":\"gamma\",\"payload\":{}}],\"expect\":{\"error\":{\"index\":1,\"code\":\"invalid_event\"}}}"
+    }
+  ],
+  "messages": ["uncovered event type: beta", "uncovered event type: gamma"]
+}

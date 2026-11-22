@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-valid-whitespace-and-layout",
+  "rule": "8.3",
+  "description": "Pretty-printed text with tabs, CRLF line breaks and trailing whitespace is valid.",
+  "file": "vec.json",
+  "text": "{\r\n\t\"kind\": \"reducer\",\r\n\t\"format\": 1,\r\n  \"name\": \"vec\",\r\n\t\"description\": \"d\",\r\n\t\"game_id\": \"g\",\r\n\t\"settings\": { },\r\n\t\"events\": [ ],\r\n\t\"expect\": { \"state\": { } }\r\n}\r\n \t\r\n",
+  "messages": []
+}

@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-reducer-expect-error-code-invalid-empty",
+  "rule": "8.3 expect.error.code",
+  "description": "code that is present and not a string from 6.2.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1},{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1}],\"expect\":{\"error\":{\"index\":0,\"code\":\"\"}}}",
+  "messages": ["vec.json: expect.error.code must be a known reducer error code"]
+}

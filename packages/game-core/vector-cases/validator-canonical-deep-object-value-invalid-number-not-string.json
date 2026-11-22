@@ -1,0 +1,12 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-canonical-deep-object-value-invalid-number-not-string",
+  "rule": "8.3 invalid.value deep_object",
+  "description": "Chain length is decimal text of an integer from 1 to 10000 without leading zeros.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"invalid\":{\"kind\":\"deep_object\",\"value\":65},\"error\":\"unsupported_value\"}]}",
+  "messages": [
+    "vec.json: cases[0].invalid.value must be decimal text of an integer from 1 to 10000"
+  ]
+}

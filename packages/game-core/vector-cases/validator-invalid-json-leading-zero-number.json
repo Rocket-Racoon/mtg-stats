@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-invalid-json-leading-zero-number",
+  "rule": "8.3 whole-file",
+  "description": "Text that is not valid JSON gives the single message `invalid JSON: <detail>`; the detail is not compared.",
+  "file": "vec.json",
+  "text": "{\"a\":01}",
+  "messages": [
+    {
+      "startsWith": "vec.json: invalid JSON: "
+    }
+  ]
+}

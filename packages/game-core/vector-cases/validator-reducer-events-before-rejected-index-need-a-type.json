@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-reducer-events-before-rejected-index-need-a-type",
+  "rule": "8.3 events[i].type",
+  "description": "With expect.error only events below the index are applied: events[0] and [1] need a type, events[2] (rejected) and [3] do not.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":1},{},{\"type\":2},{\"type\":3}],\"expect\":{\"error\":{\"index\":2,\"code\":\"invalid_event\"}}}",
+  "messages": [
+    "vec.json: events[0].type must be a string",
+    "vec.json: events[1].type must be a string"
+  ]
+}

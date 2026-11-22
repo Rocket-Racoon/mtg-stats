@@ -1,0 +1,12 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-proto-name-as-invalid-kind",
+  "rule": "8.3 invalid.kind",
+  "description": "An invalid.kind that is an Object.prototype name is not a known kind.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"invalid\":{\"kind\":\"hasOwnProperty\"},\"error\":\"non_integer\"}]}",
+  "messages": [
+    "vec.json: cases[0].invalid.kind must be one of float, nan, infinity, integer, lone_surrogate, deep_array, deep_object"
+  ]
+}

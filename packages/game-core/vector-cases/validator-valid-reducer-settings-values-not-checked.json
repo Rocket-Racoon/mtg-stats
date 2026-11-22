@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-valid-reducer-settings-values-not-checked",
+  "rule": "8.3 settings",
+  "description": "Setting values are not checked (3.5): wrong types and out-of-range numbers are accepted.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{\"starting_life\":\"x\",\"trust_mode\":5,\"poison_threshold\":0,\"commander_damage_threshold\":null},\"events\":[{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1},{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1}],\"expect\":{\"state\":{}}}",
+  "messages": []
+}

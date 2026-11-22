@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-valid-canonical-input-any-json-value",
+  "rule": "8.2",
+  "description": "An input case may hold any JSON value, null included, and an output of the empty string.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"n\",\"input\":null,\"output\":\"null\"},{\"name\":\"o\",\"input\":{\"a\":[1,{\"b\":[]}]},\"output\":\"\"},{\"name\":\"s\",\"input\":\"x\",\"output\":\"\\\"x\\\"\"}]}",
+  "messages": []
+}

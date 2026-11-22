@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-events-type-rule-runs-when-expect-is-missing",
+  "rule": "8.3 events[i].type",
+  "description": "With no expect every event is applied, so each untyped event is reported after the missing expect.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{},{\"type\":\"t\"},{}]}",
+  "messages": [
+    "vec.json: expect is required",
+    "vec.json: events[0].type must be a string",
+    "vec.json: events[2].type must be a string"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-header-kind-missing-skips-kind-checks",
+  "rule": "8.3 header kind, step 2 and 3",
+  "description": "With no kind only the header is checked: no reducer rules and no unknown-key messages.",
+  "file": "vec.json",
+  "text": "{\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"zzz\":1,\"events\":5}",
+  "messages": ["vec.json: kind is required"]
+}

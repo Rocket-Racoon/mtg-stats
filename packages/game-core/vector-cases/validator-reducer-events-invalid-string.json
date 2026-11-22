@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-reducer-events-invalid-string",
+  "rule": "8.3 events",
+  "description": "events that is present and not an array.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":\"x\",\"expect\":{\"state\":{}}}",
+  "messages": ["vec.json: events must be an array"]
+}

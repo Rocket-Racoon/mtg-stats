@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-canonical-float-value-invalid-number-not-string",
+  "rule": "8.3 invalid.value float, 8.3.1",
+  "description": "A JSON number where text is required: the value message, then the fractional token message of step 4.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"invalid\":{\"kind\":\"float\",\"value\":1.5},\"error\":\"non_integer\"}]}",
+  "messages": [
+    "vec.json: cases[0].invalid.value must be decimal text of a non-integer number",
+    "vec.json: cases[0].invalid.value must be an integer (found the number token 1.5)"
+  ]
+}

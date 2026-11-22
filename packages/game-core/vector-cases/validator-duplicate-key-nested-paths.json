@@ -1,0 +1,16 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-duplicate-key-nested-paths",
+  "rule": "8.3 step 5",
+  "description": "Duplicates at depth carry the path of the second occurrence: settings, events items, expect.state, array items.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{\"starting_life\":40,\"starting_life\":40},\"events\":[{\"type\":\"t\",\"type\":\"t\"},{\"type\":\"t\",\"payload\":{\"x\":1,\"y\":{\"k\":1,\"k\":1}}}],\"expect\":{\"state\":{\"a\":[{\"b\":1,\"b\":1}],\"a\":[]}}}",
+  "messages": [
+    "vec.json: settings.starting_life is a duplicate key",
+    "vec.json: events[0].type is a duplicate key",
+    "vec.json: events[1].payload.y.k is a duplicate key",
+    "vec.json: expect.state.a[0].b is a duplicate key",
+    "vec.json: expect.state.a is a duplicate key"
+  ]
+}

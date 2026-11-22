@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-reducer-expect-unknown-key-before-exactly-one",
+  "rule": "8.3 expect",
+  "description": "Unknown keys are reported before the exactly-one rule; with no state or error both fire.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1},{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1}],\"expect\":{\"extra\":1}}",
+  "messages": [
+    "vec.json: expect.extra is not a known key",
+    "vec.json: expect must have exactly one of \"state\" or \"error\""
+  ]
+}

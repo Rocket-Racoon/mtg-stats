@@ -13,11 +13,9 @@ read the local database (an architecture test keeps routers from importing it).
 
 import asyncio
 import logging
-import math
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
-from email.utils import parsedate_to_datetime
 from types import TracebackType
 from typing import Any, Self
 from urllib.parse import urlsplit
@@ -26,6 +24,7 @@ import httpx
 
 from app.core.config import Settings, get_settings
 from app.core.rate_limit import key as rate_limit_key
+from app.core.retry_after import parse_retry_after as parse_delay
 from app.core.spacing_limiter import Sleep, SpacingLimiter
 from app.core.user_agent import build_user_agent
 
@@ -56,29 +55,8 @@ def _utc_now() -> datetime:
 
 
 def parse_retry_after(value: str | None, *, now: Callable[[], datetime] | None = None) -> float:
-    """``Retry-After`` in seconds (RFC 9110: delay-seconds or an HTTP-date).
-
-    A number waits that long (a negative one waits 0). A date waits ``max(0, date - now())``. A
-    missing, unparseable or non-finite value falls back to 60 s. ``now`` must be timezone-aware.
-    """
-    if value is None:
-        return DEFAULT_RETRY_AFTER_SECONDS
-    text = value.strip()
-    try:
-        seconds = float(text)
-    except ValueError:
-        pass
-    else:
-        if not math.isfinite(seconds):
-            return DEFAULT_RETRY_AFTER_SECONDS
-        return max(0.0, seconds)
-    try:
-        when = parsedate_to_datetime(text)
-    except (TypeError, ValueError, IndexError):
-        return DEFAULT_RETRY_AFTER_SECONDS
-    if when.tzinfo is None:
-        when = when.replace(tzinfo=UTC)
-    return max(0.0, (when - (now or _utc_now)()).total_seconds())
+    """``Retry-After`` in seconds (RFC 9110), 60 s when missing or unparseable."""
+    return parse_delay(value, default=DEFAULT_RETRY_AFTER_SECONDS, now=now or _utc_now)
 
 
 class ScryfallClient:

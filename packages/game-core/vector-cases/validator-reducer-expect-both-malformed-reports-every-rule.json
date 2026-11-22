@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-reducer-expect-both-malformed-reports-every-rule",
+  "rule": "8.3 expect, expect.error",
+  "description": "With state and error both malformed every rule that holds is reported: exactly-one, state, then error.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1},{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1}],\"expect\":{\"state\":5,\"error\":5}}",
+  "messages": [
+    "vec.json: expect must have exactly one of \"state\" or \"error\"",
+    "vec.json: expect.state must be an object",
+    "vec.json: expect.error must be an object"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-valid-events-integer-above-safe-range",
+  "rule": "8.3.1 events",
+  "description": "Inside events an integer token is accepted whatever its size.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"t\",\"payload\":{\"a\":9007199254740992,\"b\":-9007199254740993,\"c\":123456789012345678901234567890,\"d\":[99999999999999999999]}}],\"expect\":{\"state\":{}}}",
+  "messages": []
+}

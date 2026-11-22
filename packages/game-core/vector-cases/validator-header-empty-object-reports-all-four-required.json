@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-header-empty-object-reports-all-four-required",
+  "rule": "8.3 header order",
+  "description": "An empty object reports kind, format, name and description, in that order, and nothing else.",
+  "file": "vec.json",
+  "text": "{}",
+  "messages": [
+    "vec.json: kind is required",
+    "vec.json: format is required",
+    "vec.json: name is required",
+    "vec.json: description is required"
+  ]
+}

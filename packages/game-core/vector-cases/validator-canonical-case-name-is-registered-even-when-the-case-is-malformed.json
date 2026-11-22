@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-canonical-case-name-is-registered-even-when-the-case-is-malformed",
+  "rule": "8.3 cases[i].name",
+  "description": "The name check comes before the input/invalid check, so a malformed case still owns its name.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\"},{\"name\":\"a\",\"input\":1,\"output\":\"1\"}]}",
+  "messages": [
+    "vec.json: cases[0] must have exactly one of \"input\" or \"invalid\"",
+    "vec.json: cases[1].name duplicates the name of cases[0]"
+  ]
+}

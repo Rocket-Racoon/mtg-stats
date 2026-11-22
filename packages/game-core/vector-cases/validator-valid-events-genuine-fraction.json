@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-valid-events-genuine-fraction",
+  "rule": "8.3.1 events",
+  "description": "Inside events a token with a fraction or exponent is accepted when finite and not an integer.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"t\",\"payload\":{\"a\":1.5,\"b\":1e-7,\"c\":-2.5,\"d\":5e-324,\"e\":1.5E0,\"f\":[0.25,1.25e1]}}],\"expect\":{\"state\":{}}}",
+  "messages": []
+}

@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-proto-keys-in-expect",
+  "rule": "8.3 expect keys",
+  "description": "Object.prototype names are unknown keys of expect.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[],\"expect\":{\"state\":{},\"constructor\":1,\"toString\":2}}",
+  "messages": [
+    "vec.json: expect.constructor is not a known key",
+    "vec.json: expect.toString is not a known key"
+  ]
+}

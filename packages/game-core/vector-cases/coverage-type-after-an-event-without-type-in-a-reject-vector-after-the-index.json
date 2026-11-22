@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "kind": "coverage",
+  "name": "coverage-type-after-an-event-without-type-in-a-reject-vector-after-the-index",
+  "rule": "8.4",
+  "description": "Events after the rejected index may lack a type and cover nothing; the file is valid.",
+  "registry": ["alpha", "beta"],
+  "files": [
+    {
+      "file": "v1.json",
+      "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"v1\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"alpha\",\"payload\":{}},{\"type\":\"alpha\",\"payload\":{}},{\"payload\":{}},{\"type\":\"beta\",\"payload\":{}}],\"expect\":{\"error\":{\"index\":1,\"code\":\"invalid_event\"}}}"
+    }
+  ],
+  "messages": ["uncovered event type: beta"]
+}

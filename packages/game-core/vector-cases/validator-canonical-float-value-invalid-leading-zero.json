@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-canonical-float-value-invalid-leading-zero",
+  "rule": "8.3 invalid.value float",
+  "description": "float text must be JSON number syntax, finite and not an integer.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"invalid\":{\"kind\":\"float\",\"value\":\"01.5\"},\"error\":\"non_integer\"}]}",
+  "messages": ["vec.json: cases[0].invalid.value must be decimal text of a non-integer number"]
+}

@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-order-unknown-keys-mixed-digits-and-letters",
+  "rule": "8.3 unknown keys in document order",
+  "description": "Digit-only keys written between letter keys are not moved to the front.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[],\"expect\":{\"state\":{}},\"b\":1,\"1\":1,\"a\":1,\"0\":1}",
+  "messages": [
+    "vec.json: b is not a known key",
+    "vec.json: 1 is not a known key",
+    "vec.json: a is not a known key",
+    "vec.json: 0 is not a known key"
+  ]
+}

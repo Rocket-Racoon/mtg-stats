@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-reducer-settings-unknown-keys-in-document-order",
+  "rule": "8.3 settings",
+  "description": "Each key that is not one of the four setting names gets its own message, in document order; known keys beside them are fine.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{\"zeta\":1,\"starting_life\":40,\"alpha\":2,\"trust_mode\":\"casual\"},\"events\":[{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1},{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1}],\"expect\":{\"state\":{}}}",
+  "messages": [
+    "vec.json: settings.zeta is not a known key",
+    "vec.json: settings.alpha is not a known key"
+  ]
+}

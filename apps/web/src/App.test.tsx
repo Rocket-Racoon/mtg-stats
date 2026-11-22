@@ -2,6 +2,9 @@ import { render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createMemoryRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
+import { env } from './env';
+import { linkedPackages } from './index';
+import { AppProviders } from './providers/AppProviders';
 import { routes } from './routes';
 import { useSessionStore } from './session/store';
 
@@ -10,7 +13,12 @@ beforeEach(() => {
 });
 
 function renderApp() {
-  return render(<RouterProvider router={createMemoryRouter(routes, { initialEntries: ['/'] })} />);
+  // The shell's playgroup switcher (S-2.4.5) needs the query and API providers.
+  return render(
+    <AppProviders>
+      <RouterProvider router={createMemoryRouter(routes, { initialEntries: ['/'] })} />
+    </AppProviders>,
+  );
 }
 
 describe('App shell', () => {
@@ -32,16 +40,17 @@ describe('App shell', () => {
     expect(screen.getByRole('contentinfo')).toBeInTheDocument();
   });
 
-  it('renders the three workspace package names, proving the workspace link at runtime', () => {
-    renderApp();
-    const main = screen.getByRole('main');
-    expect(main).toHaveTextContent('@mtg-stats/api-client');
-    expect(main).toHaveTextContent('@mtg-stats/card-utils');
-    expect(main).toHaveTextContent('@mtg-stats/game-core');
+  // The home page is the playgroup home since S-2.4.5, so the S-1.6.1 scaffold lines ("Packages:",
+  // "API:") are gone from the UI. The same facts are checked at the module level.
+  it('links the three workspace packages at runtime', () => {
+    expect(linkedPackages).toEqual([
+      '@mtg-stats/api-client',
+      '@mtg-stats/card-utils',
+      '@mtg-stats/game-core',
+    ]);
   });
 
-  it('renders the API base URL inside the main landmark', () => {
-    renderApp();
-    expect(screen.getByRole('main')).toHaveTextContent(/API: https?:\/\//);
+  it('has an API base URL', () => {
+    expect(env.apiBaseUrl).toMatch(/^https?:\/\//);
   });
 });

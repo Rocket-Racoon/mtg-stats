@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ApiError, useCreatePlaygroup, usePlaygroups } from '@mtg-stats/api-client';
 import { errorMessage } from '../errors/message';
+import { useActivePlaygroupStore } from '../playgroups/active-store';
 import { TextField } from '../ui/TextField';
 import { useToastStore } from '../ui/toasts';
 import { fieldErrorsFromDetails } from './auth/errors';
@@ -64,6 +65,7 @@ export function PlaygroupsPage() {
       { name: name.trim(), description },
       {
         onSuccess: (created) => {
+          useActivePlaygroupStore.getState().setActive(created.id); // the new group is the one in use
           setName('');
           setDescription('');
           setStatus(`Created playgroup ${created.name}.`);

@@ -77,6 +77,9 @@ function stubApi(
       const path = new URL(request.url).pathname;
       calls.push({ path, method: request.method });
       opts.onCall?.(path);
+      // The shell's playgroup switcher (S-2.4.5) loads the list: an empty page, never a 401.
+      if (path === '/api/v1/playgroups')
+        return Promise.resolve(json({ items: [], next_cursor: null }));
       if (path === '/api/v1/auth/logout') return answer(path, request, opts.logout);
       if (path === '/api/v1/auth/logout-all') return answer(path, request, opts.logoutAll);
       if (path === '/api/v1/auth/refresh' && opts.refresh) {

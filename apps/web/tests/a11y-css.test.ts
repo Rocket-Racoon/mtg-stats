@@ -93,6 +93,12 @@ const CONTEXT: Record<string, Context> = {
   },
   '.account-menu button, .dialog button': { color: 'fg', background: 'bg', pair: ['fg', 'bg'] },
   '.account-menu-list, .dialog': { color: 'fg', background: 'bg', pair: ['fg', 'bg'] },
+  '.playgroup-switcher-trigger': { color: 'fg', background: 'bg', pair: ['fg', 'bg'] },
+  '.playgroup-switcher-list': { color: 'fg', background: 'bg', pair: ['fg', 'bg'] },
+  ".playgroup-switcher-option[data-highlighted='true']": {
+    background: 'hoverBg',
+    pair: ['fg', 'hoverBg'],
+  },
   '.toast': { color: 'fg', background: 'mutedBg', pair: ['fg', 'mutedBg'] },
   '.skip-link, .skip-link:visited': { color: 'fg', background: 'bg', pair: ['fg', 'bg'] },
 };

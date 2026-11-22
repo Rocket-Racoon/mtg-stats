@@ -20,7 +20,13 @@ export {
 } from '@tanstack/react-query';
 export type { QueryClient } from '@tanstack/react-query';
 
-export { DOMAINS, domainKey, queryKey } from './query-keys';
+export {
+  DOMAINS,
+  domainKey,
+  isScopedToPlaygroup,
+  playgroupScopedKey,
+  queryKey,
+} from './query-keys';
 export type { Domain, QueryKey, QueryParams } from './query-keys';
 export {
   MAX_RETRIES,
@@ -41,5 +47,19 @@ export {
   useSignIn,
 } from './hooks/auth';
 export type { InvitePreview, TokenResponse } from './hooks/auth';
-export { playgroupKeys, useCreatePlaygroup, usePlaygroups } from './hooks/playgroups';
-export type { Playgroup, PlaygroupPage, PlaygroupRole } from './hooks/playgroups';
+export {
+  playgroupKeys,
+  useCreatePlaygroup,
+  useJoinWithInvite,
+  usePlaygroup,
+  usePlaygroupPlayers,
+  usePlaygroups,
+} from './hooks/playgroups';
+export type {
+  InviteJoinResult,
+  Playgroup,
+  PlaygroupPage,
+  PlaygroupPlayer,
+  PlaygroupPlayerPage,
+  PlaygroupRole,
+} from './hooks/playgroups';

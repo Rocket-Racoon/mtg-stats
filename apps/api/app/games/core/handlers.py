@@ -376,7 +376,7 @@ def _player_eliminated(
         return _reject("unknown_seat")
     if _eliminated(seat_id, state):
         return _reject("seat_eliminated")
-    entry = Elimination(seat_id, "declared", None, cast(WinCondition, cause))
+    entry = Elimination(seat_id, "declared", None, cast(WinCondition | None, cause))
     changed = eliminate(state, seq, [entry])
     return changed.model_copy(update={"last_seq": seq})
 

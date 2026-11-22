@@ -7,13 +7,24 @@ typed pydantic serializer turned a stored ``True`` into ``1``; the TypeScript st
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
-from app.games.core import CanonicalJsonError, GameState, canonical_json, initial_state
-from app.games.core.contract import Seat
+from app.games.core import (
+    ApplyOk,
+    CanonicalJsonError,
+    GameState,
+    apply,
+    canonical_json,
+    initial_state,
+)
+from app.games.core.contract import DEFAULT_SETTINGS, Seat, Settings
 from app.games.tests.lobby_helpers import GAME_ID, accept, make_event
+from app.games.tests.repo_files import VECTORS_DIR, require
+from app.games.tests.test_state_shape import UNVALIDATED as UNVALIDATED_VECTORS
 
 # (id, stored value, canonical JSON text of that value)
 UNVALIDATED: list[tuple[str, Any, str]] = [
@@ -118,9 +129,39 @@ def test_valid_states_keep_the_model_field_order_at_every_level() -> None:
     assert list(plain["seats"][0]["commanders"][0]) == ["card_id", "name"]
 
 
-def test_valid_states_serialise_the_same_as_the_typed_dump() -> None:
-    state = _join(_join(initial_state(GAME_ID), 1), 2)
-    assert state.to_json_value() == state.model_dump(mode="json")
+def _vector_states() -> list[tuple[str, GameState]]:
+    """The initial state and every state reached by every valid-settings reducer vector."""
+    found: list[tuple[str, GameState]] = []
+    for path in sorted(VECTORS_DIR.glob("*.json")):
+        vector = json.loads(path.read_text(encoding="utf-8"))
+        if vector["kind"] != "reducer" or path.stem in UNVALIDATED_VECTORS:
+            continue
+        try:  # newer vectors (rejections, which have no final state) are not on that list
+            Settings.model_validate({**DEFAULT_SETTINGS, **vector["settings"]})
+        except ValidationError:
+            continue
+        state = initial_state(vector["game_id"], vector["settings"])
+        found.append((f"{path.stem}#initial", state))
+        for index, raw in enumerate(vector["events"]):
+            result = apply(state, {"game_id": vector["game_id"], **raw})
+            if not isinstance(result, ApplyOk):
+                break
+            state = result.state
+            found.append((f"{path.stem}#{index}", state))
+    return found
+
+
+def test_valid_states_serialise_to_the_same_bytes_as_the_typed_dump() -> None:
+    """``==`` would hide the fix (``True == 1``), so compare canonical bytes, plus a round trip."""
+    require(VECTORS_DIR)
+    states = _vector_states()
+    assert len(states) > 1000
+    for name, state in states:
+        plain = canonical_json(state.to_json_value())
+        assert plain == canonical_json(state.model_dump(mode="json")), name
+        assert canonical_json(GameState.model_validate(state.to_json_value()).to_json_value()) == (
+            plain
+        ), name
 
 
 def test_the_result_never_aliases_the_state() -> None:

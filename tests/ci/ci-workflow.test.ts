@@ -383,10 +383,10 @@ describe('AC3: uv cache', () => {
     expect(steps.some((s) => /uv sync\b.*--(locked|frozen)/.test(s.run))).toBe(true);
   });
 
-  it('has a job timeout of at most 15 minutes so a hang cannot burn the budget', () => {
+  it('has a job timeout of at most 20 minutes (the 8 to 10 minute run has headroom, a hang cannot burn the budget)', () => {
     const t = /^ {4}timeout-minutes:\s*(\d+)/m.exec(apiJob)?.[1];
     expect(t).toBeDefined();
-    expect(Number(t)).toBeLessThanOrEqual(15);
+    expect(Number(t)).toBeLessThanOrEqual(20);
   });
 });
 

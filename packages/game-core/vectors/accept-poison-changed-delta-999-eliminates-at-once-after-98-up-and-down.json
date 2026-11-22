@@ -1,7 +1,7 @@
 {
   "format": 1,
   "kind": "reducer",
-  "name": "accept-poison-changed-delta-999-in-both-directions",
+  "name": "accept-poison-changed-delta-999-eliminates-at-once-after-98-up-and-down",
   "description": "The largest |delta| is 999 (4.7). With threshold 99: +98 then -98, then +999 eliminates at once with poison 999 (not clamped), eliminated_by 3 (4.7.1).",
   "game_id": "018f0000-0000-7000-8000-000000000001",
   "settings": {

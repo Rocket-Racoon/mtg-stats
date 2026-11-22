@@ -13,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cards.models import Card, Printing
 from app.core.ids import uuid7
+from app.games.core import initial_state
+from app.games.models import Game
 from app.identity.models import Player, User
 from app.identity.services import default_avatar_color
 from app.playgroups.models import Playgroup
@@ -94,6 +96,19 @@ class PlaygroupFactory(BaseFactory):
     id = factory.LazyFunction(uuid7)
     name = factory.Sequence(lambda n: f"Playgroup {n}")
     description = ""
+    created_at = factory.LazyFunction(lambda: datetime.now(UTC))
+    updated_at = factory.LazyFunction(lambda: datetime.now(UTC))
+
+
+class GameFactory(BaseFactory):
+    """A game in an empty lobby (``last_seq`` 0); pass ``playgroup_id`` of a persisted playgroup."""
+
+    class Meta:
+        model = Game
+
+    id = factory.LazyFunction(uuid7)
+    state = factory.LazyAttribute(lambda game: initial_state(str(game.id)).to_json_value())
+    last_seq = 0
     created_at = factory.LazyFunction(lambda: datetime.now(UTC))
     updated_at = factory.LazyFunction(lambda: datetime.now(UTC))
 

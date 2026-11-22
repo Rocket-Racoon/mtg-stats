@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-canonical-case-neither-input-nor-invalid",
+  "rule": "8.3 cases[i] exactly one",
+  "description": "Neither input nor invalid: one message, and the rest of the case is skipped (no unknown-key message for the extra keys).",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"output\":\"1\",\"error\":\"x\",\"extra\":1}]}",
+  "messages": ["vec.json: cases[0] must have exactly one of \"input\" or \"invalid\""]
+}

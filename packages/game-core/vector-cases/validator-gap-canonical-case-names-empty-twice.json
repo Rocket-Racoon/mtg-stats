@@ -1,0 +1,21 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-gap-canonical-case-names-empty-twice",
+  "rule": "8.3 cases[i].name",
+  "description": "Two cases both named with the empty string: two `non-empty` messages, or also a duplicate message?",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"\",\"input\":1,\"output\":\"1\"},{\"name\":\"\",\"input\":1,\"output\":\"1\"}]}",
+  "gap": "Whether an invalid name takes part in the duplicate check is not stated.",
+  "alternatives": [
+    [
+      "vec.json: cases[0].name must be a non-empty string",
+      "vec.json: cases[1].name must be a non-empty string"
+    ],
+    [
+      "vec.json: cases[0].name must be a non-empty string",
+      "vec.json: cases[1].name must be a non-empty string",
+      "vec.json: cases[1].name duplicates the name of cases[0]"
+    ]
+  ]
+}

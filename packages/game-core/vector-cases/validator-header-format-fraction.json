@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-header-format-fraction",
+  "rule": "8.3 header format, 8.3.1",
+  "description": "format 1.5 is not the integer 1 and is also a fractional token outside events.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1.5,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1},{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1}],\"expect\":{\"state\":{}}}",
+  "messages": [
+    "vec.json: format must be the integer 1",
+    "vec.json: format must be an integer (found the number token 1.5)"
+  ]
+}

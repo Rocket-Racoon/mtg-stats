@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-gap-type-rule-when-expect-error-is-not-an-object",
+  "rule": "8.3 events[i].type with a malformed expect",
+  "description": "expect.error is a number and events lack a type: all events applied, or none?",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{}],\"expect\":{\"error\":5}}",
+  "gap": "`applied` depends on expect.error.index, which does not exist here.",
+  "alternatives": [
+    ["vec.json: expect.error must be an object", "vec.json: events[0].type must be a string"],
+    ["vec.json: expect.error must be an object"]
+  ]
+}

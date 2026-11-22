@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-canonical-invalid-kind-missing",
+  "rule": "8.3 invalid.kind",
+  "description": "kind is required; no value rule can apply without it.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"invalid\":{\"value\":\"x\"},\"error\":\"non_integer\"}]}",
+  "messages": ["vec.json: cases[0].invalid.kind is required"]
+}

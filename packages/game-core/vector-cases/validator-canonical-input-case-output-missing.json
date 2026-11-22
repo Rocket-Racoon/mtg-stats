@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-canonical-input-case-output-missing",
+  "rule": "8.3 input case",
+  "description": "output is required.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"input\":1}]}",
+  "messages": ["vec.json: cases[0].output is required"]
+}

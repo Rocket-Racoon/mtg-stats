@@ -1,0 +1,19 @@
+{
+  "format": 1,
+  "kind": "coverage",
+  "name": "coverage-canonical-files-do-not-count",
+  "rule": "8.4",
+  "description": "Only reducer vectors count: a canonical file that mentions a type in a case name or input exercises nothing.",
+  "registry": ["alpha", "beta"],
+  "files": [
+    {
+      "file": "v1.json",
+      "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"v1\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"alpha\",\"payload\":{}}],\"expect\":{\"state\":{}}}"
+    },
+    {
+      "file": "c1.json",
+      "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"c1\",\"description\":\"d\",\"cases\":[{\"name\":\"beta\",\"input\":{\"type\":\"beta\"},\"output\":\"x\"}]}"
+    }
+  ],
+  "messages": ["uncovered event type: beta"]
+}

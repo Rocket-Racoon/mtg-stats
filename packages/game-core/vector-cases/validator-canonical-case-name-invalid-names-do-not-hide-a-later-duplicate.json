@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-canonical-case-name-invalid-names-do-not-hide-a-later-duplicate",
+  "rule": "8.3 cases[i].name",
+  "description": "A number as the first case's name does not make cases[1] and cases[2] ('a') anything but duplicates of cases[1].",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":5,\"input\":1,\"output\":\"1\"},{\"name\":\"a\",\"input\":1,\"output\":\"1\"},{\"name\":\"a\",\"input\":1,\"output\":\"1\"}]}",
+  "messages": [
+    "vec.json: cases[0].name must be a non-empty string",
+    "vec.json: cases[2].name duplicates the name of cases[1]"
+  ]
+}

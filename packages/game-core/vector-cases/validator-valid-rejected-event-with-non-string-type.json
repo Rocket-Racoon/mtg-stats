@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-valid-rejected-event-with-non-string-type",
+  "rule": "8.3 events[i].type",
+  "description": "The rejected event may have any type (here a number) and events after it may have none.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1},{\"type\":5,\"payload\":{}},{\"payload\":{}},{\"type\":null}],\"expect\":{\"error\":{\"index\":1,\"code\":\"invalid_event\"}}}",
+  "messages": []
+}

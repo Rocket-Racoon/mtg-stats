@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-canonical-invalid-error-message-comes-before-invalid-message",
+  "rule": "8.3 invalid case rows",
+  "description": "A bad error and a bad invalid: the error row comes first.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"invalid\":5,\"error\":\"bogus\"}]}",
+  "messages": [
+    "vec.json: cases[0].error must be a canonical JSON error code",
+    "vec.json: cases[0].invalid must be an object"
+  ]
+}

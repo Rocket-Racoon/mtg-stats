@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-duplicate-key-same-key-in-different-objects-is-fine",
+  "rule": "8.3 step 5",
+  "description": "The same key in sibling objects or at different depths is not a duplicate.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"t\",\"payload\":{\"type\":\"x\",\"a\":{\"type\":\"y\"}}},{\"type\":\"t\",\"payload\":{\"type\":\"z\"}}],\"expect\":{\"state\":{\"type\":{\"type\":1}}}}",
+  "messages": []
+}

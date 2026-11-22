@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "kind": "coverage",
+  "name": "coverage-state-vector-exercises-every-event",
+  "rule": "8.4",
+  "description": "With expect.state every event counts.",
+  "registry": ["alpha", "beta", "gamma"],
+  "files": [
+    {
+      "file": "v1.json",
+      "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"v1\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"alpha\",\"payload\":{}},{\"type\":\"beta\",\"payload\":{}},{\"type\":\"gamma\",\"payload\":{}}],\"expect\":{\"state\":{}}}"
+    }
+  ],
+  "messages": []
+}

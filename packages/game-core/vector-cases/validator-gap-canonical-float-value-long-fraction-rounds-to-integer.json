@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-gap-canonical-float-value-long-fraction-rounds-to-integer",
+  "rule": "8.3 invalid.value float",
+  "description": "Text whose exact value is not an integer but whose double is an integer (or zero).",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"invalid\":{\"kind\":\"float\",\"value\":\"0.99999999999999999999\"},\"error\":\"non_integer\"}]}",
+  "gap": "`finite and not an integer` is not said to be decided on the exact decimal value or on the double it parses to.",
+  "alternatives": [
+    [],
+    ["vec.json: cases[0].invalid.value must be decimal text of a non-integer number"]
+  ]
+}

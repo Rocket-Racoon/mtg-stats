@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "kind": "coverage",
+  "name": "coverage-type-match-is-exact",
+  "rule": "8.4",
+  "description": "Case and whitespace matter: Alpha and 'alpha ' do not cover alpha.",
+  "registry": ["alpha"],
+  "files": [
+    {
+      "file": "v1.json",
+      "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"v1\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"Alpha\",\"payload\":{}},{\"type\":\"alpha \",\"payload\":{}}],\"expect\":{\"state\":{}}}"
+    }
+  ],
+  "messages": ["uncovered event type: alpha"]
+}

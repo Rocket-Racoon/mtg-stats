@@ -1,0 +1,17 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-gap-type-rule-when-error-index-is-out-of-range",
+  "rule": "8.3 events[i].type with a malformed expect",
+  "description": "expect.error.index is 5 with 1 event lacking a type: events below min(index, count) are applied.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{}],\"expect\":{\"error\":{\"index\":5,\"code\":\"invalid_event\"}}}",
+  "gap": "`applied` is `an index below expect.error.index`; every index of the file is below 5, so event 0 is applied under the literal reading, but the index is itself reported as out of range.",
+  "alternatives": [
+    [
+      "vec.json: expect.error.index must be less than the number of events (1)",
+      "vec.json: events[0].type must be a string"
+    ],
+    ["vec.json: expect.error.index must be less than the number of events (1)"]
+  ]
+}

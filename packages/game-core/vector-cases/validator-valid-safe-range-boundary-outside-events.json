@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-valid-safe-range-boundary-outside-events",
+  "rule": "8.3.1",
+  "description": "9007199254740991 and -9007199254740991 are inside the safe range everywhere.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{\"starting_life\":9007199254740991,\"poison_threshold\":-9007199254740991},\"events\":[],\"expect\":{\"state\":{\"a\":9007199254740991}}}",
+  "messages": []
+}

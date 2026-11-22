@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "kind": "coverage",
+  "name": "coverage-rejection-at-index-zero-applies-nothing",
+  "rule": "8.4",
+  "description": "Error at index 0: no event was applied.",
+  "registry": ["alpha", "beta"],
+  "files": [
+    {
+      "file": "v1.json",
+      "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"v1\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"alpha\",\"payload\":{}},{\"type\":\"beta\",\"payload\":{}}],\"expect\":{\"error\":{\"index\":0,\"code\":\"invalid_event\"}}}"
+    }
+  ],
+  "messages": ["uncovered event type: alpha", "uncovered event type: beta"]
+}

@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-canonical-invalid-case-error-missing",
+  "rule": "8.3 invalid case error",
+  "description": "error is required.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"invalid\":{\"kind\":\"nan\"}}]}",
+  "messages": ["vec.json: cases[0].error is required"]
+}

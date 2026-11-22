@@ -1,0 +1,16 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-gap-events-token-1.0000000000000001",
+  "rule": "8.3.1 events",
+  "description": "A token whose exact value is not an integer but whose double is an integer or zero.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"t\",\"v\":1.0000000000000001}],\"expect\":{\"state\":{}}}",
+  "gap": "`value is finite and not an integer` is not said to be decided on the exact decimal value or on the double; the sentence about both languages reading `1.5` and `1e-7` as non-integer numbers suggests the double.",
+  "alternatives": [
+    [
+      "vec.json: events[0].v has the number token 1.0000000000000001; write an integral value as an integer"
+    ],
+    []
+  ]
+}

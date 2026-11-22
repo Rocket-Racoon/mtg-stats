@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-canonical-input-tokens-follow-the-strict-rule",
+  "rule": "8.3.1 everywhere else",
+  "description": "In canonical files every token must be an integer in the safe range; -0 is fine.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"input\":[1.0,1e5,9007199254740992,-0,9007199254740991],\"output\":\"x\"}]}",
+  "messages": [
+    "vec.json: cases[0].input[0] must be an integer (found the number token 1.0)",
+    "vec.json: cases[0].input[1] must be an integer (found the number token 1e5)",
+    "vec.json: cases[0].input[2] must be an integer in the safe range (found 9007199254740992)"
+  ]
+}

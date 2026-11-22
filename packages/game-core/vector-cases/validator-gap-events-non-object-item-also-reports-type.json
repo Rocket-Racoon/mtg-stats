@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-gap-events-non-object-item-also-reports-type",
+  "rule": "8.3 events / events[i].type",
+  "description": "An applied event that is not an object: only `must be an object`, or also `type must be a string`?",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[1],\"expect\":{\"state\":{}}}",
+  "gap": "The type rule says `for every event that is applied`; the contract does not say whether an item that is not an object is an event for this rule. Both readings are plausible.",
+  "alternatives": [
+    ["vec.json: events[0] must be an object"],
+    ["vec.json: events[0] must be an object", "vec.json: events[0].type must be a string"]
+  ]
+}

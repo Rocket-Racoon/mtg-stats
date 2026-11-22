@@ -1,0 +1,17 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-gap-expect-error-index-with-events-not-an-array",
+  "rule": "8.3 expect.error.index",
+  "description": "A valid index while events is not an array: is the `less than the number of events` check skipped, or does it run with a count of 0?",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":{},\"expect\":{\"error\":{\"index\":0,\"code\":\"invalid_event\"}}}",
+  "gap": "The contract gives no count for events that is not an array.",
+  "alternatives": [
+    ["vec.json: events must be an array"],
+    [
+      "vec.json: events must be an array",
+      "vec.json: expect.error.index must be less than the number of events (0)"
+    ]
+  ]
+}

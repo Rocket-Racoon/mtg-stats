@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-events-token-paths-through-objects-and-arrays",
+  "rule": "8.3.1 paths",
+  "description": "Paths use . for keys and [i] for array items, all the way down.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"t\",\"payload\":{}},{\"type\":\"t\",\"payload\":{\"a\":{\"b\":[1,[2,3.0],{\"c\":4e0}]}}}],\"expect\":{\"state\":{}}}",
+  "messages": [
+    "vec.json: events[1].payload.a.b[1][1] has the number token 3.0; write an integral value as an integer",
+    "vec.json: events[1].payload.a.b[2].c has the number token 4e0; write an integral value as an integer"
+  ]
+}

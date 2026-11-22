@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-valid-lone-surrogate-in-description",
+  "rule": "8.3 description",
+  "description": "A description holding an escaped lone surrogate is still a non-empty string.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"\\ud800\",\"game_id\":\"g\",\"settings\":{},\"events\":[],\"expect\":{\"state\":{}}}",
+  "messages": []
+}

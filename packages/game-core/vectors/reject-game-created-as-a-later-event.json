@@ -1,0 +1,50 @@
+{
+  "format": 1,
+  "kind": "reducer",
+  "name": "reject-game-created-as-a-later-event",
+  "description": "game_created is valid only as the event at seq 1 (4.3, 4.4.2): after another event it is invalid_phase.",
+  "game_id": "018f0000-0000-7000-8000-000000000001",
+  "settings": {
+    "starting_life": 40,
+    "commander_damage_threshold": 21,
+    "poison_threshold": 10,
+    "trust_mode": "casual"
+  },
+  "events": [
+    {
+      "event_id": "00000000-0000-4000-8000-000000000001",
+      "type": "settings_changed",
+      "payload": {},
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000002",
+      "type": "game_created",
+      "payload": {
+        "settings": {
+          "starting_life": 40,
+          "commander_damage_threshold": 21,
+          "poison_threshold": 10,
+          "trust_mode": "casual"
+        }
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    }
+  ],
+  "expect": {
+    "error": {
+      "index": 1,
+      "code": "invalid_phase"
+    }
+  }
+}

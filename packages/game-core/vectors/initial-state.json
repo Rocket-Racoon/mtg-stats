@@ -14,6 +14,7 @@
   "expect": {
     "state": {
       "active_seat": null,
+      "first_seat": null,
       "commander_damage": {},
       "control_mode": "own_seat",
       "game_id": "018f0000-0000-7000-8000-000000000001",

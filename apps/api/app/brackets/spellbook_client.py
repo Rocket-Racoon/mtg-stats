@@ -11,10 +11,17 @@ minute should be a safe rate", "always handle 429"):
 * Requests to the host are spaced by a Redis limiter shared by every worker
   (``SPELLBOOK_MIN_INTERVAL_MS``, 1 s by default). Every request counts, each page and each retry.
 * A lookup is cached in Redis by the deck's cards (see ``spellbook_cache``); a hit sends nothing.
-* Paging: Spellbook paginates over the whole variant set, so each page's buckets are partial.
-  One lookup follows ``next`` until it is null, at most ``SPELLBOOK_MAX_PAGES`` pages. The next
-  page is requested at the ``offset`` the ``next`` link names, on our own URL, after checking that
-  the link points at the Spellbook host and path (redirects are never followed).
+* Paging: Spellbook paginates over the whole variant set, so each page's buckets are partial
+  (a probe on 2026-11-21 with ``limit=3`` returned 3 ``included`` variants and nothing in the other
+  buckets). One lookup follows ``next`` until it is null, at most ``SPELLBOOK_MAX_PAGES`` pages.
+  The client never requests the ``next`` URL: it takes only its ``offset`` (which must be an
+  integer and strictly increase) and posts to its own constant URL, so a ``next`` link that
+  carries another host (DRF builds it from the Host header) is harmless; a differing host is only
+  logged, once per lookup. Redirects are never followed.
+* Deadline: one request is bounded by ``SPELLBOOK_TIMEOUT_SECONDS``, but a lookup is bounded as a
+  whole by ``SPELLBOOK_LOOKUP_DEADLINE_SECONDS`` (60 s by default), limiter waits and 429 sleeps
+  included; passing it is ``unavailable`` with reason ``timeout``. Without it the worst case would
+  be ``pages x (3 attempts x timeout + 2 x max Retry-After)``, about 450 s with the defaults.
 * 429: waits for ``Retry-After`` (seconds or HTTP-date) and retries, at most twice. A wait longer
   than ``SPELLBOOK_MAX_RETRY_AFTER_SECONDS`` is not retried: the lookup is ``rate_limited`` at
   once, so we never come back before the time Spellbook asked for. Timeouts, 5xx, transport
@@ -22,7 +29,9 @@ minute should be a safe rate", "always handle 429"):
 * A body over ``MAX_RESPONSE_BYTES`` or a response that does not match the expected schema is
   ``unavailable``. Logs carry statuses, counts and field paths, never card names.
 
-Only this module talks to Spellbook. API routes never import it (an architecture test checks).
+Only this module talks to Spellbook. API routes never import it, nor ``find_deck_combos``
+(an architecture test checks): a web request never waits on Spellbook. Lookups run in jobs through
+``find_deck_combos``; request paths may only read the cache through ``cached_deck_combos``.
 """
 
 import asyncio
@@ -39,7 +48,7 @@ from urllib.parse import parse_qs, urlsplit
 import httpx
 from pydantic import ValidationError
 
-from app.brackets.spellbook_cache import SpellbookCache, cache_key
+from app.brackets.spellbook_cache import SpellbookCache, cache_key, normalise_name
 from app.brackets.spellbook_schema import (
     CombosFound,
     DeckCard,
@@ -122,7 +131,7 @@ def build_request_body(cards: list[DeckCard]) -> dict[str, list[dict[str, Any]]]
     """
     lines: dict[tuple[bool, str], dict[str, Any]] = {}
     for card in cards:
-        name = card.name.strip()
+        name = normalise_name(card.name)
         if not name or len(name) > MAX_NAME_LENGTH or card.quantity < 1:
             raise _LookupFailedError(
                 UnavailableReason.INVALID_REQUEST, "a card has a bad name or quantity"
@@ -143,19 +152,14 @@ def build_request_body(cards: list[DeckCard]) -> dict[str, list[dict[str, Any]]]
 
 
 def next_offset(next_url: str, current_offset: int) -> int:
-    """The ``offset`` of a ``next`` link, after checking it stays on the Spellbook endpoint.
+    """The ``offset`` of a ``next`` link: an integer strictly greater than ``current_offset``.
 
-    The scheme and port are not checked, because the page is requested on our own URL and only
-    the offset is taken from the link. The host and path must match, and the offset must advance
-    (so a misbehaving server cannot loop us). Otherwise raises an internal error that
-    ``find_combos`` turns into ``schema_mismatch``.
+    Only the offset is read; the link itself is never requested, so its scheme, host and path do
+    not matter (see :func:`next_link_host_differs`). Raises an internal error, which
+    ``find_combos`` turns into ``schema_mismatch``, when the offset is missing, not an integer or
+    does not advance (so a misbehaving server cannot loop us).
     """
-    parts = urlsplit(next_url)
-    if parts.hostname != API_HOST or parts.path.rstrip("/") != FIND_COMBOS_PATH:
-        raise _LookupFailedError(
-            UnavailableReason.SCHEMA_MISMATCH, "next link leaves the Spellbook endpoint"
-        )
-    values = parse_qs(parts.query).get("offset", [])
+    values = parse_qs(urlsplit(next_url).query).get("offset", [])
     if len(values) != 1 or not values[0].isascii() or not values[0].isdigit():
         raise _LookupFailedError(
             UnavailableReason.SCHEMA_MISMATCH, "next link has no usable offset"
@@ -164,6 +168,17 @@ def next_offset(next_url: str, current_offset: int) -> int:
     if offset <= current_offset:
         raise _LookupFailedError(UnavailableReason.SCHEMA_MISMATCH, "next link does not advance")
     return offset
+
+
+def next_link_host_differs(next_url: str) -> bool:
+    """True when a ``next`` link names a host other than Spellbook's (it is not followed)."""
+    return urlsplit(next_url).hostname != API_HOST
+
+
+def echoed_limit(next_url: str) -> str:
+    """The ``limit`` a ``next`` link echoes (the page size the server applied), or ``"?"``."""
+    values = parse_qs(urlsplit(next_url).query).get("limit", [])
+    return values[0] if len(values) == 1 and values[0].isdigit() else "?"
 
 
 class SpellbookClient:
@@ -182,6 +197,7 @@ class SpellbookClient:
         self._timeout = used.spellbook_timeout_seconds
         self._max_retry_after = used.spellbook_max_retry_after_seconds
         self._max_pages = used.spellbook_max_pages
+        self._deadline = used.spellbook_lookup_deadline_seconds
         self._sleep = sleep
         self._limiter = limiter or SpacingLimiter(
             rate_limit_key("spellbook", API_HOST), used.spellbook_min_interval_ms, sleep=sleep
@@ -223,7 +239,13 @@ class SpellbookClient:
             cached = await self._cache.get(key)
             if cached is not None:
                 return CombosFound(cached, from_cache=True)
-            combos = await self._fetch_all(body)
+            try:
+                async with asyncio.timeout(self._deadline):
+                    combos = await self._fetch_all(body)
+            except TimeoutError as exc:
+                raise _LookupFailedError(
+                    UnavailableReason.TIMEOUT, f"lookup deadline of {self._deadline:g}s passed"
+                ) from exc
             await self._cache.set(key, combos)
             return CombosFound(combos)
         except _LookupFailedError as failure:
@@ -238,13 +260,27 @@ class SpellbookClient:
     async def _fetch_all(self, body: dict[str, list[dict[str, Any]]]) -> tuple[SpellbookCombo, ...]:
         """Follow the pages (at most ``max_pages``) and merge the ``included`` buckets by id."""
         combos: dict[str, SpellbookCombo] = {}
+        sizes: list[int] = []
+        echoed = "?"
+        warned = False
         offset = 0
         for _ in range(self._max_pages):
             page = await self._request_page(body, offset)
+            sizes.append(page.results.total_items())
             for variant in page.results.included:
                 combos.setdefault(variant.id, variant.to_combo())
             if page.next is None:
+                logger.info(
+                    "spellbook lookup done: %d pages, items per page %s, limit echoed %s",
+                    len(sizes),
+                    sizes,
+                    echoed,
+                )
                 return tuple(combos.values())
+            if not warned and next_link_host_differs(page.next):
+                warned = True
+                logger.warning("spellbook next link names another host; posting to our own URL")
+            echoed = echoed_limit(page.next)
             offset = next_offset(page.next, offset)
         raise _LookupFailedError(
             UnavailableReason.TOO_MANY_PAGES, f"more than {self._max_pages} pages of results"

@@ -4,7 +4,8 @@ The key is a hash of what the request sends: the deck's cards by ``oracle_id``, 
 placement (commander or main) and quantity, sorted. Placement is part of the key because Spellbook
 answers differently when the same cards have another commander (``mustBeCommander``, colour
 identity). A card without an ``oracle_id`` is keyed by its casefolded name. The key carries a
-format version, so a change of the stored shape retires old entries by itself.
+format version, so a change of the stored shape retires old entries by itself (a test pins the
+result dataclasses' fields next to the version, so one cannot change without the other).
 
 Only successful lookups are stored (never :class:`Unavailable`). The cache never raises: a Redis
 failure, a timeout or an unreadable entry is a miss, and a failed write is only logged. An entry
@@ -14,6 +15,7 @@ larger than ``MAX_ENTRY_BYTES`` is not stored.
 import asyncio
 import hashlib
 import logging
+import unicodedata
 from collections.abc import Iterable
 
 from pydantic import TypeAdapter, ValidationError
@@ -25,17 +27,26 @@ from app.core.redis import get_redis
 
 logger = logging.getLogger("app.brackets.spellbook_cache")
 
-KEY_PREFIX = "mtgstats:spellbook:combos:v1"
+KEY_PREFIX = "mtgstats:spellbook:combos:v2"
 MAX_ENTRY_BYTES = 1024 * 1024
 
 _COMBOS = TypeAdapter(tuple[SpellbookCombo, ...])
+
+
+def normalise_name(name: str) -> str:
+    """A card name stripped and in Unicode NFC form (the same name always compares equal)."""
+    return unicodedata.normalize("NFC", name.strip())
 
 
 def deck_lines(cards: Iterable[DeckCard]) -> list[str]:
     """Sorted, merged ``<placement>:<identity>:<quantity>`` lines, one per distinct card."""
     totals: dict[tuple[str, str], int] = {}
     for card in cards:
-        identity = str(card.oracle_id) if card.oracle_id else f"name:{card.name.strip().casefold()}"
+        identity = (
+            str(card.oracle_id)
+            if card.oracle_id
+            else f"name:{normalise_name(card.name).casefold()}"
+        )
         slot = ("c" if card.is_commander else "m", identity)
         totals[slot] = totals.get(slot, 0) + card.quantity
     return sorted(f"{place}:{identity}:{qty}" for (place, identity), qty in totals.items())

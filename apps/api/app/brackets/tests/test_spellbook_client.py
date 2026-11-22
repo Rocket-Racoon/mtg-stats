@@ -1,6 +1,7 @@
 """Unit tests of the Commander Spellbook client internals (S-5.2.1) over ``httpx.MockTransport``."""
 
 import asyncio
+import json
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -34,6 +35,7 @@ from app.brackets.tests.spellbook_support import (
     settings_with,
     variant,
 )
+from app.core.config import get_settings, load_settings
 from app.core.user_agent import build_user_agent
 
 
@@ -97,6 +99,8 @@ def test_parse_retry_after_reads_seconds_and_http_dates() -> None:
     assert parse_retry_after("nan") == 10.0
     date = format_datetime(now + timedelta(seconds=20), usegmt=True)
     assert parse_retry_after(date, now=lambda: now) == 20.0
+    no_zone = "Sat, 21 Nov 2026 12:00:20 -0000"  # parses naive: read as UTC
+    assert parse_retry_after(no_zone, now=lambda: now) == 20.0
     past = format_datetime(now - timedelta(seconds=20), usegmt=True)
     assert parse_retry_after(past, now=lambda: now) == 0.0
 
@@ -104,22 +108,20 @@ def test_parse_retry_after_reads_seconds_and_http_dates() -> None:
 def test_next_offset_accepts_the_endpoint_and_returns_the_offset() -> None:
     assert next_offset(next_link(1000), 0) == 1000
     assert next_offset(f"http://{API_HOST}{FIND_COMBOS_PATH}/?offset=5", 0) == 5
+    assert next_offset(f"https://internal:8000{FIND_COMBOS_PATH}?limit=3&offset=3", 0) == 3
 
 
 @pytest.mark.parametrize(
     "url",
     [
-        f"https://evil.example{FIND_COMBOS_PATH}?offset=1000",
-        f"https://{API_HOST}/variants?offset=1000",
         f"https://{API_HOST}{FIND_COMBOS_PATH}",
         f"https://{API_HOST}{FIND_COMBOS_PATH}?offset=abc",
         f"https://{API_HOST}{FIND_COMBOS_PATH}?offset=-1",
         f"https://{API_HOST}{FIND_COMBOS_PATH}?offset=1&offset=2",
         f"https://{API_HOST}{FIND_COMBOS_PATH}?offset=0",
-        f"https://user@{API_HOST}.evil.example{FIND_COMBOS_PATH}?offset=1000",
     ],
 )
-def test_next_offset_rejects_a_link_that_leaves_the_endpoint_or_does_not_advance(
+def test_next_offset_rejects_a_missing_malformed_or_non_advancing_offset(
     url: str,
 ) -> None:
     with pytest.raises(client_module._LookupFailedError):
@@ -240,13 +242,176 @@ async def test_more_pages_than_the_cap_is_too_many_pages() -> None:
     assert len(script.requests) == 3
 
 
-async def test_a_next_link_on_another_host_stops_the_lookup() -> None:
-    bad = f"https://evil.example{FIND_COMBOS_PATH}?offset=1000"
-    script = Script(json_response(page([variant()], next_url=bad)))
+async def test_a_next_link_on_another_host_is_followed_by_posting_to_our_own_url(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    script = Script(
+        json_response(
+            page([variant("1-1")], next_url="http://internal.example:8000/x?limit=1000&offset=1000")
+        ),
+        json_response(
+            page([variant("2-2")], next_url="http://internal.example:8000/x?limit=1000&offset=2000")
+        ),
+        json_response(page([variant("3-3")])),
+    )
+    with caplog.at_level(logging.WARNING, logger="app.brackets.spellbook_client"):
+        async with script.client() as client:
+            result = await client.find_combos(deck())
+    assert isinstance(result, CombosFound)
+    assert [c.spellbook_id for c in result.combos] == ["1-1", "2-2", "3-3"]
+    assert {r.url.host for r in script.requests} == {API_HOST}
+    assert [r.url.params.get("offset") for r in script.requests] == [None, "1000", "2000"]
+    warnings = [r for r in caplog.records if "another host" in r.getMessage()]
+    assert len(warnings) == 1
+    assert "internal.example" not in caplog.text
+
+
+async def test_a_next_link_whose_offset_does_not_advance_stops_the_lookup() -> None:
+    script = Script(
+        json_response(page([variant()], next_url=next_link(1000))),
+        json_response(page([variant("2-2")], next_url=next_link(1000))),
+    )
+    async with script.client() as client:
+        assert reason(await client.find_combos(deck())) is UnavailableReason.SCHEMA_MISMATCH
+    assert len(script.requests) == 2
+
+
+async def test_a_successful_lookup_logs_pages_and_page_size_without_card_names(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    script = Script(
+        json_response(page([variant("1-1")], next_url=next_link(1000), almost=2)),
+        json_response(page([variant("2-2")])),
+    )
+    cards = deck()
+    with caplog.at_level(logging.INFO, logger="app.brackets.spellbook_client"):
+        async with script.client() as client:
+            await client.find_combos(cards)
+    (record,) = [r for r in caplog.records if "lookup done" in r.getMessage()]
+    message = record.getMessage()
+    assert "2 pages" in message
+    assert "[3, 2]" in message
+    assert "limit echoed 1000" in message
+    assert all(card.name not in caplog.text for card in cards)
+
+
+async def test_the_lookup_deadline_covers_limiter_waits() -> None:
+    script = Script(json_response(page([variant()])))
+
+    class SlowLimiter:
+        async def wait(self) -> None:
+            await asyncio.sleep(30)
+
+    client = client_module.SpellbookClient(
+        transport=httpx.MockTransport(script.handler),
+        cache=MemoryCache(),
+        limiter=SlowLimiter(),  # type: ignore[arg-type]
+    )
+    client._deadline = 0.05
+    async with client:
+        result = await client.find_combos(deck())
+    assert isinstance(result, Unavailable)
+    assert result.reason is UnavailableReason.TIMEOUT
+    assert "deadline" in result.detail
+    assert script.requests == []
+
+
+async def test_the_lookup_deadline_covers_429_sleeps() -> None:
+    script = Script(*[httpx.Response(429, headers={"Retry-After": "5"})] * 3)
+
+    async def hang(seconds: float) -> None:
+        await asyncio.sleep(30)
+
+    client = client_module.SpellbookClient(
+        transport=httpx.MockTransport(script.handler),
+        cache=MemoryCache(),
+        limiter=script.limiter,  # type: ignore[arg-type]
+        sleep=hang,
+    )
+    client._deadline = 0.05
+    async with client:
+        result = await client.find_combos(deck())
+    assert reason(result) is UnavailableReason.TIMEOUT
+    assert len(script.requests) == 1
+
+
+def test_lookup_deadline_setting_defaults_to_60_seconds() -> None:
+    assert get_settings().spellbook_lookup_deadline_seconds == 60.0
+
+
+@pytest.mark.parametrize("bad", ["0", "0.5", "601"])
+def test_lookup_deadline_setting_is_bounded(monkeypatch: pytest.MonkeyPatch, bad: str) -> None:
+    monkeypatch.setenv("SPELLBOOK_LOOKUP_DEADLINE_SECONDS", bad)
+    with pytest.raises(ValueError, match="SPELLBOOK_LOOKUP_DEADLINE_SECONDS"):
+        load_settings()
+
+
+async def test_a_combo_carries_the_templates_it_requires() -> None:
+    script = Script(json_response(page([variant("1-1")])))
     async with script.client() as client:
         result = await client.find_combos(deck())
-    assert reason(result) is UnavailableReason.SCHEMA_MISMATCH
-    assert len(script.requests) == 1
+    assert isinstance(result, CombosFound)
+    (template,) = result.combos[0].templates
+    assert (template.template_id, template.name, template.quantity) == (5, "Any creature", 2)
+    assert template.must_be_commander is False
+
+
+async def test_a_template_must_be_commander_flag_is_passed_through() -> None:
+    needs = variant("1-1")
+    needs["requires"][0]["mustBeCommander"] = True
+    script = Script(json_response(page([needs])))
+    async with script.client() as client:
+        result = await client.find_combos(deck())
+    assert isinstance(result, CombosFound)
+    assert result.combos[0].templates[0].must_be_commander is True
+
+
+async def test_a_variant_with_no_templates_has_an_empty_tuple() -> None:
+    plain = variant("1-1")
+    plain["requires"] = []
+    script = Script(json_response(page([plain])))
+    async with script.client() as client:
+        result = await client.find_combos(deck())
+    assert isinstance(result, CombosFound)
+    assert result.combos[0].templates == ()
+
+
+@pytest.mark.parametrize(
+    "requires",
+    [
+        None,
+        "any",
+        [{"template": {"name": "Any creature"}, "quantity": 1}],
+        [{"template": {"id": 5}, "quantity": 1}],
+        [{"template": {"id": 5, "name": "Any creature"}, "quantity": 0}],
+        [{"template": {"id": 5, "name": "Any creature"}}],
+        [{"quantity": 1}],
+    ],
+)
+async def test_a_malformed_requires_is_schema_mismatch(requires: object) -> None:
+    broken = variant("1-1")
+    broken["requires"] = requires
+    script = Script(json_response(page([broken])))
+    async with script.client() as client:
+        assert reason(await client.find_combos(deck())) is UnavailableReason.SCHEMA_MISMATCH
+
+
+async def test_a_variant_without_requires_is_schema_mismatch() -> None:
+    broken = variant("1-1")
+    del broken["requires"]
+    script = Script(json_response(page([broken])))
+    async with script.client() as client:
+        assert reason(await client.find_combos(deck())) is UnavailableReason.SCHEMA_MISMATCH
+
+
+async def test_names_are_nfc_normalised_in_the_request_and_merged() -> None:
+    composed = "Lim-Dûl's Vault"
+    decomposed = "Lim-Dûl's Vault"
+    script = Script(json_response(page([])))
+    async with script.client() as client:
+        await client.find_combos([DeckCard(composed, None), DeckCard(decomposed, None)])
+    body = json.loads(script.requests[0].content)
+    assert body["main"] == [{"card": composed, "quantity": 2}]
 
 
 async def test_429_waits_for_retry_after_and_retries() -> None:

@@ -83,7 +83,7 @@ async def test_oversized_entry_is_not_stored(
     monkeypatch.setattr(cache_module, "MAX_ENTRY_BYTES", 10)
     key = cache_key(deck())
     redis_keys.append(key)
-    await SpellbookCache().set(key, (SpellbookCombo("1-1", "OK", (), ()),))
+    await SpellbookCache().set(key, (SpellbookCombo("1-1", "OK", (), (), ()),))
     assert await get_redis().get(key) is None
 
 

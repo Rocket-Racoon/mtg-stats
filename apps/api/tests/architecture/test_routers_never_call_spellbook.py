@@ -3,9 +3,10 @@
 Same detection as ``test_routers_never_call_scryfall`` (it reuses ``imported_modules`` and
 ``is_router_module`` of ``test_domain_imports``): a router module (named ``router.py`` or
 importing ``fastapi.APIRouter``) must not import ``app.brackets.spellbook_client``, import the
-names ``spellbook_client`` or ``SpellbookClient``, or access them as attributes. Calling the
-service ``find_deck_combos`` is not the client, so it is not flagged here; whether a request path
-may wait on Spellbook is a review question. Non-literal lookups (``getattr``) are not detectable.
+names ``spellbook_client``, ``SpellbookClient`` or ``find_deck_combos``, or access them as
+attributes. A web request never waits on Spellbook: ``find_deck_combos`` is for jobs, and routers
+may use only the cache-only ``cached_deck_combos`` and the value types. Non-literal lookups
+(``getattr``) are not detectable.
 """
 
 import ast
@@ -14,7 +15,7 @@ from pathlib import Path
 from tests.architecture.test_domain_imports import APP_ROOT, imported_modules, is_router_module
 
 CLIENT_MODULE = "app.brackets.spellbook_client"
-CLIENT_NAMES = {"spellbook_client", "SpellbookClient"}
+CLIENT_NAMES = {"spellbook_client", "SpellbookClient", "find_deck_combos"}
 
 
 def spellbook_router_violations(root: Path) -> list[str]:
@@ -55,7 +56,9 @@ def test_no_router_in_the_app_imports_the_spellbook_client() -> None:
     assert spellbook_router_violations(APP_ROOT) == []
 
 
-def test_router_reaching_the_client_in_any_form_is_reported(tmp_path: Path) -> None:
+def test_router_reaching_the_client_or_the_job_service_in_any_form_is_reported(
+    tmp_path: Path,
+) -> None:
     root = _tree(
         tmp_path,
         {
@@ -67,20 +70,25 @@ def test_router_reaching_the_client_in_any_form_is_reported(tmp_path: Path) -> N
             "e/endpoints.py": (
                 "from fastapi import APIRouter\nfrom app.brackets.spellbook_client import x\n"
             ),
+            "f/router.py": "from app.brackets.services import find_deck_combos\n",
+            "g/router.py": "from app import brackets\nx = brackets.services.find_deck_combos\n",
         },
     )
     flagged = {line.split(":")[0] for line in spellbook_router_violations(root)}
-    assert flagged == {"a/router.py", "b/router.py", "c/router.py", "d/router.py", "e/endpoints.py"}
+    assert flagged == {f"{name}/router.py" for name in "abcdfg"} | {"e/endpoints.py"}
 
 
-def test_non_router_module_may_use_the_client_and_a_router_may_call_the_service(
+def test_non_router_module_may_use_the_client_and_a_router_may_read_the_cache(
     tmp_path: Path,
 ) -> None:
     root = _tree(
         tmp_path,
         {
             "brackets/sync.py": "from app.brackets.spellbook_client import SpellbookClient\n",
-            "decks/router.py": "from app.brackets.services import find_deck_combos\n",
+            "jobs/runner.py": "from app.brackets.services import find_deck_combos\n",
+            "decks/router.py": (
+                "from app.brackets.services import CombosFound, DeckCard, cached_deck_combos\n"
+            ),
         },
     )
     assert spellbook_router_violations(root) == []

@@ -19,9 +19,10 @@ therefore for the classifier (S-5.2.2) to decide; this module classifies nothing
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +32,11 @@ class DeckCard:
     ``is_commander`` is true for the commander(s); every other board, the companion included,
     is ``False`` (Spellbook has no companion field, so those cards go in its ``main`` list).
     ``oracle_id`` is ``None`` when the card has no Scryfall oracle id.
+
+    ``name`` is the Scryfall oracle name; for a multi-face card pass the full ``Front // Back``
+    name (a probe on 2026-11-21 showed Spellbook matches that form and not the front name alone).
+    Spellbook silently ignores names it does not recognise, so a wrong form is not an error: the
+    card is simply left out and the answer, possibly "no combos", would be cached for 7 days.
     """
 
     name: str
@@ -69,12 +75,31 @@ class ComboResult:
 
 
 @dataclass(frozen=True, slots=True)
+class ComboTemplate:
+    """A template a combo needs on top of its named cards ("Any creature", "Any sac outlet").
+
+    Any card that fits the template will do, so the combo needs ``quantity`` more cards than
+    ``SpellbookCombo.cards`` lists. ``must_be_commander`` is Spellbook's ``mustBeCommander``.
+    """
+
+    template_id: int
+    name: str
+    quantity: int
+    must_be_commander: bool
+
+
+@dataclass(frozen=True, slots=True)
 class SpellbookCombo:
-    """A combo fully included in the deck (a Spellbook *variant*)."""
+    """A combo fully included in the deck (a Spellbook *variant*).
+
+    ``cards`` are the named cards it uses and ``templates`` the generic cards it also requires;
+    the number of cards a combo needs counts both.
+    """
 
     spellbook_id: str
     status: str
     cards: tuple[ComboCard, ...]
+    templates: tuple[ComboTemplate, ...]
     results: tuple[ComboResult, ...]
 
 
@@ -137,6 +162,26 @@ class WireCardInVariant(_Wire):
     must_be_commander: bool = Field(alias="mustBeCommander")
 
 
+class WireTemplate(_Wire):
+    """``results.included[].requires[].template``: ``scryfallQuery`` is not read."""
+
+    id: int
+    name: str = Field(min_length=1)
+
+
+class WireTemplateInVariant(_Wire):
+    """``results.included[].requires[]``.
+
+    ``mustBeCommander`` is required by Spellbook's schema, but it is read leniently (``False``
+    when absent): a template that has to be the commander is rare, and we do not want a missing
+    flag on a template to make every lookup unavailable.
+    """
+
+    template: WireTemplate
+    quantity: int = Field(ge=1)
+    must_be_commander: bool = Field(default=False, alias="mustBeCommander")
+
+
 class WireFeature(_Wire):
     """``results.included[].produces[].feature``."""
 
@@ -158,6 +203,7 @@ class WireVariant(_Wire):
     id: str = Field(min_length=1, max_length=128)
     status: str
     uses: list[WireCardInVariant]
+    requires: list[WireTemplateInVariant]
     produces: list[WireFeatureProduced]
 
     def to_combo(self) -> SpellbookCombo:
@@ -174,6 +220,15 @@ class WireVariant(_Wire):
                 )
                 for use in self.uses
             ),
+            templates=tuple(
+                ComboTemplate(
+                    template_id=need.template.id,
+                    name=need.template.name,
+                    quantity=need.quantity,
+                    must_be_commander=need.must_be_commander,
+                )
+                for need in self.requires
+            ),
             results=tuple(
                 ComboResult(
                     feature_id=made.feature.id,
@@ -187,9 +242,26 @@ class WireVariant(_Wire):
 
 
 class WireBuckets(_Wire):
-    """``results``: only ``included`` is read (combos fully included in the deck)."""
+    """``results``: only ``included`` is read (combos fully included in the deck).
+
+    The other buckets are only counted (for the page-size log), never validated: ``other`` holds
+    them as they came.
+    """
 
     included: list[WireVariant]
+    other: dict[str, Any] = Field(default_factory=dict, exclude=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _keep_other_buckets(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            others = {k: v for k, v in data.items() if k != "included"}
+            return {**data, "other": others}
+        return data
+
+    def total_items(self) -> int:
+        """Variants on this page across every bucket (the page size the server applied)."""
+        return len(self.included) + sum(len(v) for v in self.other.values() if isinstance(v, list))
 
 
 class WirePage(_Wire):

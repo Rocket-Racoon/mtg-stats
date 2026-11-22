@@ -37,7 +37,14 @@ def variant(
             }
             for i, (name, oracle, commander) in enumerate(cards)
         ],
-        "requires": [],
+        "requires": [
+            {
+                "template": {"id": 5, "name": "Any creature", "scryfallQuery": "t:creature"},
+                "quantity": 2,
+                "mustBeCommander": False,
+                "zoneLocations": ["B"],
+            }
+        ],
         "produces": [
             {
                 "feature": {"id": 7 + i, "name": name, "status": "S", "uncountable": False},

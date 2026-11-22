@@ -106,6 +106,9 @@ class Settings(BaseSettings):
         default=30.0, ge=0, validation_alias="SPELLBOOK_MAX_RETRY_AFTER_SECONDS"
     )
     spellbook_max_pages: int = Field(default=5, ge=1, validation_alias="SPELLBOOK_MAX_PAGES")
+    spellbook_lookup_deadline_seconds: float = Field(
+        default=60.0, ge=1, le=600, validation_alias="SPELLBOOK_LOOKUP_DEADLINE_SECONDS"
+    )
 
     @field_validator("database_url")
     @classmethod

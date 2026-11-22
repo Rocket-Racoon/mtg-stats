@@ -31,7 +31,8 @@ async def find_deck_combos(cards: Sequence[DeckCard]) -> SpellbookResult:
 
     For jobs, not request paths. One lookup per deck version (decision E7): cached for 7 days,
     rate limited across workers, bounded by a deadline, and it never raises: a failure anywhere,
-    building or closing the client included, is ``Unavailable(internal_error)``. ``cards`` holds
+    building the client included, is ``Unavailable(internal_error)``. A failure while closing the
+    client is only logged: the lookup's own result, already obtained, is returned. ``cards`` holds
     the commander(s) with ``is_commander=True`` and every other card (main board, companion) with
     ``False``; see :class:`DeckCard` for the name form.
     """

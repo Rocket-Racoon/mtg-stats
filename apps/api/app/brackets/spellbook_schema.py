@@ -170,16 +170,11 @@ class WireTemplate(_Wire):
 
 
 class WireTemplateInVariant(_Wire):
-    """``results.included[].requires[]``.
-
-    ``mustBeCommander`` is required by Spellbook's schema, but it is read leniently (``False``
-    when absent): a template that has to be the commander is rare, and we do not want a missing
-    flag on a template to make every lookup unavailable.
-    """
+    """``results.included[].requires[]``: ``mustBeCommander`` is required, as in the schema."""
 
     template: WireTemplate
     quantity: int = Field(ge=1)
-    must_be_commander: bool = Field(default=False, alias="mustBeCommander")
+    must_be_commander: bool = Field(alias="mustBeCommander")
 
 
 class WireFeature(_Wire):

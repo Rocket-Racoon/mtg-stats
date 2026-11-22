@@ -260,6 +260,15 @@ Each row is a need from the backlog that would otherwise require an upward call.
   - `games.delete_playgroup_data`, during playgroup deletion (S-2.6.3).
 
   Each writes an audit row. No other code may update or delete `game_events`.
+- **How the append works** (S-6.3.1): `games.append_event` locks the game row with `SELECT … FOR NO KEY UPDATE`, assigns `last_seq + 1`, runs the Python reducer, and writes the event and the new state in the caller's transaction. It never commits.
+  - The server sets `seq`, `ts` and `actor`. Whatever the client sent in those fields is ignored.
+  - A resent `event_id` returns the stored event and writes nothing.
+  - While the lock is held, the caller does no network I/O (no Redis, no socket sends). It commits promptly and publishes through `core.db.after_commit`.
+  - Lock order: take any other explicit row lock (players, memberships) before the game row, and none while holding it.
+- **How append-only is enforced**:
+  - A database trigger rejects every `UPDATE` and `DELETE` on `game_events`. The two audited operations opt in for their own transaction only, with `set_config('app.game_events_audited_mutation', 'on', true)`. The setting guards against accidents; it is not a security boundary.
+  - An architecture test (`tests/architecture/test_game_events_append_only.py`) allows only `games/models.py`, `games/repository.py` and `games/services/events.py` to name the table or its model. Every other reader goes through `games.services`.
+  - The foreign keys from `game_events` to `games` and from `games` to `playgroups` do not cascade, so playgroup deletion (S-2.6.3) deletes the events first, then the games, then the playgroup.
 - **Messages**:
   - Client to server: `auth`, `submit`, `sync`.
   - Server to client: `welcome`, `ack`, `reject`, `event`, `auth_expired`, `error`.

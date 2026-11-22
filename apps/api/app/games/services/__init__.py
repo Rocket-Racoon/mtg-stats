@@ -1,9 +1,10 @@
 """Public interface of the ``games`` domain; other code imports only from here.
 
-For now this is the pure game core (S-6.1.1): the reducer, the contract models and canonical
-JSON. Service functions that touch the database arrive with S-6.3.x.
+This is the pure game core (S-6.1.1): the reducer, the contract models and canonical JSON, and
+the event log (S-6.3.1): :func:`append_event` and the read functions.
 """
 
+import app.playgroups.services  # noqa: F401  (``games.models`` has a foreign key to ``playgroups``)
 from app.games.core import (
     EVENT_TYPES,
     REDUCER_ERROR_CODES,
@@ -31,31 +32,55 @@ from app.games.core import (
     reduce,
     replay,
 )
+from app.games.services.events import (
+    Appended,
+    AppendResult,
+    GameLogCorruptError,
+    InvalidActorError,
+    Rejected,
+    StoredEvent,
+    append_event,
+    format_ts,
+    get_event,
+    get_snapshot,
+    read_events_since,
+)
 
 __all__ = [
     "EVENT_TYPES",
     "REDUCER_ERROR_CODES",
     "SCHEMA_VERSION",
     "Actor",
+    "AppendResult",
+    "Appended",
     "ApplyError",
     "ApplyOk",
     "ApplyResult",
     "CanonicalJsonError",
     "Commander",
     "EventEnvelope",
+    "GameLogCorruptError",
     "GameState",
+    "InvalidActorError",
     "ReducerError",
+    "Rejected",
     "ReplayError",
     "ReplayOk",
     "ReplayResult",
     "Seat",
     "Settings",
+    "StoredEvent",
     "WireParseError",
+    "append_event",
     "apply",
     "canonical_bytes",
     "canonical_json",
+    "format_ts",
+    "get_event",
+    "get_snapshot",
     "initial_state",
     "loads_wire",
+    "read_events_since",
     "reduce",
     "replay",
 ]

@@ -2,11 +2,11 @@ import {
   fail,
   field,
   hasSeat,
-  isEliminated,
   isInt,
   isRecord,
   isSeatId,
   payloadOf,
+  walkToNextSeat,
 } from './handler-utils';
 import type { Handler } from './handler-utils';
 import { MAX_SEATS, MIN_SEATS, SETTING_DEFAULTS, SETTING_RANGES, TRUST_MODES } from './types';
@@ -210,20 +210,9 @@ export const gameStarted: Handler = (state, event, seq) => {
 
 export const turnPassed: Handler = (state, _event, seq) => {
   if (state.phase !== 'active' && state.phase !== 'ending') return fail('invalid_phase');
-  const order = state.order;
-  const at = order.indexOf(state.active_seat ?? -1);
-  // Walk the positions after the active seat, cyclically, up to and including the next survivor
-  // (the active seat itself is walked last). 4.4.10.
-  const walked: number[] = [];
-  let next: number | null = null;
-  for (let step = 1; step <= order.length; step++) {
-    const candidate = order[(at + step) % order.length]!;
-    walked.push(candidate);
-    if (!isEliminated(state, candidate)) {
-      next = candidate;
-      break;
-    }
-  }
+  // The walk of 4.4.10: the positions after the active seat, cyclically, up to and including the
+  // next survivor (the active seat itself is walked last).
+  const { next, walked } = walkToNextSeat(state);
   if (next === null) return fail('invalid_phase');
   const firstWalked = state.first_seat !== null && walked.includes(state.first_seat);
   return done(state, seq, {

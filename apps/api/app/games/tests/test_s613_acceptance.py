@@ -478,11 +478,31 @@ ROWS: dict[str, tuple[str, list[dict[str, Any]], str]] = {
         ],
         "seat_eliminated",
     ),
-    "poison_changed": ("pending", [{"seat": 2, "delta": 1}], "ok"),
-    "counter_changed": ("pending", [{"seat": 2, "counter": "energy", "delta": 1}], "ok"),
-    "commander_cast": ("pending", [{"seat": 2, "commander": 0, "delta": 1}], "ok"),
-    "monarch_set": ("pending", [{"seat": 2}], "ok"),
-    "initiative_set": ("pending", [{"seat": 2}], "ok"),
+    # S-6.1.5 (4.7): the five handlers follow 4.5.1, so each rejects an eliminated seat before its
+    # amount rules (the second payload of a row has a bad amount as well).
+    "poison_changed": (
+        "seat_eliminated",
+        [{"seat": 2, "delta": 1}, {"seat": 1, "delta": 0, "source_seat": 2}],
+        "seat_eliminated",
+    ),
+    "counter_changed": (
+        "seat_eliminated",
+        [
+            {"seat": 2, "counter": "energy", "delta": 1},
+            {"seat": 2, "counter": "experience", "delta": 0},
+        ],
+        "seat_eliminated",
+    ),
+    "commander_cast": (
+        "seat_eliminated",
+        [
+            {"seat": 2, "commander": 0, "delta": 1},
+            {"seat": 2, "commander": 5, "delta": 7},
+        ],
+        "seat_eliminated",
+    ),
+    "monarch_set": ("seat_eliminated", [{"seat": 2}], "seat_eliminated"),
+    "initiative_set": ("seat_eliminated", [{"seat": 2}], "seat_eliminated"),
     "drain": (
         "pending",
         [
@@ -813,12 +833,14 @@ ELIMINATION_KEYS = (
 )
 
 
-def test_the_routine_changes_only_the_elimination_fields_and_no_winner() -> None:
+def test_the_routine_changes_only_the_elimination_fields_no_winner_and_the_hand_off() -> None:
+    # S-6.1.5 amended 4.5.2: with every seat eliminated nobody can hold the monarch or the
+    # initiative, so both become None (they used to stay as hand-built).
     before = table([1, 2, 3, 4]).model_copy(
         update={"monarch": 2, "initiative": 3, "commander_damage": {"2": {"1:0": 7}}}
     )
     after = eliminate(before, SEQ, [entry(1), entry(2), entry(3), entry(4)])
-    blank = {"seats": [], "no_winner": False}
+    blank = {"seats": [], "no_winner": False, "monarch": None, "initiative": None}
     assert after.model_copy(update=blank) == before.model_copy(update=blank)
     assert (after.phase, after.active_seat, after.last_seq, after.round, after.turn) == (
         "active",
@@ -828,8 +850,8 @@ def test_the_routine_changes_only_the_elimination_fields_and_no_winner() -> None
         9,
     )
     assert (after.monarch, after.initiative, after.winner_seat, after.win_condition) == (
-        2,
-        3,
+        None,
+        None,
         None,
         None,
     )

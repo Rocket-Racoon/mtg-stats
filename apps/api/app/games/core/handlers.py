@@ -1,5 +1,6 @@
-"""The lobby, seat and turn handlers (S-6.1.6, CONTRACT.md 4.4), the life ones (S-6.1.3, 4.5)
-and commander damage (S-6.1.4, 4.6).
+"""The lobby, seat and turn handlers (S-6.1.6, CONTRACT.md 4.4), the life ones (S-6.1.3, 4.5),
+commander damage (S-6.1.4, 4.6) and poison, counters, commander cast, monarch and initiative
+(S-6.1.5, 4.7).
 
 Pure: no clock, randomness or I/O. A handler runs after steps 1 to 7 of section 6.2 and returns
 the first failure in this order (4.4.1, 4.5.1): payload shape, phase, seat references, then its own
@@ -28,7 +29,7 @@ from app.games.core.contract import (
     Settings,
     WinCondition,
 )
-from app.games.core.elimination import Elimination, eliminate
+from app.games.core.elimination import Elimination, eliminate, next_standing_seat
 
 MAX_LIFE_DELTA: Final = 999
 """The largest |delta| of a ``life_changed`` (4.5.3)."""
@@ -270,16 +271,6 @@ def _game_started(state: GameState, event: EventEnvelope, seq: int) -> GameState
     )
 
 
-def _first_alive_after(state: GameState, start: int | None) -> int | None:
-    """Scan ``order`` cyclically after ``start`` (``start`` itself last) for a seat still in."""
-    order = state.order
-    position = order.index(start) if start in order else -1
-    for candidate in [*order[position + 1 :], *order[: position + 1]]:
-        if not _eliminated(candidate, state):
-            return candidate
-    return None
-
-
 def _turn_passed(state: GameState, event: EventEnvelope, seq: int) -> GameState | ReducerError:
     """Section 4.4.10: next surviving seat; the round rises when the pass walks over ``first_seat``.
 
@@ -294,7 +285,7 @@ def _turn_passed(state: GameState, event: EventEnvelope, seq: int) -> GameState 
     ):
         return _reject("invalid_phase")
     order = state.order
-    next_seat = _first_alive_after(state, state.active_seat)
+    next_seat = next_standing_seat(state, state.active_seat)
     start = order.index(state.active_seat) + 1 if state.active_seat in order else 0
     end = order.index(next_seat) if next_seat in order else start - 1
     # Number of positions walked: from start up to and including end, cyclically.
@@ -435,6 +426,145 @@ def _commander_damage(state: GameState, event: EventEnvelope, seq: int) -> GameS
     return changed.model_copy(update={"last_seq": seq})
 
 
+def _seat_of(state: GameState, seat_id: int) -> Seat:
+    return next(s for s in state.seats if s.seat == seat_id)
+
+
+def _delta_ok(delta: int) -> bool:
+    return delta != 0 and abs(delta) <= MAX_LIFE_DELTA
+
+
+def _poison_changed(state: GameState, event: EventEnvelope, seq: int) -> GameState | ReducerError:
+    """Section 4.7.1: add ``delta`` to a seat's poison.
+
+    A positive delta that takes the poison to the threshold or more eliminates the seat with
+    reason ``poison`` (``eliminated_by`` is ``source_seat``). The threshold is read on every
+    event, removals included, so a non-integer one is ``invalid_amount`` either way. A negative
+    delta never eliminates.
+    """
+    payload = event.payload
+    seat_id: Any = payload.get("seat")
+    delta: Any = payload.get("delta")
+    source: Any = payload.get("source_seat")
+    if not _is_seat_id(seat_id) or not _is_int(delta):
+        return _reject("invalid_payload")
+    if source is not None and not _is_seat_id(source):
+        return _reject("invalid_payload")
+    if not _is_running(state):
+        return _reject("invalid_phase")
+    present = _seat_ids(state)
+    if seat_id not in present or (source is not None and source not in present):
+        return _reject("unknown_seat")
+    if _eliminated(seat_id, state) or (source is not None and _eliminated(source, state)):
+        return _reject("seat_eliminated")
+    if not _delta_ok(delta):
+        return _reject("invalid_amount")
+    current: Any = _seat_of(state, seat_id).poison
+    threshold: Any = state.settings.poison_threshold
+    if not _is_int(current) or not _is_int(threshold):
+        return _reject("invalid_amount")
+    if not 0 <= current + delta <= MAX_SAFE_INTEGER:
+        return _reject("invalid_amount")
+    poison = current + delta
+    changed = state.model_copy(update={"seats": _replace_seat(state, seat_id, {"poison": poison})})
+    if delta > 0 and poison >= threshold:
+        changed = eliminate(changed, seq, [Elimination(seat_id, "poison", source, None)])
+    return changed.model_copy(update={"last_seq": seq})
+
+
+def _counter_changed(state: GameState, event: EventEnvelope, seq: int) -> GameState | ReducerError:
+    """Section 4.7.2: add ``delta`` to a seat's energy or experience; never eliminates."""
+    payload = event.payload
+    seat_id: Any = payload.get("seat")
+    delta: Any = payload.get("delta")
+    counter: Any = payload.get("counter")
+    if not _is_seat_id(seat_id) or not _is_int(delta):
+        return _reject("invalid_payload")
+    if not isinstance(counter, str) or counter not in ("energy", "experience"):
+        return _reject("invalid_payload")
+    if not _is_running(state):
+        return _reject("invalid_phase")
+    if seat_id not in _seat_ids(state):
+        return _reject("unknown_seat")
+    if _eliminated(seat_id, state):
+        return _reject("seat_eliminated")
+    if not _delta_ok(delta):
+        return _reject("invalid_amount")
+    current: Any = getattr(_seat_of(state, seat_id), counter)
+    if not _is_int(current) or not 0 <= current + delta <= MAX_SAFE_INTEGER:
+        return _reject("invalid_amount")
+    return state.model_copy(
+        update={
+            "seats": _replace_seat(state, seat_id, {counter: current + delta}),
+            "last_seq": seq,
+        }
+    )
+
+
+def _commander_cast(state: GameState, event: EventEnvelope, seq: int) -> GameState | ReducerError:
+    """Section 4.7.3: add 1 or -1 to the cast count of one of the seat's own commanders.
+
+    The ``delta`` is checked before the commander index, then the stored count. The tax is
+    derived (``2 * count``), never stored. The list is copied, never mutated.
+    """
+    payload = event.payload
+    seat_id: Any = payload.get("seat")
+    commander: Any = payload.get("commander")
+    delta: Any = payload.get("delta")
+    if not _is_seat_id(seat_id) or not _is_int(commander) or not _is_int(delta):
+        return _reject("invalid_payload")
+    if not _is_running(state):
+        return _reject("invalid_phase")
+    if seat_id not in _seat_ids(state):
+        return _reject("unknown_seat")
+    if _eliminated(seat_id, state):
+        return _reject("seat_eliminated")
+    if delta not in (1, -1):
+        return _reject("invalid_amount")
+    seat = _seat_of(state, seat_id)
+    if not 0 <= commander < len(seat.commanders):
+        return _reject("unknown_commander")
+    counts: Any = seat.commander_cast
+    current: Any = None
+    if isinstance(counts, list) and commander < len(counts):
+        current = counts[commander]
+    if not _is_int(current) or not 0 <= current + delta <= MAX_SAFE_INTEGER:
+        return _reject("invalid_amount")
+    updated = list(counts)
+    updated[commander] = current + delta
+    return state.model_copy(
+        update={
+            "seats": _replace_seat(state, seat_id, {"commander_cast": updated}),
+            "last_seq": seq,
+        }
+    )
+
+
+def _holder_set(
+    state: GameState, event: EventEnvelope, seq: int, key: str
+) -> GameState | ReducerError:
+    seat_id: Any = event.payload.get("seat")
+    if not _is_seat_id(seat_id):
+        return _reject("invalid_payload")
+    if not _is_running(state):
+        return _reject("invalid_phase")
+    if seat_id not in _seat_ids(state):
+        return _reject("unknown_seat")
+    if _eliminated(seat_id, state):
+        return _reject("seat_eliminated")
+    return state.model_copy(update={key: seat_id, "last_seq": seq})
+
+
+def _monarch_set(state: GameState, event: EventEnvelope, seq: int) -> GameState | ReducerError:
+    """Section 4.7.4: ``seat`` becomes the one monarch; ``initiative`` is untouched."""
+    return _holder_set(state, event, seq, "monarch")
+
+
+def _initiative_set(state: GameState, event: EventEnvelope, seq: int) -> GameState | ReducerError:
+    """Section 4.7.5: ``seat`` takes the initiative; ``monarch`` is untouched."""
+    return _holder_set(state, event, seq, "initiative")
+
+
 HANDLERS: Final[Mapping[str, Handler]] = {
     "game_created": _game_created,
     "settings_changed": _settings_changed,
@@ -449,5 +579,10 @@ HANDLERS: Final[Mapping[str, Handler]] = {
     "player_conceded": _player_conceded,
     "player_eliminated": _player_eliminated,
     "commander_damage": _commander_damage,
+    "poison_changed": _poison_changed,
+    "counter_changed": _counter_changed,
+    "commander_cast": _commander_cast,
+    "monarch_set": _monarch_set,
+    "initiative_set": _initiative_set,
 }
-"""The thirteen handlers of sections 4.4 to 4.6, by event type."""
+"""The eighteen handlers of sections 4.4 to 4.7, by event type."""

@@ -393,7 +393,8 @@ export interface paths {
          *
          *     A non-owner member gets 403 and a non-member 404. A target who is not an active member is a
          *     404. Setting the current role again succeeds. The owner changing their own role is 409
-         *     `transfer_ownership_first`; `owner` is 409 `ownership_transfer_required`.
+         *     `transfer_ownership_first`. `role` is `admin` or `member`; anything else, `owner` included,
+         *     is 422 `validation_error` (for a non-owner the 403 or 404 comes first).
          */
         patch: operations["playgroups_change_member_role"];
         trace?: never;
@@ -664,8 +665,11 @@ export interface components {
              * Format: uuid
              */
             player_id: string;
-            /** Role */
-            role: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "owner" | "admin" | "member";
         };
         /**
          * MemberRoleUpdate
@@ -674,10 +678,10 @@ export interface components {
         MemberRoleUpdate: {
             /**
              * Role
-             * @description `admin` or `member`. `owner` is accepted by the schema but answers 409.
+             * @description The new role. Ownership moves only through `transfer-ownership`.
              * @enum {string}
              */
-            role: "owner" | "admin" | "member";
+            role: "admin" | "member";
         };
         /**
          * MeResponse

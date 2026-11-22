@@ -151,6 +151,18 @@ async def test_the_owner_cannot_demote_themselves(
     assert await _role(client, owner, group_id) == "owner"
 
 
+async def test_a_non_owner_asking_for_owner_still_gets_403_or_404(
+    client: httpx.AsyncClient, app_schema: AppSession
+) -> None:
+    _, _, owner = await make_user(app_schema)
+    _, member_player, member = await make_user(app_schema)
+    _, _, outsider = await make_user(app_schema)
+    group_id = await _group(client, owner)
+    await join(app_schema, group_id, member_player)
+    assert (await _patch(client, member, group_id, member_player, "owner")).status_code == 403
+    assert (await _patch(client, outsider, group_id, member_player, "owner")).status_code == 404
+
+
 async def test_the_role_endpoint_never_makes_an_owner(
     client: httpx.AsyncClient, app_schema: AppSession
 ) -> None:
@@ -160,8 +172,8 @@ async def test_the_role_endpoint_never_makes_an_owner(
     await join(app_schema, group_id, member_player)
     for target in (member_player, owner_player):
         response = await _patch(client, owner, group_id, target, "owner")
-        assert response.status_code == 409
-        assert response.json()["error"]["code"] == "ownership_transfer_required"
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "validation_error"
 
 
 @pytest.mark.parametrize("role", ["superuser", "", None, 3])
@@ -283,3 +295,53 @@ async def test_promoting_before_demoting_would_break_the_single_owner_index(
     with pytest.raises(IntegrityError):
         async with app_schema.begin_nested():
             await app_schema.flush()
+
+
+async def test_a_member_of_a_different_playgroup_cannot_be_targeted(
+    client: httpx.AsyncClient, app_schema: AppSession
+) -> None:
+    _, _, owner = await make_user(app_schema)
+    _, _, other_owner = await make_user(app_schema)
+    _, foreign_player, _ = await make_user(app_schema)
+    group_id = await _group(client, owner)
+    other_group_id = await _group(client, other_owner)
+    await join(app_schema, other_group_id, foreign_player, "member")
+
+    assert (await _patch(client, owner, group_id, foreign_player, "admin")).status_code == 404
+    assert (await _transfer(client, owner, group_id, foreign_player)).status_code == 404
+    rows = (await app_schema.scalars(select(Membership).where(Membership.left_at.is_(None)))).all()
+    roles = {(str(m.playgroup_id), m.player_id): m.role for m in rows}
+    assert roles[(other_group_id, foreign_player)] == "member"
+    assert sorted(r for (g, _), r in roles.items() if g == group_id) == ["owner"]
+
+
+async def test_a_failing_second_step_leaves_both_roles_unchanged(
+    app_schema: AppSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner_user, owner_player, _ = await make_user(app_schema)
+    _, member_player, _ = await make_user(app_schema)
+    group = await services.create_playgroup(app_schema, user_id=owner_user, name="Friday Night")
+    await join(app_schema, group.id, member_player)
+    access = await services.get_membership(app_schema, playgroup_id=group.id, user_id=owner_user)
+    assert access is not None
+
+    real_flush = app_schema.flush
+    calls = 0
+
+    async def flaky_flush(*args: object, **kwargs: object) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:  # the promotion of the new owner
+            raise RuntimeError("boom")
+        await real_flush(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(app_schema, "flush", flaky_flush)
+    savepoint = await app_schema.begin_nested()  # stands in for the request transaction
+    with pytest.raises(RuntimeError):
+        await services.transfer_ownership(app_schema, access, player_id=member_player)
+    await savepoint.rollback()
+    monkeypatch.undo()
+
+    app_schema.expire_all()
+    rows = (await app_schema.scalars(select(Membership).where(Membership.left_at.is_(None)))).all()
+    assert {m.player_id: m.role for m in rows} == {owner_player: "owner", member_player: "member"}

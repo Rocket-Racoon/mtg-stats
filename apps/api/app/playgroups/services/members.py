@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictError, NotFoundError, PermissionDeniedError
 from app.playgroups import repository
-from app.playgroups.models import ROLE_ADMIN, ROLE_MEMBER, ROLE_OWNER, Membership
+from app.playgroups.models import ROLE_ADMIN, ROLE_OWNER, Membership
 from app.playgroups.services.access import MembershipInfo
 from app.playgroups.services.playgroups import PlaygroupInfo
 
@@ -24,13 +24,6 @@ class TransferOwnershipFirstError(ConflictError):
 
     code = "transfer_ownership_first"
     default_message = "Transfer ownership first."
-
-
-class OwnershipTransferRequiredError(ConflictError):
-    """The role endpoint was asked to set ``owner``; only the transfer endpoint moves it."""
-
-    code = "ownership_transfer_required"
-    default_message = "Use the transfer-ownership endpoint to make someone the owner."
 
 
 class AlreadyOwnerError(ConflictError):
@@ -79,14 +72,13 @@ async def change_member_role(
     Only the owner may do this (403 otherwise, decided before the target is looked up, so a
     non-owner learns nothing about other members). Edge cases: a target who is not an active
     member is 404; setting the current role again succeeds without change; changing the owner's
-    role (only the owner themselves can be the target) is 409 ``transfer_ownership_first``;
-    asking for ``owner`` is 409 ``ownership_transfer_required``.
+    role (only the owner themselves can be the target) is 409 ``transfer_ownership_first``.
+    ``role`` must be ``admin`` or ``member``: the schema rejects ``owner`` (422) before this runs.
+
+    Locking contract for the next story: leave/remove (S-2.4.4) must lock through
+    ``repository.lock_active_memberships`` (same id order) and re-check the role on the locked row.
     """
     _, target = await _locked_owner_and_target(session, access, player_id)
-    if role == ROLE_OWNER:
-        raise OwnershipTransferRequiredError
-    if role not in (ROLE_ADMIN, ROLE_MEMBER):
-        raise ValueError(role)
     if target.role == ROLE_OWNER:
         raise TransferOwnershipFirstError
     if target.role != role:
@@ -105,6 +97,9 @@ async def transfer_ownership(
     allowing one active owner cannot be deferred. Returns the playgroup with the caller's new
     role. A target who is not an active member is 404; the owner themselves is 409
     ``already_owner``.
+
+    Locking contract for the next story: leave/remove (S-2.4.4) must lock through
+    ``repository.lock_active_memberships`` (same id order) and re-check the role on the locked row.
     """
     caller, target = await _locked_owner_and_target(session, access, player_id)
     if target.id == caller.id:

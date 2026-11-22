@@ -7,8 +7,9 @@ other, each re-reading the roles the previous one committed.
 """
 
 import asyncio
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Coroutine, Iterator
 from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
 import pytest
@@ -144,12 +145,14 @@ async def _roles(live: Live, seed: Seeded) -> dict[UUID, str]:
 
 
 async def _run_behind_lock(
-    live: Live, seed: Seeded, *coroutines: "asyncio.Future[None] | object"
-) -> list[object]:
+    live: Live, seed: Seeded, *factories: Callable[[], Coroutine[Any, Any, None]]
+) -> list[BaseException | None]:
+    """Hold the lock, start every call (so each queues behind it), release, collect outcomes."""
     holder = db.get_sessionmaker()()
-    tasks = [asyncio.ensure_future(c) for c in coroutines]  # type: ignore[arg-type]
+    tasks: list[asyncio.Task[None]] = []
     try:
         await repository.lock_active_memberships(holder, seed.group_id)
+        tasks = [asyncio.ensure_future(factory()) for factory in factories]
         await _wait_until_blocked(live.engine, waiters=len(tasks))
         await asyncio.sleep(0.3)
         assert not any(task.done() for task in tasks)  # parked on the lock, not failing fast
@@ -164,10 +167,17 @@ async def _run_behind_lock(
                 task.cancel()
 
 
+def _is_403(outcome: BaseException | None) -> bool:
+    return isinstance(outcome, DomainError) and outcome.status_code == 403
+
+
 async def test_two_concurrent_transfers_leave_exactly_one_owner(live: Live) -> None:
     seed = await _seed()
     outcomes = await _run_behind_lock(
-        live, seed, _transfer(seed, seed.first_player), _transfer(seed, seed.second_player)
+        live,
+        seed,
+        lambda: _transfer(seed, seed.first_player),
+        lambda: _transfer(seed, seed.second_player),
     )
     winners = [o for o in outcomes if o is None]
     losers = [o for o in outcomes if o is not None]
@@ -187,13 +197,17 @@ async def test_a_transfer_racing_a_role_change_never_leaves_zero_or_two_owners(
     outcomes = await _run_behind_lock(
         live,
         seed,
-        _transfer(seed, seed.first_player),
-        _change_role(seed, seed.second_player, "admin"),
+        lambda: _transfer(seed, seed.first_player),
+        lambda: _change_role(seed, seed.second_player, "admin"),
     )
     # Whichever ran first, the owner's own request is authorised by the locked row: the role
-    # change either ran before the transfer (both succeed) or after it (403).
-    assert any(o is None for o in outcomes)
+    # change either ran before the transfer (both succeed) or after it (403). Nothing else,
+    # in particular no IntegrityError.
+    transfer_outcome, change_outcome = outcomes
+    assert transfer_outcome is None  # a role change of someone else never blocks a transfer
+    assert change_outcome is None or _is_403(change_outcome)
     roles = await _roles(live, seed)
+    assert roles[seed.second_player] == ("admin" if change_outcome is None else "member")
     assert list(roles.values()).count("owner") == 1
     assert roles[seed.first_player] == "owner"
     assert len(roles) == 3

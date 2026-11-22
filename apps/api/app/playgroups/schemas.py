@@ -155,8 +155,8 @@ class MemberRoleUpdate(BaseModel):
 
     model_config = ConfigDict(strict=True)
 
-    role: Literal["owner", "admin", "member"] = Field(
-        description="`admin` or `member`. `owner` is accepted by the schema but answers 409."
+    role: Literal["admin", "member"] = Field(
+        description="The new role. Ownership moves only through `transfer-ownership`."
     )
 
 
@@ -164,11 +164,13 @@ class MemberOut(BaseModel):
     """A member's role."""
 
     player_id: UUID
-    role: str
+    role: Literal["owner", "admin", "member"]
     joined_at: datetime
 
 
 class TransferOwnership(BaseModel):
     """Body of ``POST /playgroups/{id}/transfer-ownership``."""
 
-    player_id: UUID = Field(description="The active member who becomes the owner.")
+    model_config = ConfigDict(strict=True)
+
+    player_id: UUID = Field(strict=False, description="The active member who becomes the owner.")

@@ -87,16 +87,17 @@ def active_memberships_of(player_id: UUID) -> Select[Membership]:
 
 
 async def lock_active_memberships(session: AsyncSession, playgroup_id: UUID) -> list[Membership]:
-    """Every active membership of the playgroup, locked with ``SELECT ... FOR UPDATE``.
+    """Every active membership of the playgroup, locked with ``SELECT ... FOR NO KEY UPDATE``.
 
-    Rows are locked in id order so two callers never deadlock. ``populate_existing`` refreshes
-    instances already in the session, so the roles returned are the committed ones.
+    A role change touches no key column, so the weaker lock suffices. Rows are locked in id
+    order so two callers never deadlock. ``populate_existing`` refreshes instances already in
+    the session, so the roles returned are the committed ones.
     """
     result = await session.execute(
         select(Membership)
         .where(Membership.playgroup_id == playgroup_id, Membership.left_at.is_(None))
         .order_by(Membership.id)
-        .with_for_update()
+        .with_for_update(key_share=True)
         .execution_options(populate_existing=True)
     )
     return list(result.scalars())

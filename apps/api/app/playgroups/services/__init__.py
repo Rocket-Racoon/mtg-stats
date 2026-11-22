@@ -30,7 +30,6 @@ from app.playgroups.services.invites import (
 from app.playgroups.services.members import (
     AlreadyOwnerError,
     MemberInfo,
-    OwnershipTransferRequiredError,
     TransferOwnershipFirstError,
     change_member_role,
     transfer_ownership,
@@ -55,7 +54,6 @@ __all__ = [
     "MemberDep",
     "MemberInfo",
     "MembershipInfo",
-    "OwnershipTransferRequiredError",
     "PlaygroupAdminDep",
     "PlaygroupInfo",
     "PlaygroupOwnerDep",

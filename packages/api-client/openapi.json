@@ -434,6 +434,11 @@
             "type": "string"
           },
           "role": {
+            "enum": [
+              "owner",
+              "admin",
+              "member"
+            ],
             "title": "Role",
             "type": "string"
           }
@@ -450,9 +455,8 @@
         "description": "Body of ``PATCH /playgroups/{id}/members/{player_id}``.",
         "properties": {
           "role": {
-            "description": "`admin` or `member`. `owner` is accepted by the schema but answers 409.",
+            "description": "The new role. Ownership moves only through `transfer-ownership`.",
             "enum": [
-              "owner",
               "admin",
               "member"
             ],
@@ -3170,7 +3174,7 @@
     },
     "/api/v1/playgroups/{playgroup_id}/members/{player_id}": {
       "patch": {
-        "description": "Promote a member to `admin` or demote an admin to `member`. Owner only.\n\nA non-owner member gets 403 and a non-member 404. A target who is not an active member is a\n404. Setting the current role again succeeds. The owner changing their own role is 409\n`transfer_ownership_first`; `owner` is 409 `ownership_transfer_required`.",
+        "description": "Promote a member to `admin` or demote an admin to `member`. Owner only.\n\nA non-owner member gets 403 and a non-member 404. A target who is not an active member is a\n404. Setting the current role again succeeds. The owner changing their own role is 409\n`transfer_ownership_first`. `role` is `admin` or `member`; anything else, `owner` included,\nis 422 `validation_error` (for a non-owner the 403 or 404 comes first).",
         "operationId": "playgroups_change_member_role",
         "parameters": [
           {

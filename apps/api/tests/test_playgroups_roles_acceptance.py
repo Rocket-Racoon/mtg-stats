@@ -408,14 +408,14 @@ async def test_the_owner_demoting_themselves_is_409_transfer_ownership_first(
 # by the criteria: they pin the implementer's choices so a change is noticed)
 
 
-async def test_edge_role_endpoint_asked_for_owner_is_409_and_changes_nothing(
+async def test_edge_role_endpoint_asked_for_owner_is_422_and_changes_nothing(
     client: httpx.AsyncClient, app_schema: AppSession
 ) -> None:
     g = await _group(app_schema)
     before = await _roles(app_schema, g.id)
     response = await _set_role(client, g.id, g.players["member"], "owner", g.headers["owner"])
-    assert response.status_code == 409
-    assert _code(response) == "ownership_transfer_required"
+    assert response.status_code == 422
+    assert _code(response) == "validation_error"
     assert await _roles(app_schema, g.id) == before
 
 

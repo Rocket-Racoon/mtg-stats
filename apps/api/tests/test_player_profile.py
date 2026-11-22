@@ -115,12 +115,17 @@ async def test_a_merged_guest_redirects_to_the_survivor_through_a_chain(
     group = await _group(app_schema)
     await join(app_schema, group, viewer)
     await join(app_schema, group, survivor)
-    middle = await create(app_schema, GuestPlayerFactory, merged_into_id=survivor)
-    old = await create(app_schema, GuestPlayerFactory, merged_into_id=middle.id)
+    middle = await create(
+        app_schema, GuestPlayerFactory, merged_into_id=survivor, home_playgroup_id=group
+    )
+    old = await create(
+        app_schema, GuestPlayerFactory, merged_into_id=middle.id, home_playgroup_id=group
+    )
     old_id = old.id
     await app_schema.commit()
     response = await client.get(f"{URL}/{old_id}", headers=headers, follow_redirects=False)
     assert response.status_code == 308
+    assert response.headers["cache-control"] == "no-store"
     assert response.headers["location"] == f"{URL}/{survivor}"
     assert response.json() == {"merged_into_id": str(survivor)}
     followed = await client.get(f"{URL}/{old_id}", headers=headers, follow_redirects=True)
@@ -176,3 +181,44 @@ async def test_the_common_playgroups_come_from_a_constant_number_of_queries(
         await join(app_schema, group, viewer)
         await join(app_schema, group, other)
     assert await measure() == few
+
+
+async def test_a_redirect_needs_the_viewer_to_have_been_able_to_open_the_old_guest(
+    client: httpx.AsyncClient, app_schema: AppSession
+) -> None:
+    _, viewer, headers = await make_user(app_schema)
+    _, survivor, _ = await make_user(app_schema)
+    _, insider, insider_headers = await make_user(app_schema)
+    p, q = await _group(app_schema, "Pgroup"), await _group(app_schema, "Qgroup")
+    for member in (viewer, survivor, insider):
+        await join(app_schema, p, member)
+    await join(app_schema, q, insider)
+    guest = await create(
+        app_schema, GuestPlayerFactory, home_playgroup_id=q, merged_into_id=survivor
+    )
+    guest_id = guest.id
+    await app_schema.commit()
+    hidden = await client.get(f"{URL}/{guest_id}", headers=headers, follow_redirects=False)
+    assert hidden.status_code == 404
+    assert "location" not in hidden.headers
+    assert hidden.json()["error"]["code"] == "not_found"
+    visible = await client.get(f"{URL}/{guest_id}", headers=insider_headers, follow_redirects=False)
+    assert visible.status_code == 308
+    assert visible.headers["location"] == f"{URL}/{survivor}"
+
+
+async def test_the_survivor_follows_their_own_old_guest_id(
+    client: httpx.AsyncClient, app_schema: AppSession
+) -> None:
+    _, me, headers = await make_user(app_schema)
+    guest = await create(app_schema, GuestPlayerFactory, merged_into_id=me)
+    guest_id = guest.id
+    await app_schema.commit()
+    response = await client.get(f"{URL}/{guest_id}", headers=headers, follow_redirects=False)
+    assert response.status_code == 308
+
+
+async def test_a_profile_is_never_cached(client: httpx.AsyncClient, app_schema: AppSession) -> None:
+    _, me, headers = await make_user(app_schema)
+    response = await client.get(f"{URL}/{me}", headers=headers)
+    assert response.headers["cache-control"] == "no-store"

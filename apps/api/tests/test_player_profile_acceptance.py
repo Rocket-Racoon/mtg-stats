@@ -14,6 +14,7 @@ from sqlalchemy.exc import DBAPIError
 
 from app.core.db import AppSession
 from app.identity.models import Player
+from app.identity.services.players import MAX_MERGE_HOPS
 from tests.auth_support import claims_for, encode, issue, tamper_signature
 from tests.factories import GuestPlayerFactory, PlaygroupFactory, create
 from tests.playgroup_support import join, make_user
@@ -324,10 +325,11 @@ async def test_a_one_hop_merge_redirects_to_the_survivor_and_the_location_serves
     group = await _group(app_schema)
     await join(app_schema, group, viewer)
     await join(app_schema, group, survivor)
-    old = await _guest(app_schema, merged_into_id=survivor)
+    old = await _guest(app_schema, home_playgroup_id=group, merged_into_id=survivor)
     response = await client.get(f"{URL}/{old}", headers=headers, follow_redirects=False)
     assert response.status_code == 308
     assert response.headers["location"] == f"{URL}/{survivor}"
+    assert response.headers["cache-control"] == "no-store"
     followed = await client.get(response.headers["location"], headers=headers)
     assert followed.status_code == 200
     assert followed.json()["id"] == str(survivor)
@@ -344,7 +346,7 @@ async def test_a_multi_hop_merge_redirects_straight_to_the_final_survivor(
     tip = survivor
     chain = []
     for _ in range(4):
-        tip = await _guest(app_schema, merged_into_id=tip)
+        tip = await _guest(app_schema, home_playgroup_id=group, merged_into_id=tip)
         chain.append(tip)
     response = await client.get(f"{URL}/{chain[-1]}", headers=headers, follow_redirects=False)
     assert response.status_code == 308
@@ -363,7 +365,7 @@ async def test_the_redirect_body_carries_only_the_survivor_id(
     await app_schema.execute(
         update(Player).where(Player.id == survivor).values(display_name="SurvivorSecretName")
     )
-    old = await _guest(app_schema, merged_into_id=survivor)
+    old = await _guest(app_schema, home_playgroup_id=group, merged_into_id=survivor)
     response = await client.get(f"{URL}/{old}", headers=headers, follow_redirects=False)
     assert response.status_code == 308
     assert response.json() == {"merged_into_id": str(survivor)}
@@ -374,10 +376,12 @@ async def test_the_redirect_body_carries_only_the_survivor_id(
 async def test_a_merged_guest_whose_survivor_is_hidden_is_the_same_404_as_a_stranger(
     client: httpx.AsyncClient, app_schema: AppSession
 ) -> None:
-    _, _, headers = await make_user(app_schema)
+    _, viewer, headers = await make_user(app_schema)
     _, survivor, _ = await make_user(app_schema)
-    await join(app_schema, await _group(app_schema), survivor)
-    old = await _guest(app_schema, merged_into_id=survivor)
+    home = await _group(app_schema)
+    await join(app_schema, home, viewer)
+    await join(app_schema, await _group(app_schema, "Elsewhere"), survivor)
+    old = await _guest(app_schema, home_playgroup_id=home, merged_into_id=survivor)
     merged = await client.get(f"{URL}/{old}", headers=headers, follow_redirects=False)
     stranger = await client.get(f"{URL}/{survivor}", headers=headers, follow_redirects=False)
     assert merged.status_code == stranger.status_code == 404
@@ -442,14 +446,16 @@ async def test_a_dangling_merged_into_id_is_a_404(
     # when the database allows it, otherwise the row cannot exist and there is nothing to test.
     try:
         await app_schema.execute(text("SET session_replication_role = replica"))
+    except DBAPIError:
+        await app_schema.rollback()
+        pytest.skip("the database forbids a dangling merged_into_id")
+    try:
         await app_schema.execute(
             update(Player).where(Player.id == old).values(merged_into_id=uuid4())
         )
         await app_schema.commit()
-    except DBAPIError:
-        await app_schema.rollback()
-        pytest.skip("the database forbids a dangling merged_into_id")
     finally:
+        await app_schema.rollback()
         await app_schema.execute(text("SET session_replication_role = origin"))
         await app_schema.commit()
     response = await client.get(f"{URL}/{old}", headers=headers, follow_redirects=False)
@@ -481,7 +487,7 @@ async def test_the_redirect_location_is_a_path_this_api_serves(
     group = await _group(app_schema)
     await join(app_schema, group, viewer)
     await join(app_schema, group, survivor)
-    old = await _guest(app_schema, merged_into_id=survivor)
+    old = await _guest(app_schema, home_playgroup_id=group, merged_into_id=survivor)
     response = await client.get(f"{URL}/{old}", headers=headers, follow_redirects=False)
     location = response.headers["location"]
     assert location.startswith("/api/v1/players/")
@@ -497,6 +503,159 @@ async def test_a_merged_guest_viewed_by_its_survivor_redirects_to_their_own_prof
     response = await client.get(f"{URL}/{old}", headers=headers, follow_redirects=False)
     assert response.status_code == 308
     assert response.headers["location"] == f"{URL}/{me}"
+    assert response.headers["cache-control"] == "no-store"
+
+
+# ----------------------------------------- redirect rule and hop limit (refined)
+
+
+async def _chain(session: AppSession, survivor: UUID, hops: int, **fields: Any) -> list[UUID]:
+    """``hops`` merged guests chained onto ``survivor``; the last one is the oldest id."""
+    ids: list[UUID] = []
+    tip = survivor
+    for _ in range(hops):
+        tip = await _guest(session, merged_into_id=tip, **fields)
+        ids.append(tip)
+    return ids
+
+
+async def test_a_merged_guest_of_a_foreign_group_is_404_even_if_the_survivor_is_visible(
+    client: httpx.AsyncClient, app_schema: AppSession
+) -> None:
+    _, viewer, headers = await make_user(app_schema)
+    _, survivor, _ = await make_user(app_schema)
+    q, p = await _group(app_schema, "Home Q"), await _group(app_schema, "Group P")
+    await join(app_schema, p, viewer)
+    await join(app_schema, p, survivor)
+    old = await _guest(app_schema, home_playgroup_id=q, merged_into_id=survivor)
+    response = await client.get(f"{URL}/{old}", headers=headers, follow_redirects=False)
+    unknown = await client.get(f"{URL}/{uuid4()}", headers=headers, follow_redirects=False)
+    assert response.status_code == unknown.status_code == 404
+    assert _error(response) == _error(unknown)
+    assert "location" not in response.headers
+    assert str(survivor) not in response.text
+
+
+async def test_a_home_group_member_who_shares_a_group_with_the_survivor_is_redirected(
+    client: httpx.AsyncClient, app_schema: AppSession
+) -> None:
+    _, viewer, headers = await make_user(app_schema)
+    _, survivor, _ = await make_user(app_schema)
+    q, p = await _group(app_schema, "Home Q"), await _group(app_schema, "Group P")
+    await join(app_schema, q, viewer)
+    await join(app_schema, p, viewer)
+    await join(app_schema, p, survivor)
+    old = await _guest(app_schema, home_playgroup_id=q, merged_into_id=survivor)
+    response = await client.get(f"{URL}/{old}", headers=headers, follow_redirects=False)
+    assert response.status_code == 308
+    assert response.headers["location"] == f"{URL}/{survivor}"
+    assert response.json() == {"merged_into_id": str(survivor)}
+
+
+async def test_a_home_group_member_who_shares_nothing_with_the_survivor_is_404(
+    client: httpx.AsyncClient, app_schema: AppSession
+) -> None:
+    _, viewer, headers = await make_user(app_schema)
+    _, survivor, _ = await make_user(app_schema)
+    q = await _group(app_schema, "Home Q")
+    await join(app_schema, q, viewer)
+    await join(app_schema, await _group(app_schema, "Group P"), survivor)
+    old = await _guest(app_schema, home_playgroup_id=q, merged_into_id=survivor)
+    response = await client.get(f"{URL}/{old}", headers=headers, follow_redirects=False)
+    assert response.status_code == 404
+    assert "location" not in response.headers
+
+
+async def test_a_former_member_of_the_home_group_is_404_even_if_the_survivor_is_visible(
+    client: httpx.AsyncClient, app_schema: AppSession
+) -> None:
+    _, viewer, headers = await make_user(app_schema)
+    _, survivor, _ = await make_user(app_schema)
+    q, p = await _group(app_schema, "Home Q"), await _group(app_schema, "Group P")
+    await join(app_schema, q, viewer, left=True)
+    await join(app_schema, p, viewer)
+    await join(app_schema, p, survivor)
+    old = await _guest(app_schema, home_playgroup_id=q, merged_into_id=survivor)
+    response = await client.get(f"{URL}/{old}", headers=headers, follow_redirects=False)
+    assert response.status_code == 404
+    assert "location" not in response.headers
+
+
+async def test_a_homeless_merged_guest_is_404_for_a_viewer_who_is_not_the_survivor(
+    client: httpx.AsyncClient, app_schema: AppSession
+) -> None:
+    _, viewer, headers = await make_user(app_schema)
+    _, survivor, _ = await make_user(app_schema)
+    p = await _group(app_schema, "Group P")
+    await join(app_schema, p, viewer)
+    await join(app_schema, p, survivor)
+    old = await _guest(app_schema, merged_into_id=survivor)
+    response = await client.get(f"{URL}/{old}", headers=headers, follow_redirects=False)
+    assert response.status_code == 404
+    assert "location" not in response.headers
+    assert str(survivor) not in response.text
+
+
+async def test_a_chain_redirects_when_only_the_requested_guest_is_openable(
+    client: httpx.AsyncClient, app_schema: AppSession
+) -> None:
+    _, viewer, headers = await make_user(app_schema)
+    _, survivor, _ = await make_user(app_schema)
+    q, p = await _group(app_schema, "Home Q"), await _group(app_schema, "Group P")
+    await join(app_schema, q, viewer)
+    await join(app_schema, p, viewer)
+    await join(app_schema, p, survivor)
+    inner = await _guest(app_schema, merged_into_id=survivor)
+    middle = await _guest(app_schema, merged_into_id=inner)
+    requested = await _guest(app_schema, home_playgroup_id=q, merged_into_id=middle)
+    response = await client.get(f"{URL}/{requested}", headers=headers, follow_redirects=False)
+    assert response.status_code == 308
+    assert response.headers["location"] == f"{URL}/{survivor}"
+
+
+async def test_a_chain_is_404_when_the_requested_guest_is_not_openable(
+    client: httpx.AsyncClient, app_schema: AppSession
+) -> None:
+    _, viewer, headers = await make_user(app_schema)
+    _, survivor, _ = await make_user(app_schema)
+    q, p = await _group(app_schema, "Home Q"), await _group(app_schema, "Group P")
+    await join(app_schema, q, viewer)
+    await join(app_schema, p, viewer)
+    await join(app_schema, p, survivor)
+    inner = await _guest(app_schema, home_playgroup_id=q, merged_into_id=survivor)
+    middle = await _guest(app_schema, home_playgroup_id=q, merged_into_id=inner)
+    requested = await _guest(app_schema, merged_into_id=middle)
+    response = await client.get(f"{URL}/{requested}", headers=headers, follow_redirects=False)
+    assert response.status_code == 404
+    assert "location" not in response.headers
+
+
+async def test_a_chain_of_exactly_the_hop_limit_still_redirects_to_the_survivor(
+    client: httpx.AsyncClient, app_schema: AppSession
+) -> None:
+    _, viewer, headers = await make_user(app_schema)
+    _, survivor, _ = await make_user(app_schema)
+    group = await _group(app_schema)
+    await join(app_schema, group, viewer)
+    await join(app_schema, group, survivor)
+    chain = await _chain(app_schema, survivor, MAX_MERGE_HOPS, home_playgroup_id=group)
+    response = await client.get(f"{URL}/{chain[-1]}", headers=headers, follow_redirects=False)
+    assert response.status_code == 308
+    assert response.headers["location"] == f"{URL}/{survivor}"
+
+
+async def test_a_chain_of_one_more_than_the_hop_limit_is_404(
+    client: httpx.AsyncClient, app_schema: AppSession
+) -> None:
+    _, viewer, headers = await make_user(app_schema)
+    _, survivor, _ = await make_user(app_schema)
+    group = await _group(app_schema)
+    await join(app_schema, group, viewer)
+    await join(app_schema, group, survivor)
+    chain = await _chain(app_schema, survivor, MAX_MERGE_HOPS + 1, home_playgroup_id=group)
+    response = await client.get(f"{URL}/{chain[-1]}", headers=headers, follow_redirects=False)
+    assert response.status_code == 404
+    assert "location" not in response.headers
 
 
 # ------------------------------------------------- criterion 4 and privacy

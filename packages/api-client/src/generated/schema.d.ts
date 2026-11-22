@@ -373,8 +373,14 @@ export interface paths {
          *     playgroup, or they are a guest whose home playgroup is one you belong to. Anyone else, an
          *     unknown id and an unparseable id are all the same 404 `not_found`. A guest that was merged
          *     into another player answers 308 with `Location` set to the survivor's profile (and
-         *     `merged_into_id` in the body), but only when you could open the survivor's profile; otherwise
+         *     `merged_into_id` in the body), but only when you could open both the old guest (you belong to
+         *     its home playgroup or share one with it, or you are the survivor) and the survivor; otherwise
          *     404. `member_since` is when the player record was created.
+         *
+         *     Browsers' `fetch` follows the 308 by itself, so a client detects a merge because the returned
+         *     profile's `id` differs from the id it asked for; the 308 body is visible only to clients that
+         *     do not follow redirects. Responses are `Cache-Control: no-store` (the answer depends on the
+         *     viewer, and a cached 308 would be replayed for another user of the same browser).
          */
         get: operations["playgroups_get_player_profile"];
         put?: never;

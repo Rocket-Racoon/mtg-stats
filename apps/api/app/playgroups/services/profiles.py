@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import NotFoundError
 from app.identity import services as identity_services
 from app.playgroups import repository
+from app.playgroups.models import Playgroup
 from app.playgroups.services.access import player_id_for_user
 
 _NO_PLAYER = UUID(int=0)
@@ -41,27 +42,30 @@ async def get_player_profile(
 ) -> PlayerProfile:
     """The profile of ``player_id`` for a signed-in viewer.
 
-    A merged player is resolved to the final survivor (``redirected_from`` is then set) and
-    visibility is judged on the survivor, so a viewer who shares nothing with the survivor
-    learns nothing. The viewer sees their own profile always. Anyone else is visible only when
-    they share a playgroup: both hold an active membership in it, or the target is a guest whose
+    The viewer sees their own profile always. Anyone else is visible only when they share a
+    playgroup: both hold an active membership in it, or the target is a guest whose
     ``home_playgroup_id`` is a playgroup the viewer is an active member of. Former memberships
     do not count.
 
+    A merged player is resolved to the final survivor (``redirected_from`` is then set). The
+    redirect needs both: the viewer could open the *requested* guest by the rule above (or is the
+    survivor), and the viewer can open the survivor. Otherwise it is a 404, so an old id never
+    shows that a guest was merged to someone who could not have seen that guest.
+
     Raises:
-        NotFoundError: no such player, a merge chain that does not end at a player, or no shared
-            playgroup. All indistinguishable (404 ``not_found``).
+        NotFoundError: no such player, a merge chain that does not end at a player, or not
+            visible. All indistinguishable (404 ``not_found``).
     """
     viewer_id = await player_id_for_user(session, viewer_user_id)
-    target = await identity_services.resolve_merged_player(session, player_id)
-    # Always run the shared-playgroup query, so a missing player costs what a hidden one does.
-    groups = await repository.common_playgroups(
-        session,
-        viewer_id,
-        _NO_PLAYER if target is None else target.id,
-        None if target is None or not target.is_guest else target.home_playgroup_id,
-    )
+    requested, target = await identity_services.resolve_merge(session, player_id)
+    merged = requested is not None and requested.merged_into_id is not None
+
+    # Always run the shared-playgroup query, so an unknown player costs what a hidden unmerged
+    # one does. A merged id costs one lookup per hop plus one more visibility query.
+    groups = await _shared(session, viewer_id, target)
     if target is None or (target.id != viewer_id and not groups):
+        raise NotFoundError
+    if merged and target.id != viewer_id and not await _shared(session, viewer_id, requested):
         raise NotFoundError
     return PlayerProfile(
         id=target.id,
@@ -70,5 +74,17 @@ async def get_player_profile(
         is_guest=target.is_guest,
         member_since=target.created_at,
         common_playgroups=[CommonPlaygroup(id=g.id, name=g.name) for g in groups],
-        redirected_from=None if target.id == player_id else player_id,
+        redirected_from=player_id if merged else None,
+    )
+
+
+async def _shared(
+    session: AsyncSession, viewer_id: UUID, target: identity_services.PlayerInfo | None
+) -> list[Playgroup]:
+    """The playgroups the viewer shares with ``target`` (a guest also through its home group)."""
+    return await repository.common_playgroups(
+        session,
+        viewer_id,
+        _NO_PLAYER if target is None else target.id,
+        None if target is None or not target.is_guest else target.home_playgroup_id,
     )

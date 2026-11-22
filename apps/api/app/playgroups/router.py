@@ -291,6 +291,8 @@ async def revoke_playgroup_invite(
     return _out(await services.revoke_playgroup_invite(session, access, invite_id=parsed))
 
 
+# Ordering rule: this route takes a ``str`` and matches every single-segment GET under
+# ``/players``. Any future literal ``/players/<word>`` GET route must be registered BEFORE it.
 @players_router.get(
     "/{player_id}",
     summary="View a player's profile",
@@ -298,7 +300,11 @@ async def revoke_playgroup_invite(
     responses={308: {"model": PlayerMergedOut, "description": "A merged guest; see `Location`."}},
 )
 async def get_player_profile(
-    player_id: str, request: Request, user: CurrentUserDep, session: SessionDep
+    player_id: str,
+    request: Request,
+    response: Response,
+    user: CurrentUserDep,
+    session: SessionDep,
 ) -> Response | PlayerProfileOut:
     """A player's display name, avatar color, guest badge, "member since" and the playgroups
     you have in common with them. No email, username or stats.
@@ -307,21 +313,28 @@ async def get_player_profile(
     playgroup, or they are a guest whose home playgroup is one you belong to. Anyone else, an
     unknown id and an unparseable id are all the same 404 `not_found`. A guest that was merged
     into another player answers 308 with `Location` set to the survivor's profile (and
-    `merged_into_id` in the body), but only when you could open the survivor's profile; otherwise
+    `merged_into_id` in the body), but only when you could open both the old guest (you belong to
+    its home playgroup or share one with it, or you are the survivor) and the survivor; otherwise
     404. `member_since` is when the player record was created.
+
+    Browsers' `fetch` follows the 308 by itself, so a client detects a merge because the returned
+    profile's `id` differs from the id it asked for; the 308 body is visible only to clients that
+    do not follow redirects. Responses are `Cache-Control: no-store` (the answer depends on the
+    viewer, and a cached 308 would be replayed for another user of the same browser).
     """
     try:
         parsed = UUID(player_id)
     except ValueError:
         raise NotFoundError from None
     profile = await services.get_player_profile(session, viewer_user_id=user.id, player_id=parsed)
+    response.headers["Cache-Control"] = "no-store"
     if profile.redirected_from is not None:
         location = request.app.url_path_for("get_player_profile", player_id=str(profile.id))
         return Response(
             content=PlayerMergedOut(merged_into_id=profile.id).model_dump_json(),
             status_code=308,
             media_type="application/json",
-            headers={"Location": str(location)},
+            headers={"Location": str(location), "Cache-Control": "no-store"},
         )
     return PlayerProfileOut(
         id=profile.id,

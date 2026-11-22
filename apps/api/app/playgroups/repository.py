@@ -84,3 +84,19 @@ def active_memberships_of(player_id: UUID) -> Select[Membership]:
         .options(joinedload(Membership.playgroup))
         .where(Membership.player_id == player_id, Membership.left_at.is_(None))
     )
+
+
+async def lock_active_memberships(session: AsyncSession, playgroup_id: UUID) -> list[Membership]:
+    """Every active membership of the playgroup, locked with ``SELECT ... FOR UPDATE``.
+
+    Rows are locked in id order so two callers never deadlock. ``populate_existing`` refreshes
+    instances already in the session, so the roles returned are the committed ones.
+    """
+    result = await session.execute(
+        select(Membership)
+        .where(Membership.playgroup_id == playgroup_id, Membership.left_at.is_(None))
+        .order_by(Membership.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    return list(result.scalars())

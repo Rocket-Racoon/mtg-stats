@@ -27,6 +27,14 @@ from app.playgroups.services.invites import (
     revoke_invite,
     validate_invite,
 )
+from app.playgroups.services.members import (
+    AlreadyOwnerError,
+    MemberInfo,
+    OwnershipTransferRequiredError,
+    TransferOwnershipFirstError,
+    change_member_role,
+    transfer_ownership,
+)
 from app.playgroups.services.playgroups import (
     PlaygroupInfo,
     PlaygroupPage,
@@ -37,6 +45,7 @@ from app.playgroups.services.playgroups import (
 )
 
 __all__ = [
+    "AlreadyOwnerError",
     "CreatedInvite",
     "InviteInfo",
     "InviteNoLongerValidError",
@@ -44,11 +53,15 @@ __all__ = [
     "InvitePreview",
     "InviteStatus",
     "MemberDep",
+    "MemberInfo",
     "MembershipInfo",
+    "OwnershipTransferRequiredError",
     "PlaygroupAdminDep",
     "PlaygroupInfo",
     "PlaygroupOwnerDep",
     "PlaygroupPage",
+    "TransferOwnershipFirstError",
+    "change_member_role",
     "consume_invite",
     "create_invite",
     "create_playgroup",
@@ -64,6 +77,7 @@ __all__ = [
     "require_playgroup_admin",
     "require_playgroup_owner",
     "revoke_invite",
+    "transfer_ownership",
     "update_playgroup",
     "validate_invite",
 ]

@@ -18,10 +18,13 @@ from app.playgroups.schemas import (
     InvitePageOut,
     InvitePreviewOut,
     InvitePreviewRequest,
+    MemberOut,
+    MemberRoleUpdate,
     PlaygroupCreate,
     PlaygroupOut,
     PlaygroupPageOut,
     PlaygroupUpdate,
+    TransferOwnership,
 )
 
 invites_router = APIRouter(prefix="/invites", tags=["invites"])
@@ -153,6 +156,46 @@ async def update_playgroup(
         session, access, name=body.name, description=body.description
     )
     return _group_out(info)
+
+
+@playgroups_router.patch("/{playgroup_id}/members/{player_id}", summary="Change a member's role")
+async def change_member_role(
+    playgroup_id: str,
+    player_id: str,
+    body: MemberRoleUpdate,
+    access: services.PlaygroupOwnerDep,
+    session: SessionDep,
+) -> MemberOut:
+    """Promote a member to `admin` or demote an admin to `member`. Owner only.
+
+    A non-owner member gets 403 and a non-member 404. A target who is not an active member is a
+    404. Setting the current role again succeeds. The owner changing their own role is 409
+    `transfer_ownership_first`. `role` is `admin` or `member`; anything else, `owner` included,
+    is 422 `validation_error` (for a non-owner the 403 or 404 comes first).
+    """
+    try:
+        target = UUID(player_id)
+    except ValueError:
+        raise NotFoundError from None
+    info = await services.change_member_role(session, access, player_id=target, role=body.role)
+    return MemberOut(player_id=info.player_id, role=info.role, joined_at=info.joined_at)
+
+
+@playgroups_router.post(
+    "/{playgroup_id}/transfer-ownership", summary="Transfer ownership of a playgroup"
+)
+async def transfer_ownership(
+    playgroup_id: str,
+    body: TransferOwnership,
+    access: services.PlaygroupOwnerDep,
+    session: SessionDep,
+) -> PlaygroupOut:
+    """Make another active member the owner; the caller becomes an admin. Owner only.
+
+    Returns the playgroup with the caller's new role. A target who is not an active member is a
+    404; the owner naming themselves is 409 `already_owner`.
+    """
+    return _group_out(await services.transfer_ownership(session, access, player_id=body.player_id))
 
 
 router.include_router(invites_router)

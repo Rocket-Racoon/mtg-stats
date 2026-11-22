@@ -92,6 +92,50 @@ class Settings(BaseSettings):
     scryfall_min_interval_ms: int = Field(
         default=100, ge=100, validation_alias="SCRYFALL_MIN_INTERVAL_MS"
     )
+    # Commander Spellbook client (S-5.2.1); the host is a constant in the client, not a setting.
+    spellbook_timeout_seconds: float = Field(
+        default=10.0, gt=0, validation_alias="SPELLBOOK_TIMEOUT_SECONDS"
+    )
+    spellbook_cache_ttl_seconds: int = Field(
+        default=604800, ge=1, validation_alias="SPELLBOOK_CACHE_TTL_SECONDS"
+    )
+    spellbook_min_interval_ms: int = Field(
+        default=1000, ge=750, validation_alias="SPELLBOOK_MIN_INTERVAL_MS"
+    )
+    spellbook_max_retry_after_seconds: float = Field(
+        default=30.0, ge=0, validation_alias="SPELLBOOK_MAX_RETRY_AFTER_SECONDS"
+    )
+    spellbook_max_pages: int = Field(default=5, ge=1, validation_alias="SPELLBOOK_MAX_PAGES")
+    spellbook_lookup_deadline_seconds: float = Field(
+        default=60.0, ge=1, le=600, validation_alias="SPELLBOOK_LOOKUP_DEADLINE_SECONDS"
+    )
+
+    # Deck-site client (S-4.2.1). Archidekt's developer asks for well under 40 requests a minute:
+    # the floor of 2000 ms is 30 a minute and the default of 3000 ms is 20 a minute.
+    deck_site_timeout_seconds: float = Field(
+        default=10.0, gt=0, le=120, validation_alias="DECK_SITE_TIMEOUT_SECONDS"
+    )
+    deck_site_total_deadline_seconds: float = Field(
+        default=45.0, gt=0, le=300, validation_alias="DECK_SITE_TOTAL_DEADLINE_SECONDS"
+    )
+    deck_site_cache_ttl_seconds: int = Field(
+        default=900, ge=1, le=86400, validation_alias="DECK_SITE_CACHE_TTL_SECONDS"
+    )
+    deck_site_max_retries: int = Field(
+        default=2, ge=0, le=2, validation_alias="DECK_SITE_MAX_RETRIES"
+    )
+    deck_site_retry_after_cap_seconds: float = Field(
+        default=30.0, ge=0, le=300, validation_alias="DECK_SITE_RETRY_AFTER_CAP_SECONDS"
+    )
+    deck_site_max_response_bytes: int = Field(
+        default=5_000_000, ge=1024, le=50_000_000, validation_alias="DECK_SITE_MAX_RESPONSE_BYTES"
+    )
+    deck_site_max_concurrency: int = Field(
+        default=2, ge=1, le=10, validation_alias="DECK_SITE_MAX_CONCURRENCY"
+    )
+    deck_site_archidekt_min_interval_ms: int = Field(
+        default=3000, ge=2000, validation_alias="DECK_SITE_ARCHIDEKT_MIN_INTERVAL_MS"
+    )
 
     @field_validator("database_url")
     @classmethod

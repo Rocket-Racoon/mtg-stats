@@ -144,6 +144,13 @@ Status: `open` · `answered` (with the decision recorded). Answers are also copi
 | CI actions (S-1.8.2, S-1.8.3) | **Approved by the user (2026-11-11):** GitHub's own `actions/*` plus **`astral-sh/setup-uv`** and **`pnpm/action-setup`**, used only in `.github/workflows/`. Each is pinned to a full commit SHA with a `# vX.Y.Z` comment, and none ships in the app. The uv version in `setup-uv` stays in step with the local uv that writes `apps/api/uv.lock`; pnpm comes from `packageManager`. A new third-party action still needs approval. |
 | Android emulator action (S-1.8.6) | **Approved by the user (2026-11-17):** **`reactivecircus/android-emulator-runner`** for the nightly Maestro workflow (`.github/workflows/mobile-e2e.yml`), chosen over a hand-rolled emulator script. Pinned to a full commit SHA with a `# vX.Y.Z` comment, like the other actions. The Maestro CLI itself is decision A8; the workflow installs a pinned release and checks its sha256. |
 
+### 2026-11-21 — Phase 1 implementation
+
+| Topic | Decision |
+|---|---|
+| Archidekt URL import (E4, F-4.3) | **User decision (2026-11-21):** go ahead, on the basis of the site developer's forum statements that the read API is open. Archidekt's 2018 terms still forbid automated requests, so this rests on informal permission. We hold ourselves to: stay well under 40 requests per minute, cache deck reads, handle 429, and link back to the Archidekt deck. The endpoint is undocumented, so the mapper parses defensively. The terms check is recorded on issue #140 and the decision on #145. |
+| Moxfield URL import (E4, F-4.2) | **User decision (2026-11-21): deferred.** Moxfield blocks server-side requests and grants access only by request, and we are not requesting it for now. S-4.2.2 is parked, not dropped. Until then a Moxfield URL is treated as an **unsupported site**: the import form says which sites are supported and offers text paste, and no request is sent. Moxfield users paste Moxfield's text export. If access is granted later, the secret User-Agent Moxfield reportedly issues must be reconciled with decision E4 first. Recorded on issues #140, #142, #143 and #144. |
+
 ## A. Dependencies needing approval (CLAUDE.md: ask before adding)
 
 | ID | Question | Raised in | Blocks | Status |

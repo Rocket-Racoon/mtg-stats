@@ -148,3 +148,29 @@ class PlaygroupOut(BaseModel):
 
 class PlaygroupPageOut(Page[PlaygroupOut]):
     """One page of the caller's playgroups."""
+
+
+class MemberRoleUpdate(BaseModel):
+    """Body of ``PATCH /playgroups/{id}/members/{player_id}``."""
+
+    model_config = ConfigDict(strict=True)
+
+    role: Literal["admin", "member"] = Field(
+        description="The new role. Ownership moves only through `transfer-ownership`."
+    )
+
+
+class MemberOut(BaseModel):
+    """A member's role."""
+
+    player_id: UUID
+    role: Literal["owner", "admin", "member"]
+    joined_at: datetime
+
+
+class TransferOwnership(BaseModel):
+    """Body of ``POST /playgroups/{id}/transfer-ownership``."""
+
+    model_config = ConfigDict(strict=True)
+
+    player_id: UUID = Field(strict=False, description="The active member who becomes the owner.")

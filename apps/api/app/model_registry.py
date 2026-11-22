@@ -9,8 +9,10 @@ a registration side effect, and importing ``models`` is the whole point.
 
 from sqlalchemy import MetaData
 
+import app.brackets.models
 import app.cards.models
 import app.decks.models
+import app.games.models
 import app.identity.models
 import app.playgroups.models
 import app.system.models  # noqa: F401  (registration side effect)

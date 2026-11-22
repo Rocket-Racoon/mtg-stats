@@ -1,0 +1,45 @@
+{
+  "format": 1,
+  "kind": "reducer",
+  "name": "initial-state",
+  "description": "No events: the canonical JSON of an empty lobby with non-default settings.",
+  "game_id": "018f0000-0000-7000-8000-000000000001",
+  "settings": {
+    "starting_life": 30,
+    "commander_damage_threshold": 15,
+    "poison_threshold": 12,
+    "trust_mode": "strict"
+  },
+  "events": [],
+  "expect": {
+    "state": {
+      "active_seat": null,
+      "commander_damage": {},
+      "control_mode": "own_seat",
+      "game_id": "018f0000-0000-7000-8000-000000000001",
+      "initiative": null,
+      "last_seq": 0,
+      "monarch": null,
+      "no_winner": false,
+      "order": [],
+      "phase": "lobby",
+      "resume_phase": null,
+      "round": 0,
+      "seats": [],
+      "settings": {
+        "commander_damage_threshold": 15,
+        "poison_threshold": 12,
+        "starting_life": 30,
+        "trust_mode": "strict"
+      },
+      "started_at": null,
+      "turn": 0,
+      "v": 1,
+      "voided": [],
+      "win_condition": null,
+      "win_condition_note": "",
+      "winner_seat": null,
+      "reverted": []
+    }
+  }
+}

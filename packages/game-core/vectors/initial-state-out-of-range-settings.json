@@ -1,0 +1,45 @@
+{
+  "format": 1,
+  "kind": "reducer",
+  "name": "initial-state-out-of-range-settings",
+  "description": "initialState does no range validation (3.2): out-of-range and unknown setting values are kept unchanged.",
+  "game_id": "018f0000-0000-7000-8000-000000000001",
+  "settings": {
+    "starting_life": 5000,
+    "commander_damage_threshold": 0,
+    "poison_threshold": 100,
+    "trust_mode": "banana"
+  },
+  "events": [],
+  "expect": {
+    "state": {
+      "v": 1,
+      "game_id": "018f0000-0000-7000-8000-000000000001",
+      "phase": "lobby",
+      "resume_phase": null,
+      "settings": {
+        "starting_life": 5000,
+        "commander_damage_threshold": 0,
+        "poison_threshold": 100,
+        "trust_mode": "banana"
+      },
+      "control_mode": "own_seat",
+      "seats": [],
+      "order": [],
+      "active_seat": null,
+      "turn": 0,
+      "round": 0,
+      "monarch": null,
+      "initiative": null,
+      "commander_damage": {},
+      "no_winner": false,
+      "winner_seat": null,
+      "win_condition": null,
+      "win_condition_note": "",
+      "started_at": null,
+      "voided": [],
+      "last_seq": 0,
+      "reverted": []
+    }
+  }
+}

@@ -1,0 +1,196 @@
+{
+  "format": 1,
+  "kind": "canonical_json",
+  "name": "canonical-json-key-order",
+  "description": "Key order is by Unicode code point (UTF-8 byte order): BMP private-use and halfwidth keys sort BEFORE astral keys, the opposite of UTF-16 code unit order. Files are ASCII with \\u escapes so no editor can change the keys.",
+  "cases": [
+    {
+      "name": "BMP keys above U+D7FF sort before astral keys",
+      "input": {
+        "\ue000": 0,
+        "\uff5e": 1,
+        "\uffff": 2,
+        "\ud800\udc00": 3,
+        "\ud83d\ude00": 4,
+        "\udbff\udfff": 5,
+        "\u007f": 6,
+        "\u0080": 7,
+        "\u07ff": 8,
+        "\u0800": 9,
+        "\ud7ff": 10,
+        "\ufb00": 11
+      },
+      "output": "{\"\u007f\":6,\"\u0080\":7,\"\u07ff\":8,\"\u0800\":9,\"\ud7ff\":10,\"\ue000\":0,\"\ufb00\":11,\"\uff5e\":1,\"\uffff\":2,\"\ud800\udc00\":3,\"\ud83d\ude00\":4,\"\udbff\udfff\":5}"
+    },
+    {
+      "name": "U+E000 before U+10000",
+      "input": {
+        "\ud800\udc00": 1,
+        "\ue000": 2
+      },
+      "output": "{\"\ue000\":2,\"\ud800\udc00\":1}"
+    },
+    {
+      "name": "U+FFFF before U+10000",
+      "input": {
+        "\ud800\udc00": 1,
+        "\uffff": 2
+      },
+      "output": "{\"\uffff\":2,\"\ud800\udc00\":1}"
+    },
+    {
+      "name": "U+FF5E before U+1F600 before U+10FFFF",
+      "input": {
+        "\udbff\udfff": 1,
+        "\ud83d\ude00": 2,
+        "\uff5e": 3
+      },
+      "output": "{\"\uff5e\":3,\"\ud83d\ude00\":2,\"\udbff\udfff\":1}"
+    },
+    {
+      "name": "astral keys differing only after a shared prefix",
+      "input": {
+        "a\ud800\udc00": 1,
+        "a\uff5e": 2,
+        "a": 3,
+        "a\ue000": 4
+      },
+      "output": "{\"a\":3,\"a\ue000\":4,\"a\uff5e\":2,\"a\ud800\udc00\":1}"
+    },
+    {
+      "name": "astral key in the middle of a longer BMP key",
+      "input": {
+        "\ud800\udc00z": 1,
+        "\ufffdz": 2
+      },
+      "output": "{\"\ufffdz\":2,\"\ud800\udc00z\":1}"
+    },
+    {
+      "name": "keys that are prefixes of each other",
+      "input": {
+        "aaa": 1,
+        "a": 2,
+        "": 3,
+        "ab": 4,
+        "aa": 5,
+        "b": 6,
+        "a\u0000": 7
+      },
+      "output": "{\"\":3,\"a\":2,\"a\\u0000\":7,\"aa\":5,\"aaa\":1,\"ab\":4,\"b\":6}"
+    },
+    {
+      "name": "the empty key sorts first",
+      "input": {
+        "b": 1,
+        "": 2,
+        "a": 3
+      },
+      "output": "{\"\":2,\"a\":3,\"b\":1}"
+    },
+    {
+      "name": "the empty key in a nested object",
+      "input": {
+        "x": {
+          "": [],
+          "a": {
+            "": null
+          }
+        }
+      },
+      "output": "{\"x\":{\"\":[],\"a\":{\"\":null}}}"
+    },
+    {
+      "name": "integer-like keys sort as text, not numerically",
+      "input": {
+        "10": 1,
+        "9": 2,
+        "2": 3,
+        "1": 4,
+        "a": 5,
+        "08": 6,
+        "-1": 7
+      },
+      "output": "{\"-1\":7,\"08\":6,\"1\":4,\"10\":1,\"2\":3,\"9\":2,\"a\":5}"
+    },
+    {
+      "name": "target seat keys as in commander_damage",
+      "input": {
+        "8": {
+          "1:0": 1
+        },
+        "2": {
+          "3:1": 2,
+          "3:0": 3,
+          "10:0": 4
+        },
+        "10": {}
+      },
+      "output": "{\"10\":{},\"2\":{\"10:0\":4,\"3:0\":3,\"3:1\":2},\"8\":{\"1:0\":1}}"
+    },
+    {
+      "name": "keys with escapes sort by raw code point",
+      "input": {
+        "\\": 1,
+        "/": 2,
+        "\"": 3,
+        "\n": 4,
+        "\u0000": 5,
+        "\u001f": 6,
+        " ": 7,
+        "\u007f": 8
+      },
+      "output": "{\"\\u0000\":5,\"\\n\":4,\"\\u001f\":6,\" \":7,\"\\\"\":3,\"/\":2,\"\\\\\":1,\"\u007f\":8}"
+    },
+    {
+      "name": "uppercase, digits, underscore, lowercase, accents",
+      "input": {
+        "a": 1,
+        "B": 2,
+        "_": 3,
+        "0": 4,
+        "\u00e9": 5,
+        "\u00c9": 6,
+        "Z": 7,
+        "z": 8
+      },
+      "output": "{\"0\":4,\"B\":2,\"Z\":7,\"_\":3,\"a\":1,\"z\":8,\"\u00c9\":6,\"\u00e9\":5}"
+    },
+    {
+      "name": "NFC and NFD keys stay distinct and sort by code point",
+      "input": {
+        "\u00e9": 1,
+        "e\u0301": 2,
+        "e": 3
+      },
+      "output": "{\"e\":3,\"e\u0301\":2,\"\u00e9\":1}"
+    },
+    {
+      "name": "keys sort recursively inside arrays of objects",
+      "input": [
+        {
+          "b": {
+            "\ud800\udc00": 1,
+            "\uff5e": 2
+          },
+          "a": 1
+        },
+        {
+          "z": [],
+          "": 0
+        }
+      ],
+      "output": "[{\"a\":1,\"b\":{\"\uff5e\":2,\"\ud800\udc00\":1}},{\"\":0,\"z\":[]}]"
+    },
+    {
+      "name": "RTL and CJK keys",
+      "input": {
+        "\u05d0": 1,
+        "\u0627": 2,
+        "\u65e5": 3,
+        "a": 4,
+        "\ud840\udc00": 5
+      },
+      "output": "{\"a\":4,\"\u05d0\":1,\"\u0627\":2,\"\u65e5\":3,\"\ud840\udc00\":5}"
+    }
+  ]
+}

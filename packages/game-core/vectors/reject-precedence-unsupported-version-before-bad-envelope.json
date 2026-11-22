@@ -1,0 +1,28 @@
+{
+  "format": 1,
+  "kind": "reducer",
+  "name": "reject-precedence-unsupported-version-before-bad-envelope",
+  "description": "v = 2 and no actor: step 2 runs before the envelope check, so unsupported_version.",
+  "game_id": "018f0000-0000-7000-8000-000000000001",
+  "settings": {
+    "starting_life": 40,
+    "commander_damage_threshold": 21,
+    "poison_threshold": 10,
+    "trust_mode": "casual"
+  },
+  "events": [
+    {
+      "event_id": "00000000-0000-4000-8000-000000000001",
+      "type": "turn_passed",
+      "payload": {},
+      "on_behalf_of_seat": null,
+      "v": 2
+    }
+  ],
+  "expect": {
+    "error": {
+      "index": 0,
+      "code": "unsupported_version"
+    }
+  }
+}

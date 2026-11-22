@@ -374,6 +374,54 @@ export interface paths {
         patch: operations["playgroups_update_playgroup"];
         trace?: never;
     };
+    "/api/v1/playgroups/{playgroup_id}/members/{player_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change a member's role
+         * @description Promote a member to `admin` or demote an admin to `member`. Owner only.
+         *
+         *     A non-owner member gets 403 and a non-member 404. A target who is not an active member is a
+         *     404. Setting the current role again succeeds. The owner changing their own role is 409
+         *     `transfer_ownership_first`. `role` is `admin` or `member`; anything else, `owner` included,
+         *     is 422 `validation_error` (for a non-owner the 403 or 404 comes first).
+         */
+        patch: operations["playgroups_change_member_role"];
+        trace?: never;
+    };
+    "/api/v1/playgroups/{playgroup_id}/transfer-ownership": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Transfer ownership of a playgroup
+         * @description Make another active member the owner; the caller becomes an admin. Owner only.
+         *
+         *     Returns the playgroup with the caller's new role. A target who is not an active member is a
+         *     404; the owner naming themselves is 409 `already_owner`.
+         */
+        post: operations["playgroups_transfer_ownership"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -603,6 +651,39 @@ export interface components {
             username: string;
         };
         /**
+         * MemberOut
+         * @description A member's role.
+         */
+        MemberOut: {
+            /**
+             * Joined At
+             * Format: date-time
+             */
+            joined_at: string;
+            /**
+             * Player Id
+             * Format: uuid
+             */
+            player_id: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "owner" | "admin" | "member";
+        };
+        /**
+         * MemberRoleUpdate
+         * @description Body of ``PATCH /playgroups/{id}/members/{player_id}``.
+         */
+        MemberRoleUpdate: {
+            /**
+             * Role
+             * @description The new role. Ownership moves only through `transfer-ownership`.
+             * @enum {string}
+             */
+            role: "admin" | "member";
+        };
+        /**
          * MeResponse
          * @description The signed-in user. ``is_site_admin`` is for showing or hiding UI only; the server
          *     re-checks the role on every protected request.
@@ -783,6 +864,18 @@ export interface components {
              * @constant
              */
             token_type: "bearer";
+        };
+        /**
+         * TransferOwnership
+         * @description Body of ``POST /playgroups/{id}/transfer-ownership``.
+         */
+        TransferOwnership: {
+            /**
+             * Player Id
+             * Format: uuid
+             * @description The active member who becomes the owner.
+             */
+            player_id: string;
         };
         /**
          * ValidationDetails
@@ -2637,6 +2730,221 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["PlaygroupUpdate"];
+            };
+        };
+        responses: {
+            /** @description Client error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaygroupOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    playgroups_change_member_role: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                player_id: string;
+                playgroup_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberRoleUpdate"];
+            };
+        };
+        responses: {
+            /** @description Client error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    playgroups_transfer_ownership: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                playgroup_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransferOwnership"];
             };
         };
         responses: {

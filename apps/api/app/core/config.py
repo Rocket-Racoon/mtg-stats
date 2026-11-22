@@ -92,6 +92,23 @@ class Settings(BaseSettings):
     scryfall_min_interval_ms: int = Field(
         default=100, ge=100, validation_alias="SCRYFALL_MIN_INTERVAL_MS"
     )
+    # Commander Spellbook client (S-5.2.1); the host is a constant in the client, not a setting.
+    spellbook_timeout_seconds: float = Field(
+        default=10.0, gt=0, validation_alias="SPELLBOOK_TIMEOUT_SECONDS"
+    )
+    spellbook_cache_ttl_seconds: int = Field(
+        default=604800, ge=1, validation_alias="SPELLBOOK_CACHE_TTL_SECONDS"
+    )
+    spellbook_min_interval_ms: int = Field(
+        default=1000, ge=750, validation_alias="SPELLBOOK_MIN_INTERVAL_MS"
+    )
+    spellbook_max_retry_after_seconds: float = Field(
+        default=30.0, ge=0, validation_alias="SPELLBOOK_MAX_RETRY_AFTER_SECONDS"
+    )
+    spellbook_max_pages: int = Field(default=5, ge=1, validation_alias="SPELLBOOK_MAX_PAGES")
+    spellbook_lookup_deadline_seconds: float = Field(
+        default=60.0, ge=1, le=600, validation_alias="SPELLBOOK_LOOKUP_DEADLINE_SECONDS"
+    )
 
     # Deck-site client (S-4.2.1). Archidekt's developer asks for well under 40 requests a minute:
     # the floor of 2000 ms is 30 a minute and the default of 3000 ms is 20 a minute.

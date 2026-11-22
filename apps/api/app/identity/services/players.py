@@ -178,6 +178,43 @@ async def get_player(session: AsyncSession, player_id: UUID) -> PlayerInfo | Non
     return None if player is None else _to_info(player)
 
 
+MAX_MERGE_HOPS = 10
+"""Longest chain of merges ``resolve_merged_player`` follows before giving up."""
+
+
+async def resolve_merge(
+    session: AsyncSession, player_id: UUID
+) -> tuple[PlayerInfo | None, PlayerInfo | None]:
+    """Return ``(requested, survivor)`` for this id, following ``merged_into_id``.
+
+    ``requested`` is the player with this id (None when unknown). ``survivor`` is the end of the
+    merge chain: the player itself when it was never merged, None when the id is unknown or the
+    chain ends at a missing row, loops (self-merge included) or is longer than
+    ``MAX_MERGE_HOPS``. One query per hop (a chain is almost always 0 or 1 long).
+    """
+    seen: set[UUID] = set()
+    current: UUID = player_id
+    first: PlayerInfo | None = None
+    for _ in range(MAX_MERGE_HOPS + 1):
+        if current in seen:
+            return first, None
+        seen.add(current)
+        player = await repository.get_player(session, current)
+        if player is None:
+            return first, None
+        info = _to_info(player)
+        first = first or info
+        if player.merged_into_id is None:
+            return first, info
+        current = player.merged_into_id
+    return first, None
+
+
+async def resolve_merged_player(session: AsyncSession, player_id: UUID) -> PlayerInfo | None:
+    """The surviving player at the end of this player's merge chain (see ``resolve_merge``)."""
+    return (await resolve_merge(session, player_id))[1]
+
+
 async def get_players(
     session: AsyncSession, player_ids: Collection[UUID]
 ) -> dict[UUID, PlayerInfo]:

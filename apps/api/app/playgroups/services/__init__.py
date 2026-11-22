@@ -53,9 +53,15 @@ from app.playgroups.services.playgroups import (
     list_playgroups,
     update_playgroup,
 )
+from app.playgroups.services.profiles import (
+    CommonPlaygroup,
+    PlayerProfile,
+    get_player_profile,
+)
 
 __all__ = [
     "AlreadyOwnerError",
+    "CommonPlaygroup",
     "CreatedInvite",
     "GuestInfo",
     "InviteInfo",
@@ -68,6 +74,7 @@ __all__ = [
     "MemberInfo",
     "MembershipInfo",
     "PlayerNameTakenError",
+    "PlayerProfile",
     "PlaygroupAdminDep",
     "PlaygroupInfo",
     "PlaygroupOwnerDep",
@@ -80,6 +87,7 @@ __all__ = [
     "create_playgroup",
     "create_playgroup_invite",
     "get_membership",
+    "get_player_profile",
     "get_playgroup",
     "hash_invite_token",
     "invite_status",

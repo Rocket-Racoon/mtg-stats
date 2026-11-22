@@ -80,6 +80,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Domain routers are included on this router as their stories land.
     api_router.include_router(system_router)
     api_router.include_router(identity_router)
+    # playgroups_router owns ``GET /players/{player_id}`` (matches any one segment): a future
+    # literal ``/players/<word>`` route must be included before it.
     api_router.include_router(playgroups_router)
     api_router.include_router(registration_router)
     app.include_router(api_router)

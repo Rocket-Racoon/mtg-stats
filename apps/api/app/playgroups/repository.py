@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from sqlalchemy import Select, select
+from sqlalchemy import ColumnElement, Select, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -162,5 +162,33 @@ async def active_member_player_ids(session: AsyncSession, playgroup_id: UUID) ->
         select(Membership.player_id).where(
             Membership.playgroup_id == playgroup_id, Membership.left_at.is_(None)
         )
+    )
+    return list(result.scalars())
+
+
+async def common_playgroups(
+    session: AsyncSession,
+    viewer_player_id: UUID,
+    target_player_id: UUID,
+    target_home_playgroup_id: UUID | None,
+) -> list[Playgroup]:
+    """The playgroups the viewer is an active member of and the target is tied to, in one query.
+
+    The target is tied to a playgroup by an active membership or, for a guest, by
+    ``target_home_playgroup_id`` (a guest has no membership until S-2.3.x). Ordered by name, id.
+    """
+    target_groups = select(Membership.playgroup_id).where(
+        Membership.player_id == target_player_id, Membership.left_at.is_(None)
+    )
+    tied: ColumnElement[bool] = Playgroup.id.in_(target_groups)
+    if target_home_playgroup_id is not None:
+        tied = or_(tied, Playgroup.id == target_home_playgroup_id)
+    viewer_groups = select(Membership.playgroup_id).where(
+        Membership.player_id == viewer_player_id, Membership.left_at.is_(None)
+    )
+    result = await session.execute(
+        select(Playgroup)
+        .where(Playgroup.id.in_(viewer_groups), tied)
+        .order_by(Playgroup.name, Playgroup.id)
     )
     return list(result.scalars())

@@ -2,9 +2,9 @@
 
 Order: validate the body, hash the password off the event loop, lock the invite (410 if it is
 not active), create the User and Player (409 if the username is taken; the request session then
-rolls back, so the invite is not used), count the use, and issue the first session. The token
-delivery is the same as ``POST /auth/login``: web gets the refresh token as a cookie only, mobile
-gets it in the body.
+rolls back, so the invite is not used), count the use and, for a playgroup invite, add the new
+player as a member (S-2.4.2), and issue the first session. The token delivery is the same as
+``POST /auth/login``: web gets the refresh token as a cookie only, mobile gets it in the body.
 """
 
 import asyncio
@@ -73,9 +73,9 @@ async def run_registration(session: AppSession, body: RegisterRequest) -> identi
         email=body.email,
         password_hash=password_hash,
     )
-    await playgroups.consume_invite(session, invite.id)
     if player.user_id is None:  # a registered player always has a user
         raise RuntimeError("create_user_with_player returned a player without a user")
+    await playgroups.consume_invite(session, invite.id, player_id=player.id)
     return await identity.start_session(session, user_id=player.user_id)
 
 

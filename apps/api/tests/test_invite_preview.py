@@ -38,7 +38,7 @@ async def test_a_valid_invite_previews_the_inviter_and_expiry_without_auth(
 
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {"inviter_display_name", "expires_at"}
+    assert set(body) == {"inviter_display_name", "expires_at", "playgroup_name"}
     assert body["inviter_display_name"] == "Grace Hopper"
     assert datetime.fromisoformat(body["expires_at"]) == expires
 

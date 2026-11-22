@@ -1,4 +1,16 @@
-"""Create, list, revoke and validate invite links (S-2.1.2)."""
+"""Create, list, revoke, validate and use invite links (S-2.1.2, S-2.4.2).
+
+Two kinds of invite share one table. A **site-level** invite (``playgroup_id`` is None) only lets
+someone register; a site admin creates it. A **playgroup** invite is bound to a playgroup, which
+its owner or an admin creates; registering with it, or confirming it as a signed-in user, also
+makes the person a member.
+
+Lock order, everywhere: the invite row first (``FOR UPDATE``), then membership rows. Joining
+takes only the invite lock and inserts a membership, so no path locks memberships and then an
+invite. Use counts stay correct because every use (registration and join) goes through
+:func:`lock_invite` then :func:`consume_invite`, which re-checks the status on the locked row;
+``use_count <= max_uses`` is also a check constraint.
+"""
 
 import hashlib
 import hmac
@@ -8,14 +20,17 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import DomainError, NotFoundError
+from app.core.errors import AuthenticationError, DomainError, NotFoundError, PermissionDeniedError
 from app.core.links import public_link
 from app.core.paging import PageParams, created_at_desc, paginate
 from app.identity import services as identity_services
 from app.playgroups import repository
-from app.playgroups.models import Invite
+from app.playgroups.models import ROLE_ADMIN, ROLE_MEMBER, ROLE_OWNER, Invite, Membership
+from app.playgroups.services.access import MembershipInfo, player_id_for_user
+from app.playgroups.services.playgroups import PlaygroupInfo, info_of
 
 InviteStatus = Literal["active", "used", "expired", "revoked"]
 
@@ -43,6 +58,7 @@ class InviteInfo:
     use_count: int
     revoked_at: datetime | None
     created_at: datetime
+    playgroup_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -87,6 +103,7 @@ def _info(invite: Invite, now: datetime | None = None) -> InviteInfo:
         use_count=invite.use_count,
         revoked_at=invite.revoked_at,
         created_at=invite.created_at,
+        playgroup_id=invite.playgroup_id,
     )
 
 
@@ -96,10 +113,12 @@ async def create_invite(
     created_by: UUID,
     expires_in_days: int = DEFAULT_EXPIRES_IN_DAYS,
     max_uses: int = DEFAULT_MAX_USES,
+    playgroup_id: UUID | None = None,
 ) -> CreatedInvite:
     """Create an invite and return it with its ``https`` URL.
 
-    The caller has already been authorised (a site admin, S-2.1.2). Only the token's SHA-256 is
+    The caller has already been authorised: a site admin for a site-level invite (S-2.1.2), or
+    :func:`create_playgroup_invite` for a playgroup's. Only the token's SHA-256 is
     stored. The ranges (1-30 days, 1-20 uses) are enforced at the API edge and, for
     ``max_uses``, by a check constraint.
     """
@@ -111,6 +130,7 @@ async def create_invite(
         expires_at=now + timedelta(days=expires_in_days),
         max_uses=max_uses,
         use_count=0,
+        playgroup_id=playgroup_id,
         created_at=now,
     )
     repository.add_invite(session, invite)
@@ -134,6 +154,82 @@ async def revoke_invite(session: AsyncSession, *, invite_id: UUID, user_id: UUID
         NotFoundError: the invite does not exist or belongs to someone else.
     """
     invite = await repository.get_invite_of(session, invite_id, user_id)
+    if invite is None:
+        raise NotFoundError
+    if invite.revoked_at is None:
+        invite.revoked_at = datetime.now(UTC)
+        await session.flush()
+    return _info(invite)
+
+
+async def _admin_row(session: AsyncSession, access: MembershipInfo) -> Membership:
+    """The caller's membership row, re-read; owner or admin is re-checked on it, not on ``access``.
+
+    Raises:
+        NotFoundError: the caller left or was removed since the dependency ran.
+        PermissionDeniedError: the caller is no longer the owner or an admin.
+    """
+    row = await repository.get_active_membership(session, access.playgroup_id, access.player_id)
+    if row is None:
+        raise NotFoundError
+    if row.role not in (ROLE_OWNER, ROLE_ADMIN):
+        raise PermissionDeniedError
+    return row
+
+
+async def create_playgroup_invite(
+    session: AsyncSession,
+    access: MembershipInfo,
+    *,
+    expires_in_days: int = DEFAULT_EXPIRES_IN_DAYS,
+    max_uses: int = DEFAULT_MAX_USES,
+) -> CreatedInvite:
+    """Create an invite bound to the caller's playgroup. Owner or admin only. Flushes only.
+
+    Raises:
+        NotFoundError: the caller is no longer a member.
+        PermissionDeniedError: the caller is no longer the owner or an admin (403).
+    """
+    await _admin_row(session, access)
+    return await create_invite(
+        session,
+        created_by=access.user_id,
+        expires_in_days=expires_in_days,
+        max_uses=max_uses,
+        playgroup_id=access.playgroup_id,
+    )
+
+
+async def list_playgroup_invites(
+    session: AsyncSession, access: MembershipInfo, *, params: PageParams
+) -> InvitePage:
+    """Every invite of the playgroup (whoever created it), newest first, as a keyset page.
+
+    Raises:
+        NotFoundError, PermissionDeniedError: as for :func:`create_playgroup_invite`.
+    """
+    await _admin_row(session, access)
+    rows, next_cursor = await paginate(
+        session,
+        repository.invites_of_playgroup(access.playgroup_id),
+        created_at_desc(Invite),
+        params,
+    )
+    now = datetime.now(UTC)
+    return InvitePage(items=[_info(row, now) for row in rows], next_cursor=next_cursor)
+
+
+async def revoke_playgroup_invite(
+    session: AsyncSession, access: MembershipInfo, *, invite_id: UUID
+) -> InviteInfo:
+    """Revoke an invite of the playgroup, whoever created it. Idempotent.
+
+    Raises:
+        NotFoundError: the invite is unknown or belongs to another playgroup, or the caller left.
+        PermissionDeniedError: the caller is no longer the owner or an admin.
+    """
+    await _admin_row(session, access)
+    invite = await repository.get_playgroup_invite(session, access.playgroup_id, invite_id)
     if invite is None:
         raise NotFoundError
     if invite.revoked_at is None:
@@ -173,27 +269,42 @@ class InvitePreview:
 
     inviter_display_name: str
     expires_at: datetime
+    playgroup_name: str | None = None
+    """The playgroup's name for a playgroup invite; None for a site-level one."""
 
 
 async def preview_invite(session: AsyncSession, token: str) -> InvitePreview:
-    """Describe an active invite for the public preview: inviter's display name and expiry.
+    """Describe an active invite for the public preview.
+
+    Shows the inviter's display name, the expiry and, for a playgroup invite, the playgroup's
+    name. Nothing else about the playgroup (no id, description or members).
 
     Raises:
         InviteNoLongerValidError: revoked, expired, used up or unknown (410).
     """
     info = await validate_invite(session, token)
     player = await identity_services.get_player_for_user(session, info.created_by)
+    playgroup = (
+        await repository.get_playgroup(session, info.playgroup_id)
+        if info.playgroup_id is not None
+        else None
+    )
     return InvitePreview(
         inviter_display_name=player.display_name if player is not None else "",
         expires_at=info.expires_at,
+        playgroup_name=playgroup.name if playgroup is not None else None,
     )
 
 
-async def consume_invite(session: AsyncSession, invite_id: UUID) -> None:
-    """Count one use of an invite: ``use_count += 1``, flushed (membership comes with S-2.4.2).
+async def consume_invite(session: AsyncSession, invite_id: UUID, *, player_id: UUID) -> None:
+    """Count one use of an invite and, for a playgroup invite, add ``player_id`` as a member.
 
     Call it after :func:`lock_invite` in the same session. It locks the row again (a no-op for
     the same transaction) and re-checks the status, so it never takes a use past ``max_uses``.
+    The new membership has the role ``member`` and a fresh ``joined_at``; a former membership
+    row is left as history. The caller must not already be an active member (see
+    :func:`join_with_invite`); the partial unique index would raise ``IntegrityError``. Flushes;
+    never commits.
 
     Raises:
         InviteNoLongerValidError: the invite is gone, or is no longer active.
@@ -202,4 +313,85 @@ async def consume_invite(session: AsyncSession, invite_id: UUID) -> None:
     if invite is None or invite_status(invite) != "active":
         raise InviteNoLongerValidError
     invite.use_count += 1
+    if invite.playgroup_id is not None:
+        repository.add_membership(
+            session,
+            Membership(playgroup_id=invite.playgroup_id, player_id=player_id, role=ROLE_MEMBER),
+        )
     await session.flush()
+
+
+@dataclass(frozen=True)
+class JoinResult:
+    """The outcome of confirming a playgroup invite."""
+
+    already_member: bool
+    """True when the user was already an active member: nothing changed, no use was counted."""
+    playgroup: PlaygroupInfo
+    """The playgroup with the caller's role in it."""
+
+
+async def join_with_invite(session: AsyncSession, *, user_id: UUID, token: str) -> JoinResult:
+    """Join the invite's playgroup as the signed-in user (the "Join <P>" confirmation).
+
+    Order of checks:
+
+    1. The account must be active (401).
+    2. The token must name a playgroup invite, in any state; an unknown token or a site-level
+       invite is a 410. This read takes no lock.
+    3. A caller who is already an active member of that playgroup (the owner and admins
+       included) gets ``already_member`` whatever the invite's state: nothing is locked, counted
+       or changed. This is what makes re-opening a used-up single-use link say "You're already
+       in <P>". Only an active member gets this answer, and a member already knows the group
+       exists, so a non-member learns nothing: for them revoked, expired, used-up and unknown
+       tokens are all the same 410. A former member, or a member of another playgroup, is a
+       non-member here.
+    4. Otherwise lock the invite (:func:`lock_invite`, 410 if it is not active), count one use
+       and insert a ``member`` membership. A former member gets a new row. If the lock shows
+       the invite dead, the caller's membership is read once more: a double-tap on a single-use
+       link has its second request wait on the first, which commits the membership and uses the
+       invite up, so that second request answers ``already_member`` instead of 410.
+
+    Lock order stays invite row first, then memberships; step 3 takes no lock, so it cannot
+    deadlock with a concurrent join. If a concurrent join of the same user through another invite
+    wins the unique index, the use is rolled back with a savepoint and the result is
+    ``already_member``. Never commits.
+
+    Raises:
+        AuthenticationError: the account is unknown or deactivated (401).
+        NotFoundError: the user has no player.
+        InviteNoLongerValidError: unknown, or a site-level invite, or (for a non-member)
+            revoked, expired or used up (410).
+    """
+    if await identity_services.get_me(session, user_id) is None:
+        raise AuthenticationError
+    player_id = await player_id_for_user(session, user_id)
+    token_hash = hash_invite_token(token)
+    seen = await repository.get_invite_by_hash(session, token_hash)
+    if seen is None or seen.playgroup_id is None:
+        raise InviteNoLongerValidError
+    playgroup_id = seen.playgroup_id
+    existing = await repository.get_active_membership(session, playgroup_id, player_id)
+    if existing is not None:
+        return JoinResult(already_member=True, playgroup=info_of(existing))
+    try:
+        invite = await lock_invite(session, token)
+    except InviteNoLongerValidError:
+        # A concurrent join by this same user may have used up a single-use invite and committed
+        # while we waited for the lock; under READ COMMITTED this read now sees that membership.
+        raced = await repository.get_active_membership(session, playgroup_id, player_id)
+        if raced is None:
+            raise
+        return JoinResult(already_member=True, playgroup=info_of(raced))
+    try:
+        async with session.begin_nested():
+            await consume_invite(session, invite.id, player_id=player_id)
+    except IntegrityError:
+        raced = await repository.get_active_membership(session, playgroup_id, player_id)
+        if raced is None:
+            raise
+        return JoinResult(already_member=True, playgroup=info_of(raced))
+    joined = await repository.get_active_membership(session, playgroup_id, player_id)
+    if joined is None:  # inserted a moment ago in this transaction
+        raise RuntimeError("membership missing after join")
+    return JoinResult(already_member=False, playgroup=info_of(joined))

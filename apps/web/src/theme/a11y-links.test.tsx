@@ -8,6 +8,7 @@ import { render } from '@testing-library/react';
 import { createMemoryRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { AppProviders } from '../providers/AppProviders';
 import { routes } from '../routes';
 import { useSessionStore } from '../session/store';
 import { CONTRAST_PAIRS, TOKENS, THEMES } from './tokens';
@@ -69,7 +70,9 @@ describe('links are coloured by a contrast-checked rule (S-1.6.5 AC2)', () => {
     '/sign-in',
   ])('every a[href] on %s matches a colour rule, and plain links resolve to --link', (path) => {
     const { container } = render(
-      <RouterProvider router={createMemoryRouter(routes, { initialEntries: [path] })} />,
+      <AppProviders>
+        <RouterProvider router={createMemoryRouter(routes, { initialEntries: [path] })} />
+      </AppProviders>,
     );
     for (const a of container.querySelectorAll('a[href]')) {
       const matched = rulesFor(a);
@@ -86,7 +89,9 @@ describe('links are coloured by a contrast-checked rule (S-1.6.5 AC2)', () => {
       expect(contrastRatio(TOKENS[theme].link, TOKENS[theme].mutedBg)).toBeGreaterThanOrEqual(4.5);
     }
     const { container } = render(
-      <RouterProvider router={createMemoryRouter(routes, { initialEntries: ['/about'] })} />,
+      <AppProviders>
+        <RouterProvider router={createMemoryRouter(routes, { initialEntries: ['/about'] })} />
+      </AppProviders>,
     );
     const links = container.querySelectorAll('footer a[href]');
     const names = [...links].map((a) => a.textContent);
@@ -97,7 +102,11 @@ describe('links are coloured by a contrast-checked rule (S-1.6.5 AC2)', () => {
 
   it('the 404 "Go home" link is styled by the global link rule', () => {
     const { getByRole } = render(
-      <RouterProvider router={createMemoryRouter(routes, { initialEntries: ['/no-such-page'] })} />,
+      <AppProviders>
+        <RouterProvider
+          router={createMemoryRouter(routes, { initialEntries: ['/no-such-page'] })}
+        />
+      </AppProviders>,
     );
     const home = getByRole('link', { name: 'Go home' });
     expect(home.closest('.shell-nav')).toBeNull();

@@ -41,3 +41,32 @@ export function queryKey<D extends Domain>(
 export function domainKey<D extends Domain>(domain: D): readonly [D] {
   return [domain];
 }
+
+/**
+ * Playgroup-scoped keys (S-2.4.5). Every query whose data belongs to one playgroup carries
+ * `playgroupId` in its params, so switching the active playgroup is a different cache entry and
+ * never flashes the previous group's data. Build such keys only with this function.
+ */
+export function playgroupScopedKey<D extends Domain>(
+  domain: D,
+  operation: string,
+  playgroupId: string,
+  params: QueryParams = {},
+): QueryKey<D> {
+  return queryKey(domain, operation, { ...params, playgroupId });
+}
+
+/**
+ * Predicate for `invalidateQueries`/`removeQueries`: true for every key built with
+ * `playgroupScopedKey` for this playgroup, in any domain.
+ */
+export function isScopedToPlaygroup(playgroupId: string) {
+  return (query: { queryKey: readonly unknown[] }): boolean => {
+    const params = query.queryKey[2];
+    return (
+      typeof params === 'object' &&
+      params !== null &&
+      (params as { playgroupId?: unknown }).playgroupId === playgroupId
+    );
+  };
+}

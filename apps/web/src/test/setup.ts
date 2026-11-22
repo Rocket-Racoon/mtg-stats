@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
 import { afterEach, beforeEach, vi } from 'vitest';
+import { ACTIVE_PLAYGROUP_ITEM_NAME, useActivePlaygroupStore } from '../playgroups/active-store';
 
 // Unit tests never reach the network. Every test starts with a fetch that rejects; a test that
 // needs a response stubs its own with vi.stubGlobal('fetch', ...), which replaces this one.
@@ -16,6 +17,13 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  // The remembered playgroup (S-2.4.5) lives in localStorage and a store: never leak it between tests.
+  useActivePlaygroupStore.setState({ activeId: null });
+  try {
+    localStorage.removeItem(ACTIVE_PLAYGROUP_ITEM_NAME);
+  } catch {
+    // A test that broke localStorage on purpose.
+  }
 });
 
 // jsdom has no <dialog>.showModal()/close(): a minimal stand-in that toggles `open` (the real

@@ -215,6 +215,7 @@ button:focus-visible {
   summary,
   [role='button'],
   .shell-nav a,
+  .playgroup-switcher-option,
   .footer-link,
   .skip-link {
     min-width: 44px;
@@ -365,5 +366,101 @@ button:focus-visible {
 .field-error,
 .form-error {
   margin: 0;
+  font-weight: 600;
+}
+
+/* Playgroup switcher (S-2.4.5) */
+.playgroup-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.playgroup-switcher-field {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.playgroup-switcher-label {
+  font-size: 0.875rem;
+}
+
+.playgroup-switcher-trigger {
+  padding: 0.5rem 0.75rem;
+  font: inherit;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.playgroup-switcher-list {
+  position: absolute;
+  top: 100%;
+  z-index: 1;
+  min-width: 100%;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.playgroup-switcher-list[hidden] {
+  display: none;
+}
+
+.playgroup-switcher-option {
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+}
+
+.playgroup-switcher-option[data-highlighted='true'] {
+  background: var(--hover-bg);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.playgroup-switcher-option[aria-selected='true']::after {
+  content: ' ¹3';
+}
+
+.playgroup-switcher button:focus-visible,
+.playgroup-switcher a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Playgroup home (S-2.4.5) */
+.people-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.people-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+}
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  min-height: 2rem;
+  border-radius: 50%;
+  border: 1px solid var(--border);
   font-weight: 600;
 }

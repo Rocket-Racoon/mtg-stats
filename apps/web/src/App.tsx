@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation } from 'react-router';
 import { NAV_ITEMS } from './nav';
 import { Footer } from './Footer';
 import { AccountMenu } from './AccountMenu';
+import { PlaygroupSwitcher } from './playgroups/PlaygroupSwitcher';
 
 /**
  * Root layout. Navigation is a sidebar at >= 1024px, a top bar of links
@@ -69,10 +70,13 @@ export function App() {
             </li>
           ))}
         </ul>
-        {/* Last in the tab order, after the page links; only rendered while signed in. */}
         <AccountMenu />
       </nav>
       <main id="main" tabIndex={-1} className="shell-main">
+        {/* Top of the page area, not in the nav landmark: the nav stays a list of pages (Account is
+            its last link) and the switcher stays visible when the compact menu is closed. It
+            renders only while signed in. */}
+        <PlaygroupSwitcher />
         <Outlet />
       </main>
       <Footer />

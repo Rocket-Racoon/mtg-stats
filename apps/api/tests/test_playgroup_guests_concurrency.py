@@ -17,9 +17,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.core import db
+from app.core.config import get_settings
 from app.core.errors import DomainError
 from app.identity.services import create_user_with_player
 from app.playgroups import repository, services
+from tests.invite_support import token_from_url
 from tests.migration_support import alembic_config, temporary_database
 
 WAIT_SECONDS = 20.0
@@ -164,3 +166,79 @@ async def test_two_guests_renamed_to_one_name_concurrently_leave_one_holder(
     names = await _guest_names(engine, group_id)
     assert len(names) == 2
     assert [n.casefold() for n in names].count("cy") == 1
+
+
+# --- the lock really blocks joins (review follow-up) ------------------------------------------
+
+
+async def _seed_invite_and_joiner(
+    group_id: UUID, owner_user: UUID, joiner_name: str
+) -> tuple[UUID, str]:
+    """A second account named ``joiner_name`` and a playgroup invite; return (user id, token)."""
+    async with db.get_sessionmaker()() as session:
+        joiner = await create_user_with_player(
+            session,
+            username=joiner_name.lower() + "_user",
+            password=PASSWORD,
+            display_name=joiner_name,
+        )
+        access = await services.get_membership(session, playgroup_id=group_id, user_id=owner_user)
+        assert access is not None
+        created = await services.create_playgroup_invite(session, access)
+        await session.commit()
+    assert joiner.user_id is not None
+    return joiner.user_id, token_from_url(created.url, get_settings().public_web_url)
+
+
+async def _member_count(engine: AsyncEngine, group_id: UUID) -> int:
+    async with engine.connect() as conn:
+        return int(
+            (
+                await conn.execute(
+                    text("SELECT count(*) FROM memberships WHERE playgroup_id = :g"),
+                    {"g": group_id},
+                )
+            ).scalar_one()
+        )
+
+
+async def _join(user_id: UUID, token: str) -> None:
+    async with db.get_sessionmaker()() as session:
+        await services.join_with_invite(session, user_id=user_id, token=token)
+        await session.commit()
+
+
+async def test_a_join_waits_behind_the_playgroup_lock_and_completes_after_release(
+    engine: AsyncEngine,
+) -> None:
+    group_id, owner_user = await _seed()
+    joiner_user, token = await _seed_invite_and_joiner(group_id, owner_user, "Joiner")
+    outcomes = await _run_behind_lock(engine, group_id, lambda: _join(joiner_user, token))
+    assert outcomes == [None]
+    assert await _member_count(engine, group_id) == 2
+
+
+async def test_a_guest_add_waits_for_an_uncommitted_join_and_then_sees_the_member_name(
+    engine: AsyncEngine,
+) -> None:
+    group_id, owner_user = await _seed()
+    joiner_user, token = await _seed_invite_and_joiner(group_id, owner_user, "Bob")
+    joiner_session = db.get_sessionmaker()()
+    add: asyncio.Task[None] | None = None
+    try:
+        await services.join_with_invite(joiner_session, user_id=joiner_user, token=token)
+        # flushed, not committed: the membership insert holds FOR KEY SHARE on the playgroup row
+        add = asyncio.ensure_future(
+            _call(group_id, owner_user, services.add_guest, display_name="bob")
+        )
+        await _wait_until_blocked(engine, waiters=1)
+        await asyncio.sleep(0.3)
+        assert not add.done()  # parked on the playgroup lock, not failing fast
+        await joiner_session.commit()
+        with pytest.raises(services.PlayerNameTakenError):
+            await asyncio.wait_for(add, WAIT_SECONDS)
+    finally:
+        await joiner_session.close()
+        if add is not None and not add.done():
+            add.cancel()
+    assert await _guest_names(engine, group_id) == []

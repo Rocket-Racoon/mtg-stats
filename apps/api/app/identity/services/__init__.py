@@ -1,6 +1,6 @@
 """Public interface of the ``identity`` domain; other code imports only from here."""
 
-from app.identity.models import AVATAR_COLORS
+from app.identity.models import AVATAR_COLORS, DISPLAY_NAME_MAX_LENGTH
 from app.identity.services.admin import (
     LastSiteAdminError,
     MeInfo,
@@ -58,6 +58,7 @@ from app.identity.services.throttle import throttled_sign_in
 
 __all__ = [
     "AVATAR_COLORS",
+    "DISPLAY_NAME_MAX_LENGTH",
     "InvalidAvatarColorError",
     "InvalidCredentialsError",
     "InvalidCurrentPasswordError",

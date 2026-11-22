@@ -11,6 +11,10 @@ express the rule. Instead every guest write first locks the playgroup row (``SEL
 UPDATE``), then reads the names and writes; two concurrent adds or renames of one playgroup run
 one after the other, and the second sees the first's guest. The lock is held to the end of the
 request's transaction (the caller commits). Every guest write must go through this module.
+
+**Lock order.** The playgroup row first, before any ``players`` row. A later claim or merge
+story that touches guests must take ``repository.lock_playgroup`` before locking or updating
+players, or it can deadlock against a rename.
 """
 
 from dataclasses import dataclass
@@ -66,7 +70,7 @@ async def _lock_and_check_caller(session: AsyncSession, access: MembershipInfo) 
     if await repository.lock_playgroup(session, access.playgroup_id) is None:
         raise NotFoundError
     membership = await repository.get_active_membership(
-        session, access.playgroup_id, access.player_id
+        session, access.playgroup_id, access.player_id, fresh=True
     )
     if membership is None:
         raise NotFoundError

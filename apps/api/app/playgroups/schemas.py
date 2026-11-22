@@ -15,6 +15,7 @@ from pydantic import (
 )
 
 from app.core.paging import Page
+from app.identity import services as identity_services
 from app.playgroups.models import (
     PLAYGROUP_DESCRIPTION_MAX_LENGTH,
     PLAYGROUP_NAME_MAX_LENGTH,
@@ -65,10 +66,20 @@ PlaygroupDescription = Annotated[
 ]
 
 
+def _reject_empty_key(value: str) -> str:
+    """Reject a name with nothing to compare (only marks or format characters)."""
+    if not identity_services.display_name_key(value):
+        raise ValueError("must contain a visible character")
+    return value
+
+
 GuestName = Annotated[
     str,
-    StringConstraints(strip_whitespace=True, min_length=1, max_length=32),
+    StringConstraints(
+        strip_whitespace=True, min_length=1, max_length=identity_services.DISPLAY_NAME_MAX_LENGTH
+    ),
     AfterValidator(_reject_control_characters),
+    AfterValidator(_reject_empty_key),
 ]
 
 
@@ -219,6 +230,10 @@ class GuestCreate(BaseModel):
         description="1 to 32 characters (surrounding spaces are trimmed); unique in the "
         "playgroup, ignoring case and accents."
     )
+
+
+class GuestRename(GuestCreate):
+    """Body of ``PATCH /playgroups/{id}/guests/{player_id}``."""
 
 
 class GuestOut(BaseModel):

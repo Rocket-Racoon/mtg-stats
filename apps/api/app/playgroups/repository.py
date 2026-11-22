@@ -83,10 +83,14 @@ def add_membership(session: AsyncSession, membership: Membership) -> None:
 
 
 async def get_active_membership(
-    session: AsyncSession, playgroup_id: UUID, player_id: UUID
+    session: AsyncSession, playgroup_id: UUID, player_id: UUID, *, fresh: bool = False
 ) -> Membership | None:
-    """The player's active membership of the playgroup (with the playgroup loaded), or None."""
-    result = await session.execute(
+    """The player's active membership of the playgroup (with the playgroup loaded), or None.
+
+    ``fresh`` refreshes an instance already in the session (``populate_existing``), so the role
+    is the committed one even if this session read the row earlier. Use it after taking a lock.
+    """
+    stmt = (
         select(Membership)
         .options(joinedload(Membership.playgroup))
         .where(
@@ -95,6 +99,9 @@ async def get_active_membership(
             Membership.left_at.is_(None),
         )
     )
+    if fresh:
+        stmt = stmt.execution_options(populate_existing=True)
+    result = await session.execute(stmt)
     return result.scalar_one_or_none()
 
 
@@ -131,7 +138,14 @@ async def lock_playgroup(session: AsyncSession, playgroup_id: UUID) -> Playgroup
     """Return the playgroup locked ``SELECT ... FOR UPDATE``, or None.
 
     The lock serialises guest creation and renaming of one playgroup (S-2.3.1). It also makes a
-    membership insert (a ``FOR KEY SHARE`` on this row) wait until the transaction ends.
+    membership insert (a ``FOR KEY SHARE`` on this row, taken by the foreign key check) wait
+    until the transaction ends, so a member cannot join between the name check and the guest
+    insert.
+
+    It must stay ``FOR UPDATE``: ``FOR NO KEY UPDATE`` (used elsewhere, for example by
+    ``games``) does not conflict with ``FOR KEY SHARE`` and would silently reopen that race.
+    The cost is that any other insert referencing this playgroup (invite creation, game
+    creation, joins) waits for the lock holder too; keep the transaction short.
     """
     result = await session.execute(
         select(Playgroup)

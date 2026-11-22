@@ -8,8 +8,10 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 
 from app.core.db import AppSession
+from app.core.errors import PermissionDeniedError
 from app.identity import services as identity_services
 from app.identity.models import Player, User
+from app.playgroups import repository, services
 from tests.auth_support import issue
 from tests.factories import GuestPlayerFactory, PlayerFactory, UserFactory, create
 from tests.playgroup_support import join, make_user
@@ -374,3 +376,155 @@ async def test_a_guest_id_is_not_a_valid_bearer_subject(
     )  # a token whose subject is a player id, not a user id
     assert response.status_code in (401, 404)  # the id names no user: no player, no data
     assert "items" not in response.json()
+
+
+# --- invisible characters (review follow-up) --------------------------------------------------
+
+INVISIBLE_VARIANTS = [
+    "Bob\u200b",
+    "Bob­",
+    "Bob⁠",
+    "Bob﻿",
+    "Bob᠎",
+    "B\u200bob",
+    "Bob\U000e0041",
+    "\u200bBob",
+]
+
+
+async def _owner_named(session: AppSession, display_name: str) -> dict[str, str]:
+    user = await create(session, UserFactory)
+    await create(session, PlayerFactory, user_id=user.id, display_name=display_name)
+    await session.commit()
+    return {"Authorization": f"Bearer {issue(user.id)}"}
+
+
+@pytest.mark.parametrize("name", INVISIBLE_VARIANTS)
+async def test_invisible_characters_do_not_get_past_the_uniqueness_check(
+    client: httpx.AsyncClient, app_schema: AppSession, name: str
+) -> None:
+    owner = await _owner_named(app_schema, "Bob")
+    group_id = await _group(client, owner)
+    response = await _add(client, owner, group_id, name)
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "player_name_taken"
+
+
+@pytest.mark.parametrize("name", INVISIBLE_VARIANTS)
+async def test_renaming_to_a_name_with_invisible_characters_is_still_409(
+    client: httpx.AsyncClient, app_schema: AppSession, name: str
+) -> None:
+    owner = await _owner_named(app_schema, "Bob")
+    group_id = await _group(client, owner)
+    guest = (await _add(client, owner, group_id, "Ana")).json()["id"]
+    assert (await _rename(client, owner, group_id, guest, name)).status_code == 409
+
+
+@pytest.mark.parametrize("name", ["́", "\u200b", "\u200b́­", "️", "⁠ \u200b"])
+async def test_a_name_with_nothing_visible_to_compare_is_422_on_both_routes(
+    client: httpx.AsyncClient, app_schema: AppSession, name: str
+) -> None:
+    _, _, owner = await make_user(app_schema)
+    group_id = await _group(client, owner)
+    added = await _add(client, owner, group_id, name)
+    assert added.status_code == 422
+    assert added.json()["error"]["code"] == "validation_error"
+    guest = (await _add(client, owner, group_id, "Ana")).json()["id"]
+    renamed = await _rename(client, owner, group_id, guest, name)
+    assert renamed.status_code == 422
+    assert renamed.json()["error"]["code"] == "validation_error"
+
+
+async def test_a_name_with_a_visible_letter_among_invisible_ones_is_accepted(
+    client: httpx.AsyncClient, app_schema: AppSession
+) -> None:
+    _, _, owner = await make_user(app_schema)
+    group_id = await _group(client, owner)
+    assert (await _add(client, owner, group_id, "\u200bA\u200b")).status_code == 201
+
+
+@pytest.mark.parametrize(
+    ("left", "right"),
+    [("Bob", "Bob\u200b"), ("Bob", "B­ob"), ("Bob", "﻿bob"), ("Bob", "bob\U000e0041")],
+)
+def test_display_name_key_drops_format_characters(left: str, right: str) -> None:
+    assert identity_services.display_name_key(left) == identity_services.display_name_key(right)
+
+
+@pytest.mark.parametrize("name", ["́", "\u200b", "⁠﻿", " "])
+def test_display_name_key_is_empty_for_marks_and_format_characters_only(name: str) -> None:
+    assert identity_services.display_name_key(name) == ""
+
+
+def test_display_name_key_keeps_turkish_and_slashed_letters_as_they_were() -> None:
+    key = identity_services.display_name_key
+    assert key("İ") == "i"  # unchanged: the dot is a combining mark after NFKD
+    assert key("ø") == "ø"
+    assert key("ł") == "ł"
+
+
+# --- created_by_id on delete (review follow-up) -----------------------------------------------
+
+
+async def test_deleting_the_creator_clears_created_by_and_the_owner_can_still_rename(
+    client: httpx.AsyncClient, app_schema: AppSession
+) -> None:
+    _, _, owner = await make_user(app_schema)
+    group_id = await _group(client, owner)
+    creator = await create(app_schema, GuestPlayerFactory)
+    guest = await create(
+        app_schema,
+        GuestPlayerFactory,
+        home_playgroup_id=UUID(group_id),
+        created_by_id=creator.id,
+        display_name="Ana",
+    )
+    guest_id, creator_id = guest.id, creator.id
+    await app_schema.commit()
+    await app_schema.execute(text("DELETE FROM players WHERE id = :i"), {"i": creator_id})
+    await app_schema.commit()
+    created_by = (
+        await app_schema.execute(
+            text("SELECT created_by_id FROM players WHERE id = :i"), {"i": guest_id}
+        )
+    ).scalar_one()
+    assert created_by is None
+    assert (await _rename(client, owner, group_id, guest_id, "Ana B")).status_code == 200
+
+
+# --- fresh role re-read under the lock (review follow-up) -------------------------------------
+
+
+async def test_the_role_is_re_read_after_the_lock_even_if_this_session_loaded_it_earlier(
+    app_schema: AppSession,
+) -> None:
+    owner_user, _, _ = await make_user(app_schema)
+    member_user, member_player, _ = await make_user(app_schema)
+    group = await services.create_playgroup(app_schema, user_id=owner_user, name="Friday")
+    await join(app_schema, group.id, member_player)
+    owner_access = await services.get_membership(
+        app_schema, playgroup_id=group.id, user_id=owner_user
+    )
+    access = await services.get_membership(app_schema, playgroup_id=group.id, user_id=member_user)
+    assert owner_access is not None
+    assert access is not None
+    # Keep a strong reference: the identity map only holds weak ones, so without it the stale
+    # object could be garbage-collected and a plain re-read would look fresh by accident.
+    held = await repository.get_active_membership(app_schema, group.id, member_player)
+    assert held is not None
+    assert held.role == "member"
+    guest = await services.add_guest(app_schema, owner_access, display_name="Ana")
+    with pytest.raises(PermissionDeniedError):
+        await services.rename_guest(
+            app_schema, access, player_id=guest.player_id, display_name="Ana B"
+        )
+    # Promoted behind this session's back (raw SQL, so the loaded object is not updated).
+    await app_schema.execute(
+        text("UPDATE memberships SET role = 'admin' WHERE playgroup_id = :g AND player_id = :p"),
+        {"g": group.id, "p": member_player},
+    )
+    renamed = await services.rename_guest(
+        app_schema, access, player_id=guest.player_id, display_name="Ana C"
+    )
+    assert renamed.display_name == "Ana C"
+    assert held.role == "admin"  # the same instance was refreshed by the locked re-read

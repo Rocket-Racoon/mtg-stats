@@ -646,6 +646,17 @@ export interface components {
             playgroup_id: string;
         };
         /**
+         * GuestRename
+         * @description Body of ``PATCH /playgroups/{id}/guests/{player_id}``.
+         */
+        GuestRename: {
+            /**
+             * Display Name
+             * @description 1 to 32 characters (surrounding spaces are trimmed); unique in the playgroup, ignoring case and accents.
+             */
+            display_name: string;
+        };
+        /**
          * InviteCreate
          * @description Optional body of ``POST /invites`` and ``POST /playgroups/{id}/invites``.
          */
@@ -3261,7 +3272,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["GuestCreate"];
+                "application/json": components["schemas"]["GuestRename"];
             };
         };
         responses: {

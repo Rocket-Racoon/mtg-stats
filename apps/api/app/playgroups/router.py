@@ -14,6 +14,7 @@ from app.playgroups import services
 from app.playgroups.schemas import (
     GuestCreate,
     GuestOut,
+    GuestRename,
     InviteCreate,
     InviteCreated,
     InviteJoinOut,
@@ -316,7 +317,7 @@ async def add_guest(
 async def rename_guest(
     playgroup_id: str,
     player_id: str,
-    body: GuestCreate,
+    body: GuestRename,
     access: services.MemberDep,
     session: SessionDep,
 ) -> GuestOut:

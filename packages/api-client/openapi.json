@@ -145,6 +145,23 @@
         "title": "GuestOut",
         "type": "object"
       },
+      "GuestRename": {
+        "description": "Body of ``PATCH /playgroups/{id}/guests/{player_id}``.",
+        "properties": {
+          "display_name": {
+            "description": "1 to 32 characters (surrounding spaces are trimmed); unique in the playgroup, ignoring case and accents.",
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name"
+        ],
+        "title": "GuestRename",
+        "type": "object"
+      },
       "InviteCreate": {
         "description": "Optional body of ``POST /invites`` and ``POST /playgroups/{id}/invites``.",
         "properties": {
@@ -3611,7 +3628,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/GuestCreate"
+                "$ref": "#/components/schemas/GuestRename"
               }
             }
           },

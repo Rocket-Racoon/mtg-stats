@@ -157,6 +157,32 @@ async def get_player(session: AsyncSession, player_id: UUID) -> PlayerInfo | Non
     return None if player is None else _to_info(player)
 
 
+MAX_MERGE_HOPS = 10
+"""Longest chain of merges ``resolve_merged_player`` follows before giving up."""
+
+
+async def resolve_merged_player(session: AsyncSession, player_id: UUID) -> PlayerInfo | None:
+    """Follow ``merged_into_id`` from this player to the surviving player.
+
+    Returns the player itself when it was never merged, the end of the chain otherwise, and None
+    when the id is unknown, the chain ends at a missing row, loops or is longer than
+    ``MAX_MERGE_HOPS``. It runs one query per hop (a chain is almost always 0 or 1 long).
+    """
+    seen: set[UUID] = set()
+    current: UUID = player_id
+    for _ in range(MAX_MERGE_HOPS + 1):
+        if current in seen:
+            return None
+        seen.add(current)
+        player = await repository.get_player(session, current)
+        if player is None:
+            return None
+        if player.merged_into_id is None:
+            return _to_info(player)
+        current = player.merged_into_id
+    return None
+
+
 async def get_players(
     session: AsyncSession, player_ids: Collection[UUID]
 ) -> dict[UUID, PlayerInfo]:

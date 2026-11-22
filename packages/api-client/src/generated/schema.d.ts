@@ -357,6 +357,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/players/{player_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * View a player's profile
+         * @description A player's display name, avatar color, guest badge, "member since" and the playgroups
+         *     you have in common with them. No email, username or stats.
+         *
+         *     You can open your own profile, and another player's when you are both active members of a
+         *     playgroup, or they are a guest whose home playgroup is one you belong to. Anyone else, an
+         *     unknown id and an unparseable id are all the same 404 `not_found`. A guest that was merged
+         *     into another player answers 308 with `Location` set to the survivor's profile (and
+         *     `merged_into_id` in the body), but only when you could open the survivor's profile; otherwise
+         *     404. `member_since` is when the player record was created.
+         */
+        get: operations["playgroups_get_player_profile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/playgroups": {
         parameters: {
             query?: never;
@@ -520,6 +548,19 @@ export interface components {
             current_password: string;
             /** New Password */
             new_password: string;
+        };
+        /**
+         * CommonPlaygroupOut
+         * @description A playgroup the viewer and the profile's player share.
+         */
+        CommonPlaygroupOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
         };
         /**
          * ErrorBody
@@ -823,6 +864,44 @@ export interface components {
             is_site_admin: boolean;
             /** Username */
             username: string;
+        };
+        /**
+         * PlayerMergedOut
+         * @description Body of the 308 redirect for a merged guest.
+         */
+        PlayerMergedOut: {
+            /**
+             * Merged Into Id
+             * Format: uuid
+             */
+            merged_into_id: string;
+        };
+        /**
+         * PlayerProfileOut
+         * @description A player's public profile for a viewer who shares a playgroup with them.
+         *
+         *     No email, username or stats: the client adds the stats player summary itself.
+         */
+        PlayerProfileOut: {
+            /** Avatar Color */
+            avatar_color: string;
+            /** Common Playgroups */
+            common_playgroups: components["schemas"]["CommonPlaygroupOut"][];
+            /** Display Name */
+            display_name: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Is Guest */
+            is_guest: boolean;
+            /**
+             * Member Since
+             * Format: date-time
+             * @description When the player record was created.
+             */
+            member_since: string;
         };
         /**
          * PlaygroupCreate
@@ -2565,6 +2644,118 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InvitePreviewOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    playgroups_get_player_profile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                player_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Client error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlayerProfileOut"];
+                };
+            };
+            /** @description A merged guest; see `Location`. */
+            308: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlayerMergedOut"];
                 };
             };
             /** @description Unauthorized */

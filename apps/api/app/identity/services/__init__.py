@@ -49,6 +49,7 @@ from app.identity.services.players import (
     get_players,
     normalize_display_name,
     normalize_email,
+    resolve_merged_player,
     set_password,
 )
 from app.identity.services.throttle import throttled_sign_in
@@ -87,6 +88,7 @@ __all__ = [
     "normalize_email",
     "password_needs_rehash",
     "refresh_session",
+    "resolve_merged_player",
     "revoke_all_refresh_tokens",
     "revoke_refresh_token",
     "set_password",

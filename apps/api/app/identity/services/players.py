@@ -351,8 +351,7 @@ async def rename_guest_player(
     player = await repository.get_player(session, player_id)
     if player is None or not player.is_guest or player.merged_into_id is not None:
         raise NotFoundError
-    player.display_name = normalize_display_name(display_name)
-    player.display_name_key = display_name_key(player.display_name)
+    player.set_display_name(normalize_display_name(display_name))
     await session.flush()
     return _to_info(player)
 

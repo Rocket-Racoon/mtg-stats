@@ -60,8 +60,9 @@ INSERT_USER = text(
     "VALUES (:id, :name, '', 'x', false, true, now(), now())"
 )
 INSERT_PLAYER = text(
-    "INSERT INTO players (id, user_id, is_guest, display_name, avatar_color, created_at) "
-    "VALUES (:id, :user_id, false, :name, 'red', now())"
+    "INSERT INTO players (id, user_id, is_guest, display_name, display_name_key, avatar_color, "
+    "created_at) VALUES (:id, :user_id, false, CAST(:name AS varchar), "
+    "lower(CAST(:name AS text)), 'red', now())"
 )
 INSERT_GROUP = text(
     "INSERT INTO playgroups (id, name, description, created_at, updated_at) "

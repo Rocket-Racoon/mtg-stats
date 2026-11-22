@@ -3,6 +3,10 @@
 Stores ``display_name_key(display_name)`` on ``players`` (S-2.2.4) so the picker's search and
 order run in SQL with the same answers as the guest-name uniqueness check, and backfills it.
 
+The migration holds an exclusive lock on ``players`` for the whole backfill (fine at this size).
+After the backfill the column keeps no database default, so a raw insert that omits the key fails
+instead of storing ``''``.
+
 Revision ID: 5a1c3e7d9b42
 Revises: 0c0eb7757b9f
 Create Date: 2026-11-22 12:00:00.000000+00:00
@@ -58,6 +62,7 @@ def upgrade() -> None:
             {"ids": [row.id for row in rows], "keys": [_key(row.display_name) for row in rows]},
         )
         last = rows[-1].id
+    op.alter_column("players", "display_name_key", server_default=None)
 
 
 def downgrade() -> None:

@@ -2,7 +2,7 @@
   "format": 1,
   "kind": "reducer",
   "name": "accept-unknown-payload-keys-are-ignored",
-  "description": "Unknown payload keys are ignored by reducers (4).",
+  "description": "Unknown payload keys are ignored (4). seat_claimed is still a no-op, so the event only advances last_seq; the S-6.1.3 handlers have their own vectors (accept-life-changed-ignores-unknown-payload-keys and the like).",
   "game_id": "018f0000-0000-7000-8000-000000000001",
   "settings": {
     "starting_life": 40,
@@ -13,7 +13,7 @@
   "events": [
     {
       "event_id": "00000000-0000-4000-8000-000000000001",
-      "type": "life_changed",
+      "type": "seat_claimed",
       "payload": {
         "seat": 1,
         "delta": -3,
@@ -61,8 +61,8 @@
       "win_condition_note": "",
       "started_at": null,
       "voided": [],
-      "last_seq": 1,
-      "reverted": []
+      "reverted": [],
+      "last_seq": 1
     }
   }
 }

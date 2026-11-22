@@ -1,4 +1,5 @@
 import { CanonicalJsonError, canonicalJson } from './canonical-json';
+import { lifeChanged, playerConceded, playerEliminated } from './life';
 import {
   commandersSet,
   deckAssigned,
@@ -46,6 +47,9 @@ const HANDLERS: Readonly<Record<EventType, Handler>> = {
   commanders_set: commandersSet,
   game_started: gameStarted,
   turn_passed: turnPassed,
+  life_changed: lifeChanged,
+  player_conceded: playerConceded,
+  player_eliminated: playerEliminated,
 };
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;

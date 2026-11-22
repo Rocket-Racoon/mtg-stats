@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-invalid-json-byte-order-mark",
+  "rule": "8.3 whole-file",
+  "description": "Text that is not valid JSON gives the single message `invalid JSON: <detail>`; the detail is not compared.",
+  "file": "vec.json",
+  "text": "\ufeff{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1},{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1}],\"expect\":{\"state\":{}}}",
+  "messages": [
+    {
+      "startsWith": "vec.json: invalid JSON: "
+    }
+  ]
+}

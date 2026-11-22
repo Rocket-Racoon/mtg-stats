@@ -1,7 +1,14 @@
 """Locate shared repository files (the game-core contract and vectors) from the API tests.
 
-Same rule as ``test_vectors.py``: the API container holds only ``apps/api``, so outside CI a
-missing file skips the test; on CI (the whole repository is checked out) it fails.
+The ``require`` helpers are for tests that compare the Python package with the contract or with
+one vector (S-6.1.1 parity and reference tests). The API container holds only ``apps/api``, so
+outside CI a missing file skips such a test; on CI (the whole repository is checked out) it fails.
+
+This differs on purpose from the vector runner (``test_vectors.py``, ``test_vector_cases.py``,
+``test_vector_runner_behavior.py``): CONTRACT.md 8.5 says a missing or empty vectors directory
+fails loudly, so the runner fails everywhere and never skips. A skipped parity test hides nothing
+while the runner is red, and the runner is what the gate relies on for the vectors. Making these
+helpers fail everywhere would only break running the API tests inside the container layout.
 """
 
 from __future__ import annotations

@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-duplicate-key-in-order-after-token-messages",
+  "rule": "8.3 order of checks",
+  "description": "Step 4 (tokens) comes before step 5 (duplicates) even when the duplicate key is earlier in the document.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"game_id\":\"g\",\"settings\":{\"starting_life\":1.5},\"events\":[],\"expect\":{\"state\":{}}}",
+  "messages": [
+    "vec.json: settings.starting_life must be an integer (found the number token 1.5)",
+    "vec.json: game_id is a duplicate key"
+  ]
+}

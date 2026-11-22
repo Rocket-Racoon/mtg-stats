@@ -1,0 +1,19 @@
+{
+  "format": 1,
+  "kind": "coverage",
+  "name": "coverage-vector-with-a-duplicate-key-does-not-count",
+  "rule": "8.4 and 8.3 step 5",
+  "description": "A duplicate key is a validation problem, so the file contributes nothing.",
+  "registry": ["alpha", "beta"],
+  "files": [
+    {
+      "file": "v1.json",
+      "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"v1\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"alpha\",\"payload\":{}}],\"expect\":{\"state\":{}}}"
+    },
+    {
+      "file": "v2.json",
+      "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"v2\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"beta\"}],\"expect\":{\"state\":{}},\"game_id\":\"g\"}"
+    }
+  ],
+  "messages": ["uncovered event type: beta"]
+}

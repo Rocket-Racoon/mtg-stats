@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-header-kind-invalid-wrong-case",
+  "rule": "8.3 header kind",
+  "description": "A kind that is present and not exactly reducer or canonical_json gets the must-be message; kind checks and unknown-key checks are skipped.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"Reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"zzz\":1}",
+  "messages": ["vec.json: kind must be \"reducer\" or \"canonical_json\""]
+}

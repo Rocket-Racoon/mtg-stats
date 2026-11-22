@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-events-type-rule-runs-when-expect-is-null",
+  "rule": "8.3 events[i].type",
+  "description": "With an expect that is null, every event is applied, so each untyped event is reported.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{},{\"type\":\"t\"},{}],\"expect\":null}",
+  "messages": [
+    "vec.json: expect must be an object",
+    "vec.json: events[0].type must be a string",
+    "vec.json: events[2].type must be a string"
+  ]
+}

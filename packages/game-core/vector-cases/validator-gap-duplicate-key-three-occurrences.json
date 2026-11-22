@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-gap-duplicate-key-three-occurrences",
+  "rule": "8.3 step 5",
+  "description": "A key written three times gives two duplicate-key messages, one for every repeated occurrence.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"game_id\":\"g\",\"game_id\":\"g\",\"settings\":{},\"events\":[],\"expect\":{\"state\":{}}}",
+  "messages": ["vec.json: game_id is a duplicate key", "vec.json: game_id is a duplicate key"]
+}

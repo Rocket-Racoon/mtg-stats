@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-events-zone-top-level-events-scalar-token",
+  "rule": "8.3.1 everywhere else",
+  "description": "A top-level events that is a bare fractional number: path `events` is not in the events zone.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":1.5,\"expect\":{\"state\":{}}}",
+  "messages": [
+    "vec.json: events must be an array",
+    "vec.json: events must be an integer (found the number token 1.5)"
+  ]
+}

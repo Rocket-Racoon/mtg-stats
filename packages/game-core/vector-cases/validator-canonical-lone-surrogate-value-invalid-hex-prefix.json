@@ -1,0 +1,12 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-canonical-lone-surrogate-value-invalid-hex-prefix",
+  "rule": "8.3 invalid.value lone_surrogate",
+  "description": "lone_surrogate value is exactly 4 hex digits d800 to dfff.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"invalid\":{\"kind\":\"lone_surrogate\",\"value\":\"0xd800\"},\"error\":\"lone_surrogate\"}]}",
+  "messages": [
+    "vec.json: cases[0].invalid.value must be the 4-digit hex code of a surrogate code unit (d800 to dfff)"
+  ]
+}

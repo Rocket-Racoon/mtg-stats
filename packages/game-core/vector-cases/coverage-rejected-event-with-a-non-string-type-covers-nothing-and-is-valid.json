@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "kind": "coverage",
+  "name": "coverage-rejected-event-with-a-non-string-type-covers-nothing-and-is-valid",
+  "rule": "8.4 and 8.3",
+  "description": "The rejected event has a number as its type: the file is valid, alpha counts, nothing else does.",
+  "registry": ["alpha", "beta"],
+  "files": [
+    {
+      "file": "v1.json",
+      "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"v1\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"alpha\",\"payload\":{}},{\"type\":5,\"payload\":{}},{\"type\":\"beta\",\"payload\":{}}],\"expect\":{\"error\":{\"index\":1,\"code\":\"invalid_event\"}}}"
+    }
+  ],
+  "messages": ["uncovered event type: beta"]
+}

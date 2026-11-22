@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-canonical-invalid-infinity-value-must-be-absent",
+  "rule": "8.3 invalid.value",
+  "description": "A value next to kind infinity, whatever it is, even null or an empty string.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"invalid\":{\"kind\":\"infinity\",\"value\":\"x\"},\"error\":\"unsupported_value\"},{\"name\":\"b\",\"invalid\":{\"kind\":\"infinity\",\"value\":null},\"error\":\"unsupported_value\"},{\"name\":\"c\",\"invalid\":{\"kind\":\"infinity\",\"value\":\"\"},\"error\":\"unsupported_value\"}]}",
+  "messages": [
+    "vec.json: cases[0].invalid.value must be absent",
+    "vec.json: cases[1].invalid.value must be absent",
+    "vec.json: cases[2].invalid.value must be absent"
+  ]
+}

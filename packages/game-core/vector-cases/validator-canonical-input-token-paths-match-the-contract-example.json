@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-canonical-input-token-paths-match-the-contract-example",
+  "rule": "8.3.1 paths",
+  "description": "The contract's example path cases[2].input[1].a.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"input\":1,\"output\":\"1\"},{\"name\":\"b\",\"input\":1,\"output\":\"1\"},{\"name\":\"c\",\"input\":[1,{\"a\":1.5}],\"output\":\"x\"}]}",
+  "messages": ["vec.json: cases[2].input[1].a must be an integer (found the number token 1.5)"]
+}

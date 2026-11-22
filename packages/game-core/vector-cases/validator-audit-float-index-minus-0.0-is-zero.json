@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-audit-float-index-minus-0.0-is-zero",
+  "rule": "8.3 details",
+  "description": "-0.0 equals the integer 0: token message only.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1},{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1}],\"expect\":{\"error\":{\"index\":-0.0,\"code\":\"invalid_event\"}}}",
+  "messages": ["vec.json: expect.error.index must be an integer (found the number token -0.0)"]
+}

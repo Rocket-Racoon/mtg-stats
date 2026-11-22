@@ -1,0 +1,19 @@
+{
+  "format": 1,
+  "kind": "coverage",
+  "name": "coverage-uncovered-messages-keep-registry-order-with-gaps",
+  "rule": "8.4",
+  "description": "Registry beta, alpha, gamma, delta with only gamma covered: beta, alpha, delta in that order.",
+  "registry": ["beta", "alpha", "gamma", "delta"],
+  "files": [
+    {
+      "file": "v1.json",
+      "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"v1\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"gamma\",\"payload\":{}}],\"expect\":{\"state\":{}}}"
+    }
+  ],
+  "messages": [
+    "uncovered event type: beta",
+    "uncovered event type: alpha",
+    "uncovered event type: delta"
+  ]
+}

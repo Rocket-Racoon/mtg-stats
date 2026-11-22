@@ -1,0 +1,20 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-combo-canonical-every-step-in-order",
+  "rule": "8.3 order of checks",
+  "description": "Header, case rows, unknown keys, tokens and duplicates in one canonical file.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":\"1\",\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"input\":2.5,\"output\":1},{\"name\":\"a\",\"invalid\":{\"kind\":\"float\",\"value\":\"1.0\"},\"error\":\"x\"},7],\"events\":[],\"description\":\"d\"}",
+  "messages": [
+    "vec.json: format must be the integer 1",
+    "vec.json: cases[0].output must be a string",
+    "vec.json: cases[1].name duplicates the name of cases[0]",
+    "vec.json: cases[1].error must be a canonical JSON error code",
+    "vec.json: cases[1].invalid.value must be decimal text of a non-integer number",
+    "vec.json: cases[2] must be an object",
+    "vec.json: events is not a known key",
+    "vec.json: cases[0].input must be an integer (found the number token 2.5)",
+    "vec.json: description is a duplicate key"
+  ]
+}

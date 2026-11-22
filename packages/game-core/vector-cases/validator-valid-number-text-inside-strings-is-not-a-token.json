@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-valid-number-text-inside-strings-is-not-a-token",
+  "rule": "8.3.1",
+  "description": "Text inside strings is not a number token, nor a key: digits, quotes and braces in strings.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"price 1.5e999 and \\\"2.0\\\" {\\\"a\\\":1.0} \\\\\",\"game_id\":\"1.0\",\"settings\":{},\"events\":[{\"type\":\"1e999\",\"payload\":{\"1.5\":\"1.0\",\"k\\\"1.0\":\"x\\\\\"}}],\"expect\":{\"state\":{\"s\":\"-0.0\"}}}",
+  "messages": []
+}

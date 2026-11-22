@@ -1,0 +1,16 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-reducer-events-items-must-be-objects",
+  "rule": "8.3 events",
+  "description": "Each item that is not an object is reported by its index; objects are left alone (error index 0, so no event is applied and the type rule is not involved).",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[1,{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1},\"a\",null,[],true],\"expect\":{\"error\":{\"index\":0,\"code\":\"invalid_event\"}}}",
+  "messages": [
+    "vec.json: events[0] must be an object",
+    "vec.json: events[2] must be an object",
+    "vec.json: events[3] must be an object",
+    "vec.json: events[4] must be an object",
+    "vec.json: events[5] must be an object"
+  ]
+}

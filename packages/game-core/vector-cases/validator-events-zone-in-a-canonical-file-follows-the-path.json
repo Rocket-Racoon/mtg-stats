@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-events-zone-in-a-canonical-file-follows-the-path",
+  "rule": "8.3.1 events",
+  "description": "`Inside events (the path starts with events[)`: a canonical file's unknown top-level events array is read by its path, so an integral float there gets the events message.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"input\":1,\"output\":\"1\"}],\"events\":[1.0]}",
+  "messages": [
+    "vec.json: events is not a known key",
+    "vec.json: events[0] has the number token 1.0; write an integral value as an integer"
+  ]
+}

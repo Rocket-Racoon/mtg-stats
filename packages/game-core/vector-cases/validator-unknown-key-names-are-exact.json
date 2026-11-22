@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-unknown-key-names-are-exact",
+  "rule": "8.3 step 3",
+  "description": "Key names are case-sensitive: Name and Format are unknown keys beside the real ones.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1},{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1}],\"expect\":{\"state\":{}},\"Name\":\"x\",\"Format\":1}",
+  "messages": ["vec.json: Name is not a known key", "vec.json: Format is not a known key"]
+}

@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-audit-float-format-1e0-equals-one",
+  "rule": "8.3 details",
+  "description": "1e0 equals the integer 1: token message only.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1e0,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1},{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1}],\"expect\":{\"state\":{}}}",
+  "messages": ["vec.json: format must be an integer (found the number token 1e0)"]
+}

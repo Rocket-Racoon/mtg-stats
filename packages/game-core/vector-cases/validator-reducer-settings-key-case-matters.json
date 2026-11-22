@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-reducer-settings-key-case-matters",
+  "rule": "8.3 settings",
+  "description": "Setting names are exact: Starting_Life is not known.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{\"Starting_Life\":40},\"events\":[{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1},{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1}],\"expect\":{\"state\":{}}}",
+  "messages": ["vec.json: settings.Starting_Life is not a known key"]
+}

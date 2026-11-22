@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-canonical-case-both-input-and-invalid",
+  "rule": "8.3 cases[i] exactly one",
+  "description": "Both input and invalid: one message, nothing else of the case is checked.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"input\":1,\"output\":5,\"invalid\":5,\"error\":5,\"extra\":1}]}",
+  "messages": ["vec.json: cases[0] must have exactly one of \"input\" or \"invalid\""]
+}

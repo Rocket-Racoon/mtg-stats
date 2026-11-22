@@ -1,7 +1,9 @@
-"""No router reaches Scryfall (S-3.1.2): user requests read the local card database.
+"""No router reaches an outbound client (S-3.1.2 Scryfall, S-4.2.1 deck sites).
 
-Every module that is named ``router.py`` or is a router module (``is_router_module``: it imports
-``fastapi.APIRouter``) must not reach ``app.cards.scryfall_client`` or ``ScryfallClient``.
+User requests read the local database; imports run in jobs. Every module that is named
+``router.py`` or is a router module (``is_router_module``: it imports ``fastapi.APIRouter``) must
+not reach ``app.cards.scryfall_client`` / ``ScryfallClient`` or
+``app.decks.services.deck_sites`` / ``DeckSiteClient``.
 
 Detected, through ``imported_modules`` of ``test_domain_imports`` (relative imports resolved,
 literal ``importlib.import_module`` and ``__import__`` calls included, ``TYPE_CHECKING`` and
@@ -24,9 +26,10 @@ from pathlib import Path
 
 from tests.architecture.test_domain_imports import APP_ROOT, imported_modules, is_router_module
 
-CLIENT_MODULE = "app.cards.scryfall_client"
-CLIENT_NAME = "ScryfallClient"
-CLIENT_MODULE_NAME = "scryfall_client"
+# Outbound clients no router may reach (S-3.1.2 Scryfall, S-4.2.1 deck sites): the module that
+# holds each one, and the names that identify it (a re-export or an attribute access of them).
+CLIENT_MODULES = ("app.cards.scryfall_client", "app.decks.services.deck_sites")
+CLIENT_NAMES = frozenset({"ScryfallClient", "scryfall_client", "DeckSiteClient", "deck_sites"})
 
 
 def _named_uses(tree: ast.AST) -> list[tuple[int, str]]:
@@ -37,9 +40,9 @@ def _named_uses(tree: ast.AST) -> list[tuple[int, str]]:
             found += [
                 (node.lineno, f"{node.module or '.'}.{a.name}")
                 for a in node.names
-                if a.name in {CLIENT_NAME, CLIENT_MODULE_NAME}
+                if a.name in CLIENT_NAMES
             ]
-        elif isinstance(node, ast.Attribute) and node.attr in {CLIENT_NAME, CLIENT_MODULE_NAME}:
+        elif isinstance(node, ast.Attribute) and node.attr in CLIENT_NAMES:
             found.append((node.lineno, f"attribute .{node.attr}"))
     return found
 
@@ -54,7 +57,7 @@ def router_violations(root: Path) -> list[str]:
         hits = [
             (line, module)
             for line, module in imported_modules(root, path)
-            if module == CLIENT_MODULE or module.startswith(f"{CLIENT_MODULE}.")
+            if any(module == m or module.startswith(f"{m}.") for m in CLIENT_MODULES)
         ]
         hits += _named_uses(tree)
         shown = path.relative_to(root).as_posix()
@@ -155,6 +158,21 @@ def test_getattr_lookup_of_the_client_is_a_known_undetectable_form(tmp_path: Pat
         },
     )
     assert router_violations(root) == []
+
+
+def test_router_importing_the_deck_site_client_in_any_form_is_reported(tmp_path: Path) -> None:
+    root = _write(
+        tmp_path,
+        {
+            "decks/services/deck_sites/http.py": "",
+            "a/router.py": "from app.decks.services.deck_sites.http import DeckSiteClient\n",
+            "b/router.py": "from app.decks.services import DeckSiteClient\n",
+            "c/router.py": "from app.decks.services import deck_sites\n",
+            "d/router.py": "import app.decks.services.deck_sites\n",
+            "e/router.py": "from app.decks.services import parse_decklist\n",
+        },
+    )
+    assert _flagged(root) == {"a/router.py", "b/router.py", "c/router.py", "d/router.py"}
 
 
 def test_non_router_module_may_import_the_client(tmp_path: Path) -> None:

@@ -1,0 +1,12 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-canonical-integer-value-invalid-word",
+  "rule": "8.3 invalid.value integer",
+  "description": "integer text must be decimal, no leading zeros, with an absolute value above 9007199254740991.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"invalid\":{\"kind\":\"integer\",\"value\":\"big\"},\"error\":\"integer_out_of_range\"}]}",
+  "messages": [
+    "vec.json: cases[0].invalid.value must be decimal text of an integer outside the safe range"
+  ]
+}

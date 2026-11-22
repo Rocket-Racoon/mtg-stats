@@ -110,6 +110,33 @@ class Settings(BaseSettings):
         default=60.0, ge=1, le=600, validation_alias="SPELLBOOK_LOOKUP_DEADLINE_SECONDS"
     )
 
+    # Deck-site client (S-4.2.1). Archidekt's developer asks for well under 40 requests a minute:
+    # the floor of 2000 ms is 30 a minute and the default of 3000 ms is 20 a minute.
+    deck_site_timeout_seconds: float = Field(
+        default=10.0, gt=0, le=120, validation_alias="DECK_SITE_TIMEOUT_SECONDS"
+    )
+    deck_site_total_deadline_seconds: float = Field(
+        default=45.0, gt=0, le=300, validation_alias="DECK_SITE_TOTAL_DEADLINE_SECONDS"
+    )
+    deck_site_cache_ttl_seconds: int = Field(
+        default=900, ge=1, le=86400, validation_alias="DECK_SITE_CACHE_TTL_SECONDS"
+    )
+    deck_site_max_retries: int = Field(
+        default=2, ge=0, le=2, validation_alias="DECK_SITE_MAX_RETRIES"
+    )
+    deck_site_retry_after_cap_seconds: float = Field(
+        default=30.0, ge=0, le=300, validation_alias="DECK_SITE_RETRY_AFTER_CAP_SECONDS"
+    )
+    deck_site_max_response_bytes: int = Field(
+        default=5_000_000, ge=1024, le=50_000_000, validation_alias="DECK_SITE_MAX_RESPONSE_BYTES"
+    )
+    deck_site_max_concurrency: int = Field(
+        default=2, ge=1, le=10, validation_alias="DECK_SITE_MAX_CONCURRENCY"
+    )
+    deck_site_archidekt_min_interval_ms: int = Field(
+        default=3000, ge=2000, validation_alias="DECK_SITE_ARCHIDEKT_MIN_INTERVAL_MS"
+    )
+
     @field_validator("database_url")
     @classmethod
     def _check_database_url(cls, value: str) -> str:

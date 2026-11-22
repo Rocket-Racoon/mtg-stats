@@ -22,7 +22,7 @@ jobs:
   api:
     name: api
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     services:
       # Same images as infra/docker-compose.yml.
       postgres:

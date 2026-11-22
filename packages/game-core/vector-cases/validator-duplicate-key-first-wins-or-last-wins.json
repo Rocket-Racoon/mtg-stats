@@ -3,7 +3,7 @@
   "kind": "validator",
   "name": "validator-duplicate-key-first-wins-or-last-wins",
   "rule": "8.3 step 5 (which value validation sees)",
-  "description": "description is valid first and empty second, repeated: what do the other rules see?",
+  "description": "description is valid first and empty second, repeated: the other rules see the last value (empty), so both the non-empty message and the duplicate-key message appear.",
   "file": "vec.json",
   "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"description\":\"\",\"game_id\":\"g\",\"settings\":{},\"events\":[],\"expect\":{\"state\":{}}}",
   "messages": [

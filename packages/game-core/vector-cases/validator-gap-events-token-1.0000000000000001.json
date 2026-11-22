@@ -3,7 +3,7 @@
   "kind": "validator",
   "name": "validator-gap-events-token-1.0000000000000001",
   "rule": "8.3.1 events",
-  "description": "A token whose exact value is not an integer but whose double is an integer or zero.",
+  "description": "An events token whose double is 1 is integral and is rejected, although its exact decimal is not an integer.",
   "file": "vec.json",
   "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"t\",\"v\":1.0000000000000001}],\"expect\":{\"state\":{}}}",
   "messages": [

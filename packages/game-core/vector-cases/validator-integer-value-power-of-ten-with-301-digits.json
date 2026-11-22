@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-integer-value-power-of-ten-with-301-digits",
+  "rule": "8.3 invalid.value integer",
+  "description": "A one followed by 300 zeros has 301 digits and gives the digit-limit message.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"invalid\":{\"kind\":\"integer\",\"value\":\"1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\"},\"error\":\"integer_out_of_range\"}]}",
+  "messages": ["vec.json: cases[0].invalid.value must have at most 300 digits"]
+}

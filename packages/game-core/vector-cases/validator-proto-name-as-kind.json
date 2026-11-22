@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-proto-name-as-kind",
+  "rule": "8.3 header kind",
+  "description": "A kind that is an Object.prototype name is not a known kind.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"constructor\",\"format\":1,\"name\":\"vec\",\"description\":\"d\"}",
+  "messages": ["vec.json: kind must be \"reducer\" or \"canonical_json\""]
+}

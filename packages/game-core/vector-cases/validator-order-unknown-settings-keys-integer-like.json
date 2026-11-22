@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-order-unknown-settings-keys-integer-like",
+  "rule": "8.3 unknown keys in document order",
+  "description": "Unknown settings keys come in document order.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{\"zeta\":1,\"10\":1,\"2\":1},\"events\":[],\"expect\":{\"state\":{}}}",
+  "messages": [
+    "vec.json: settings.zeta is not a known key",
+    "vec.json: settings.10 is not a known key",
+    "vec.json: settings.2 is not a known key"
+  ]
+}

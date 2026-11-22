@@ -3,7 +3,7 @@
   "kind": "validator",
   "name": "validator-gap-type-rule-when-error-index-is-invalid",
   "rule": "8.3 events[i].type with a malformed expect",
-  "description": "expect.error.index is -1 and events lack a type: all events applied, or none?",
+  "description": "expect.error.index is -1 (not a valid index) and the event lacks a type: all events are applied, so the type message appears.",
   "file": "vec.json",
   "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{}],\"expect\":{\"error\":{\"index\":-1,\"code\":\"invalid_event\"}}}",
   "messages": [

@@ -19,8 +19,15 @@ describe('shared vectors', () => {
 });
 
 describe('event-type coverage', () => {
-  const uncovered = new Set(checkCoverage(files));
+  // Computed so that a failure cannot abort test collection: it fails each coverage test instead.
+  let uncovered: Set<string> | Error;
+  try {
+    uncovered = new Set(checkCoverage(files));
+  } catch (e) {
+    uncovered = e instanceof Error ? e : new Error(String(e));
+  }
   it.each(EVENT_TYPES)('%s is exercised by a vector', (type) => {
+    if (uncovered instanceof Error) throw uncovered;
     if (uncovered.has(uncoveredMessage(type))) throw new Error(uncoveredMessage(type));
   });
 });

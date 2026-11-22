@@ -3,7 +3,7 @@
   "kind": "validator",
   "name": "validator-gap-type-rule-when-expect-has-both-state-and-error",
   "rule": "8.3 events[i].type with a malformed expect",
-  "description": "expect with both state and error and events without a type: which events count as applied?",
+  "description": "expect with both state and error and a valid index: only the events below the index are applied, so only events[0] is reported.",
   "file": "vec.json",
   "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{},{}],\"expect\":{\"state\":{},\"error\":{\"index\":1,\"code\":\"invalid_event\"}}}",
   "messages": [

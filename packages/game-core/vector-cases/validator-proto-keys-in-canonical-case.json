@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-proto-keys-in-canonical-case",
+  "rule": "8.3 canonical case keys",
+  "description": "Object.prototype names are unknown keys of an input case.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"input\":1,\"output\":\"1\",\"constructor\":1,\"toString\":2}]}",
+  "messages": [
+    "vec.json: cases[0].constructor is not a known key",
+    "vec.json: cases[0].toString is not a known key"
+  ]
+}

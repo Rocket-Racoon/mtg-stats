@@ -20,8 +20,9 @@ interface ValidatorCase {
   file: string;
   text: string;
   messages?: Message[];
-  gap?: string;
-  alternatives?: Message[][];
+  /** No longer allowed: a case states one list of messages (README, CONTRACT.md 8). */
+  gap?: unknown;
+  alternatives?: unknown;
 }
 
 interface CoverageCase {
@@ -63,10 +64,6 @@ function agrees(actual: string[], expected: Message[]): boolean {
   );
 }
 
-function display(expected: Message[]): string[] {
-  return expected.map((e) => (typeof e === 'string' ? e : `${e.startsWith}<detail>`));
-}
-
 describe('validator case corpus', () => {
   it('holds both kinds of case, with every case named after its file', () => {
     expect(validatorCases.length).toBeGreaterThanOrEqual(300);
@@ -74,13 +71,11 @@ describe('validator case corpus', () => {
     expect(new Set(cases.map((c) => c.name)).size).toBe(cases.length);
     for (const c of validatorCases) {
       expect(c.file.endsWith('.json'), c.name).toBe(true);
-      expect(Boolean(c.messages) !== Boolean(c.alternatives), `${c.name}: messages xor gap`).toBe(
-        true,
-      );
-      if (c.alternatives) {
-        expect(c.gap, c.name).toBeTruthy();
-        expect(c.alternatives.length, c.name).toBeGreaterThanOrEqual(2);
-      }
+      // A case with "alternatives" could pass on one reading in one language and on another in the
+      // other, hiding drift: every case states exactly one list of messages.
+      expect(c.alternatives, `${c.name}: alternatives are not allowed`).toBeUndefined();
+      expect(c.gap, `${c.name}: gap is not allowed`).toBeUndefined();
+      expect(Array.isArray(c.messages), `${c.name}: messages`).toBe(true);
     }
   });
 
@@ -147,9 +142,7 @@ describe('validator case corpus', () => {
     'must be decimal text of an integer from 1 to 10000',
   ];
   const everyMessage = validatorCases.flatMap((c) =>
-    [...(c.messages ?? []), ...(c.alternatives ?? []).flat()].map((m) =>
-      typeof m === 'string' ? m : m.startsWith,
-    ),
+    (c.messages ?? []).map((m) => (typeof m === 'string' ? m : m.startsWith)),
   );
   it.each(templates)('some case pins the message %j', (template) => {
     expect(everyMessage.some((m) => m.includes(template))).toBe(true);
@@ -160,19 +153,10 @@ describe('validators agree with the shared cases', () => {
   it.each(validatorCases.map((c) => c.name))('%s', (name) => {
     const c = validatorCases.find((x) => x.name === name)!;
     const actual = validateVectorText(c.file, c.text);
-    if (c.messages) {
-      expect(agrees(actual, c.messages), `got ${JSON.stringify(actual)}`).toBe(true);
-      expect(actual.length).toBe(c.messages.length);
-      if (c.messages.every((m) => typeof m === 'string')) expect(actual).toEqual(c.messages);
-      return;
-    }
-    const readings = c.alternatives!;
-    const hit = readings.some((alt) => agrees(actual, alt));
-    expect(
-      hit,
-      `${c.name}: contract gap (${c.gap}); got ${JSON.stringify(actual)}, ` +
-        `defensible readings ${JSON.stringify(readings.map(display))}`,
-    ).toBe(true);
+    const messages = c.messages!;
+    expect(agrees(actual, messages), `got ${JSON.stringify(actual)}`).toBe(true);
+    expect(actual.length).toBe(messages.length);
+    if (messages.every((m) => typeof m === 'string')) expect(actual).toEqual(messages);
   });
 });
 

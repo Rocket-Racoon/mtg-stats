@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-proto-keys-at-top-level",
+  "rule": "8.3 unknown top-level keys",
+  "description": "Object.prototype names are unknown top-level keys.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[],\"expect\":{\"state\":{}},\"constructor\":1,\"__proto__\":2,\"valueOf\":3}",
+  "messages": [
+    "vec.json: constructor is not a known key",
+    "vec.json: __proto__ is not a known key",
+    "vec.json: valueOf is not a known key"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-integer-value-negative-300-digits-is-valid",
+  "rule": "8.3 invalid.value integer",
+  "description": "The minus sign is not a digit: -(300 digits) is accepted.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"invalid\":{\"kind\":\"integer\",\"value\":\"-999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999\"},\"error\":\"integer_out_of_range\"}]}",
+  "messages": []
+}

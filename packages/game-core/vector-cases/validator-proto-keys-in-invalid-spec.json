@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-proto-keys-in-invalid-spec",
+  "rule": "8.3 invalid keys",
+  "description": "Object.prototype names are unknown keys of an invalid spec.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"invalid\":{\"kind\":\"nan\",\"constructor\":1,\"valueOf\":2},\"error\":\"non_integer\"}]}",
+  "messages": [
+    "vec.json: cases[0].invalid.constructor is not a known key",
+    "vec.json: cases[0].invalid.valueOf is not a known key"
+  ]
+}

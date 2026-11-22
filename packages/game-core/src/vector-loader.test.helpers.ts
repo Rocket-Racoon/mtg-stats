@@ -27,9 +27,11 @@ export function loadVectorFiles(dir: string): VectorFile[] {
   if (!existsSync(dir) || !statSync(dir).isDirectory()) {
     throw new Error(`vectors directory not found: ${dir}`);
   }
-  // Only regular files directly in the directory (a directory named x.json is ignored).
-  const names = readdirSync(dir)
-    .filter((f) => f.endsWith('.json') && statSync(join(dir, f)).isFile())
+  // Only regular files directly in the directory whose name ends in exactly `.json`: a directory,
+  // a symbolic link (never followed, even a dangling one) and `x.JSON` are ignored (CONTRACT.md 8.5).
+  const names = readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+    .map((entry) => entry.name)
     .sort();
   if (names.length === 0) throw new Error(`vectors directory has no .json files: ${dir}`);
   // Strict UTF-8; the BOM is kept so that the validator reports it as invalid JSON.
@@ -73,6 +75,44 @@ function invalidValue(spec: { kind: string; value?: string }): unknown {
  * (and the case name for a canonical case) when the file is invalid or the expectation fails.
  */
 export function runVectorFile(file: VectorFile): void {
+  try {
+    runChecked(file);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    if (message.startsWith(`${file.name}: `)) throw e;
+    throw new Error(`${file.name}: internal error: ${message}`, { cause: e });
+  }
+}
+
+interface CanonicalCase {
+  name: string;
+  input?: unknown;
+  output?: string;
+  invalid?: { kind: string; value?: string };
+  error?: string;
+}
+
+/** Runs one canonical case; returns a failure detail, or null when the case holds. */
+function canonicalCaseFailure(c: CanonicalCase): string | null {
+  if (c.invalid) {
+    // Every allowed `integer` value (at most 300 digits) is a finite double above 2^53 - 1, which
+    // the serializer rejects as `integer_out_of_range`; `Number()` is lossless enough for that.
+    const value = invalidValue(c.invalid);
+    // Deep chains are serialized as they are, every other kind inside a one-element array.
+    const input = c.invalid.kind.startsWith('deep_') ? value : [value];
+    try {
+      canonicalJson(input);
+    } catch (e) {
+      if (e instanceof CanonicalJsonError && e.code === c.error) return null;
+      return `expected error ${c.error}, got ${String(e)}`;
+    }
+    return `expected error ${c.error}, but serializing succeeded`;
+  }
+  const actual = canonicalJson(c.input);
+  return actual === c.output ? null : `expected ${c.output}, got ${actual}`;
+}
+
+function runChecked(file: VectorFile): void {
   if (file.decodeError !== undefined) {
     throw new Error(`${file.name}: invalid JSON: not valid UTF-8: ${file.decodeError}`);
   }
@@ -81,34 +121,18 @@ export function runVectorFile(file: VectorFile): void {
   const vector = JSON.parse(file.text) as Record<string, unknown>;
 
   if (vector.kind === 'canonical_json') {
-    const cases = vector.cases as {
-      name: string;
-      input?: unknown;
-      output?: string;
-      invalid?: { kind: string; value?: string };
-      error?: string;
-    }[];
-    for (const c of cases) {
-      const where = `${file.name}: case "${c.name}"`;
-      if (c.invalid) {
-        const value = invalidValue(c.invalid);
-        // Deep chains are serialized as they are, every other kind inside a one-element array.
-        const input = c.invalid.kind.startsWith('deep_') ? value : [value];
-        try {
-          canonicalJson(input);
-        } catch (e) {
-          if (!(e instanceof CanonicalJsonError) || e.code !== c.error) {
-            throw new Error(`${where}: expected error ${c.error}, got ${String(e)}`, { cause: e });
-          }
-          continue;
-        }
-        throw new Error(`${where}: expected error ${c.error}, but serializing succeeded`);
+    // Every failing case of the file is reported, in one failure (CONTRACT.md 8.5).
+    const failures: string[] = [];
+    for (const c of vector.cases as CanonicalCase[]) {
+      let detail: string | null;
+      try {
+        detail = canonicalCaseFailure(c);
+      } catch (e) {
+        detail = `unexpected error: ${String(e)}`;
       }
-      const actual = canonicalJson(c.input);
-      if (actual !== c.output) {
-        throw new Error(`${where}: expected ${c.output}, got ${actual}`);
-      }
+      if (detail !== null) failures.push(`${file.name}: case "${c.name}": ${detail}`);
     }
+    if (failures.length > 0) throw new Error(failures.join('\n'));
     return;
   }
 

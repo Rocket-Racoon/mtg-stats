@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-proto-keys-in-settings",
+  "rule": "8.3 settings keys",
+  "description": "Names that exist on Object.prototype (constructor, toString, __proto__, hasOwnProperty) are unknown setting names, reported in document order.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{\"constructor\":1,\"toString\":2,\"__proto__\":3,\"hasOwnProperty\":4},\"events\":[],\"expect\":{\"state\":{}}}",
+  "messages": [
+    "vec.json: settings.constructor is not a known key",
+    "vec.json: settings.toString is not a known key",
+    "vec.json: settings.__proto__ is not a known key",
+    "vec.json: settings.hasOwnProperty is not a known key"
+  ]
+}

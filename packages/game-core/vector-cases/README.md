@@ -43,9 +43,9 @@ name.
   entry `{"startsWith": "<prefix>"}` is compared by prefix; it is used only for `invalid JSON:
 <detail>`, whose detail is the parser's and is not compared (8.3).
 
-### Gap cases
+### No alternative readings
 
-A case may still have `"gap": "<what is undecided>"` and `"alternatives"` (a list of message lists) **instead of** `messages`; the runner then accepts any listed alternative. It records a question the contract does not decide. Every gap case of the first corpus has been decided by CONTRACT.md 8.3 and 8.3.1 and now has a single `messages` list, so no case uses the mechanism today; it stays documented for the next open question. A new gap case must say what each side does in the report to the orchestrator, and is replaced by `messages` once the contract decides.
+A case has exactly one `messages` list. There is no `gap` or `alternatives` field: letting one language pass on one reading and the other on another would hide exactly the drift this corpus exists to catch. When the contract does not decide an answer, the contract is fixed first (CONTRACT.md 8) and the case then states the decided messages. The TypeScript suite fails if a case carries `alternatives` or `gap`.
 
 ## `kind: "coverage"`
 

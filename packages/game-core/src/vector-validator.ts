@@ -4,6 +4,8 @@
  * Pure: it takes the text of a vector file and returns problems, so it holds no file access and is
  * not exported from `index.ts` (test tooling only). The file loader lives in
  * `vector-loader.test.helpers.ts`. The Python runner implements the same rules from section 8.
+ *
+ * `validateVectorText` never throws: any internal failure becomes one message for the file.
  */
 
 import { EVENT_TYPES, REDUCER_ERROR_CODES, SETTING_DEFAULTS } from './types';
@@ -27,11 +29,24 @@ export const INVALID_KINDS = [
 ] as const;
 /** Largest chain length a `deep_array` / `deep_object` case may ask for. */
 export const MAX_DEEP_CHAIN = 10000;
+/** Most digits (after an optional `-`) of `invalid.value` for the kind `integer`. */
+export const MAX_INTEGER_DIGITS = 300;
+/** Deepest container nesting a vector file's text may have (8.3). */
+export const MAX_TEXT_DEPTH = 512;
 
 const MAX_SAFE = 9007199254740991n;
+const SETTING_NAMES: ReadonlySet<string> = new Set(Object.keys(SETTING_DEFAULTS));
 
 type Json = unknown;
 type Obj = Record<string, unknown>;
+
+function has(obj: Obj, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+function get(obj: Obj, key: string): unknown {
+  return has(obj, key) ? obj[key] : undefined;
+}
 
 function isObject(value: Json): value is Obj {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -46,8 +61,31 @@ function isNonNegativeInteger(value: Json): value is number {
 }
 
 // ---------------------------------------------------------------------------
-// Raw-text scan: number tokens and duplicate keys
+// Raw-text checks: nesting depth, number tokens, duplicate keys, key order
 // ---------------------------------------------------------------------------
+
+/**
+ * The deepest container nesting of a text, counted without parsing it: `[` and `{` outside strings
+ * open a level and `]` and `}` close one (never below 0); inside a string a backslash skips the
+ * next character and an unescaped `"` ends it. The top-level container is level 1.
+ */
+export function textDepth(text: string): number {
+  let depth = 0;
+  let max = 0;
+  let inString = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === '\\') i++;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') inString = true;
+    else if (ch === '[' || ch === '{') {
+      depth++;
+      if (depth > max) max = depth;
+    } else if ((ch === ']' || ch === '}') && depth > 0) depth--;
+  }
+  return max;
+}
 
 /** A number token of the raw text, with the path of the value it belongs to. */
 export interface NumberToken {
@@ -57,17 +95,40 @@ export interface NumberToken {
 
 export interface TextScan {
   tokens: NumberToken[];
+  /** One entry per repeated occurrence of a key, in document order. */
   duplicateKeys: string[];
+  /**
+   * The distinct keys of every object in document order (first occurrence), by key path. A key path
+   * is `''` for the root and then `/<JSON string of the key>` or `/<index>` per step, which cannot
+   * collide whatever the keys contain. For a repeated object path the last occurrence wins.
+   */
+  objectKeys: Map<string, string[]>;
+}
+
+const keyStep = (kp: string, step: string | number): string =>
+  `${kp}/${typeof step === 'number' ? step : JSON.stringify(step)}`;
+
+interface Frame {
+  object: boolean;
+  path: string;
+  kp: string;
+  keys: string[];
+  seen: Set<string>;
+  count: number;
 }
 
 /**
- * Walks valid JSON text and lists every number token with its path, plus every duplicate object
- * key. `JSON.parse` cannot tell `1.0` from `1`, nor see a repeated key, so these checks read the
- * text (CONTRACT.md 8.3). The text must already have been accepted by `JSON.parse`.
+ * Walks valid JSON text with an explicit stack (so depth is limited only by memory) and lists every
+ * number token with its path, every duplicate key and the key order of every object. `JSON.parse`
+ * cannot tell `1.0` from `1`, nor see a repeated key, nor give integer-like keys in document order,
+ * so these checks read the text (CONTRACT.md 8.3, 8.3.1). The text must already have been accepted
+ * by `JSON.parse`.
  */
 export function scanText(text: string): TextScan {
   const tokens: NumberToken[] = [];
   const duplicateKeys: string[] = [];
+  const objectKeys = new Map<string, string[]>();
+  const stack: Frame[] = [];
   let i = 0;
 
   const skipSpace = (): void => {
@@ -83,41 +144,13 @@ export function scanText(text: string): TextScan {
 
   const join = (path: string, key: string): string => (path === '' ? key : `${path}.${key}`);
 
-  const readValue = (path: string): void => {
+  /** Reads one value: a scalar completely, a container by pushing its frame. */
+  const readValue = (path: string, kp: string): void => {
     skipSpace();
     const ch = text[i];
-    if (ch === '{') {
+    if (ch === '{' || ch === '[') {
       i++;
-      const seen = new Set<string>();
-      skipSpace();
-      if (text[i] === '}') {
-        i++;
-        return;
-      }
-      for (;;) {
-        skipSpace();
-        const key = readString();
-        const keyPath = join(path, key);
-        if (seen.has(key)) duplicateKeys.push(keyPath);
-        seen.add(key);
-        skipSpace();
-        i++; // ':'
-        readValue(keyPath);
-        skipSpace();
-        if (text[i++] === '}') return;
-      }
-    } else if (ch === '[') {
-      i++;
-      skipSpace();
-      if (text[i] === ']') {
-        i++;
-        return;
-      }
-      for (let n = 0; ; n++) {
-        readValue(`${path}[${n}]`);
-        skipSpace();
-        if (text[i++] === ']') return;
-      }
+      stack.push({ object: ch === '{', path, kp, keys: [], seen: new Set(), count: 0 });
     } else if (ch === '"') {
       readString();
     } else if (ch === '-' || (ch !== undefined && ch >= '0' && ch <= '9')) {
@@ -129,8 +162,38 @@ export function scanText(text: string): TextScan {
     }
   };
 
-  readValue('');
-  return { tokens, duplicateKeys };
+  readValue('', '');
+  while (stack.length > 0) {
+    const frame = stack[stack.length - 1]!;
+    skipSpace();
+    const close = frame.object ? '}' : ']';
+    if (text[i] === close) {
+      i++;
+      stack.pop();
+      if (frame.object) objectKeys.set(frame.kp, frame.keys);
+      continue;
+    }
+    if (text[i] === ',') {
+      i++;
+      skipSpace();
+    }
+    if (frame.object) {
+      const key = readString();
+      const keyPath = join(frame.path, key);
+      if (frame.seen.has(key)) duplicateKeys.push(keyPath);
+      else {
+        frame.seen.add(key);
+        frame.keys.push(key);
+      }
+      skipSpace();
+      i++; // ':'
+      readValue(keyPath, keyStep(frame.kp, key));
+    } else {
+      readValue(`${frame.path}[${frame.count}]`, keyStep(frame.kp, frame.count));
+      frame.count++;
+    }
+  }
+  return { tokens, duplicateKeys, objectKeys };
 }
 
 // ---------------------------------------------------------------------------
@@ -141,12 +204,33 @@ const COMMON_KEYS = ['format', 'kind', 'name', 'description'];
 const REDUCER_KEYS = [...COMMON_KEYS, 'game_id', 'settings', 'events', 'expect'];
 const CANONICAL_KEYS = [...COMMON_KEYS, 'cases'];
 
+type Report = (path: string, message: string) => void;
+
+/** What the kind-specific checks need: the reporter and the document order of an object's keys. */
+interface Ctx {
+  report: Report;
+  /** The keys of `obj` (found at key path `kp`) in document order. */
+  keys: (obj: Obj, kp: string) => string[];
+}
+
 /**
  * Validates the text of one vector file and returns every problem, each formatted
  * `<file>: <path> <message>` (CONTRACT.md 8.3). An empty list means the file is valid.
  * `fileName` is the base name with `.json`; `name` must equal it without the extension.
+ * Never throws: an unexpected internal error is returned as `<file>: $ internal error: <detail>`.
  */
 export function validateVectorText(fileName: string, text: string): string[] {
+  try {
+    return validate(fileName, text);
+  } catch (e) {
+    return [`${fileName}: $ internal error: ${e instanceof Error ? e.message : String(e)}`];
+  }
+}
+
+function validate(fileName: string, text: string): string[] {
+  if (textDepth(text) > MAX_TEXT_DEPTH) {
+    return [`${fileName}: $ is nested more than ${MAX_TEXT_DEPTH} levels deep`];
+  }
   let value: unknown;
   try {
     value = JSON.parse(text);
@@ -154,39 +238,44 @@ export function validateVectorText(fileName: string, text: string): string[] {
     return [`${fileName}: invalid JSON: ${e instanceof Error ? e.message : String(e)}`];
   }
   const problems: string[] = [];
-  const report = (path: string, message: string): void => {
+  const report: Report = (path, message) => {
     problems.push(`${fileName}: ${path} ${message}`);
   };
 
   if (!isObject(value)) return [`${fileName}: $ must be an object`];
 
-  const kind = value.kind;
+  const scan = scanText(text);
+  const ctx: Ctx = {
+    report,
+    keys: (obj, kp) => scan.objectKeys.get(kp) ?? Object.keys(obj),
+  };
+
+  const kind = get(value, 'kind');
   const validKind = kind === 'reducer' || kind === 'canonical_json';
-  if (!('kind' in value)) report('kind', 'is required');
+  if (!has(value, 'kind')) report('kind', 'is required');
   else if (!validKind) report('kind', 'must be "reducer" or "canonical_json"');
 
-  if (!('format' in value)) report('format', 'is required');
+  if (!has(value, 'format')) report('format', 'is required');
   else if (value.format !== VECTOR_FORMAT) report('format', 'must be the integer 1');
 
   const stem = fileName.replace(/\.json$/, '');
-  if (!('name' in value)) report('name', 'is required');
+  if (!has(value, 'name')) report('name', 'is required');
   else if (value.name !== stem) report('name', `must equal "${stem}"`);
 
-  if (!('description' in value)) report('description', 'is required');
+  if (!has(value, 'description')) report('description', 'is required');
   else if (!isNonEmptyString(value.description))
     report('description', 'must be a non-empty string');
 
-  if (kind === 'reducer') validateReducer(value, report);
-  else if (kind === 'canonical_json') validateCanonical(value, report);
+  if (kind === 'reducer') validateReducer(value, ctx);
+  else if (kind === 'canonical_json') validateCanonical(value, ctx);
 
   if (validKind) {
     const allowed = kind === 'reducer' ? REDUCER_KEYS : CANONICAL_KEYS;
-    for (const key of Object.keys(value)) {
+    for (const key of ctx.keys(value, '')) {
       if (!allowed.includes(key)) report(key, 'is not a known key');
     }
   }
 
-  const scan = scanText(text);
   for (const { path, token } of scan.tokens) {
     const inEvents = path.startsWith('events[');
     const isIntegerSyntax = /^-?\d+$/.test(token);
@@ -210,15 +299,14 @@ export function validateVectorText(fileName: string, text: string): string[] {
   return problems;
 }
 
-type Report = (path: string, message: string) => void;
-
 function requireKey(obj: Obj, key: string, path: string, report: Report): boolean {
-  if (key in obj) return true;
+  if (has(obj, key)) return true;
   report(path, 'is required');
   return false;
 }
 
-function validateReducer(vector: Obj, report: Report): void {
+function validateReducer(vector: Obj, ctx: Ctx): void {
+  const { report } = ctx;
   if (requireKey(vector, 'game_id', 'game_id', report) && !isNonEmptyString(vector.game_id)) {
     report('game_id', 'must be a non-empty string');
   }
@@ -227,13 +315,13 @@ function validateReducer(vector: Obj, report: Report): void {
     const settings = vector.settings;
     if (!isObject(settings)) report('settings', 'must be an object');
     else {
-      for (const key of Object.keys(settings)) {
-        if (!(key in SETTING_DEFAULTS)) report(`settings.${key}`, 'is not a known key');
+      for (const key of ctx.keys(settings, keyStep('', 'settings'))) {
+        if (!SETTING_NAMES.has(key)) report(`settings.${key}`, 'is not a known key');
       }
     }
   }
 
-  const events = vector.events;
+  const events = get(vector, 'events');
   let eventCount: number | null = null;
   if (requireKey(vector, 'events', 'events', report)) {
     if (!Array.isArray(events)) report('events', 'must be an array');
@@ -245,57 +333,72 @@ function validateReducer(vector: Obj, report: Report): void {
     }
   }
 
-  if (!requireKey(vector, 'expect', 'expect', report)) return;
-  const expectValue = vector.expect;
-  if (!isObject(expectValue)) {
-    report('expect', 'must be an object');
-    return;
+  // The events that are applied: those below a valid `expect.error.index`, otherwise all of them.
+  let limit = eventCount ?? 0;
+  if (requireKey(vector, 'expect', 'expect', report)) {
+    const expectValue = vector.expect;
+    if (!isObject(expectValue)) report('expect', 'must be an object');
+    else {
+      const limitFromExpect = validateExpect(expectValue, eventCount, ctx);
+      if (limitFromExpect !== null) limit = limitFromExpect;
+    }
   }
-  for (const key of Object.keys(expectValue)) {
-    if (key !== 'state' && key !== 'error') report(`expect.${key}`, 'is not a known key');
-  }
-  const hasState = 'state' in expectValue;
-  const hasError = 'error' in expectValue;
-  if (hasState === hasError) report('expect', 'must have exactly one of "state" or "error"');
-  if (hasState && !isObject(expectValue.state)) report('expect.state', 'must be an object');
 
   // Events before `limit` are applied, so each needs a string `type`; the rejected event and the
   // ones after it may be malformed on purpose (the `reject-type-*` vectors).
-  let limit = eventCount ?? 0;
-  if (hasError) {
-    const error = expectValue.error;
-    if (!isObject(error)) report('expect.error', 'must be an object');
-    else {
-      for (const key of Object.keys(error)) {
-        if (key !== 'index' && key !== 'code') report(`expect.error.${key}`, 'is not a known key');
-      }
-      if (requireKey(error, 'index', 'expect.error.index', report)) {
-        if (!isNonNegativeInteger(error.index)) {
-          report('expect.error.index', 'must be a non-negative integer');
-        } else if (eventCount !== null && error.index >= eventCount) {
-          report('expect.error.index', `must be less than the number of events (${eventCount})`);
-        } else if (eventCount !== null) limit = error.index;
-      }
-      if (requireKey(error, 'code', 'expect.error.code', report)) {
-        if (
-          typeof error.code !== 'string' ||
-          !(REDUCER_ERROR_CODES as readonly string[]).includes(error.code)
-        ) {
-          report('expect.error.code', 'must be a known reducer error code');
-        }
-      }
-    }
-  }
   if (Array.isArray(events)) {
     events.slice(0, limit).forEach((event: unknown, i) => {
-      if (isObject(event) && typeof event.type !== 'string') {
+      if (isObject(event) && typeof get(event, 'type') !== 'string') {
         report(`events[${i}].type`, 'must be a string');
       }
     });
   }
 }
 
-function validateCanonical(vector: Obj, report: Report): void {
+/** Checks `expect`; returns the index below which events are applied when it is a valid index. */
+function validateExpect(expectValue: Obj, eventCount: number | null, ctx: Ctx): number | null {
+  const { report } = ctx;
+  const expectKp = keyStep('', 'expect');
+  for (const key of ctx.keys(expectValue, expectKp)) {
+    if (key !== 'state' && key !== 'error') report(`expect.${key}`, 'is not a known key');
+  }
+  const hasState = has(expectValue, 'state');
+  const hasError = has(expectValue, 'error');
+  if (hasState === hasError) report('expect', 'must have exactly one of "state" or "error"');
+  if (hasState && !isObject(expectValue.state)) report('expect.state', 'must be an object');
+
+  let limit: number | null = null;
+  if (hasError) {
+    const error = expectValue.error;
+    if (!isObject(error)) report('expect.error', 'must be an object');
+    else {
+      for (const key of ctx.keys(error, keyStep(expectKp, 'error'))) {
+        if (key !== 'index' && key !== 'code') report(`expect.error.${key}`, 'is not a known key');
+      }
+      if (requireKey(error, 'index', 'expect.error.index', report)) {
+        const index = error.index;
+        if (!isNonNegativeInteger(index)) {
+          report('expect.error.index', 'must be a non-negative integer');
+        } else if (eventCount !== null && index >= eventCount) {
+          report('expect.error.index', `must be less than the number of events (${eventCount})`);
+        } else if (eventCount !== null) limit = index;
+      }
+      if (requireKey(error, 'code', 'expect.error.code', report)) {
+        const code = error.code;
+        if (
+          typeof code !== 'string' ||
+          !(REDUCER_ERROR_CODES as readonly string[]).includes(code)
+        ) {
+          report('expect.error.code', 'must be a known reducer error code');
+        }
+      }
+    }
+  }
+  return limit;
+}
+
+function validateCanonical(vector: Obj, ctx: Ctx): void {
+  const { report } = ctx;
   if (!requireKey(vector, 'cases', 'cases', report)) return;
   const cases = vector.cases;
   if (!Array.isArray(cases) || cases.length === 0) {
@@ -305,6 +408,7 @@ function validateCanonical(vector: Obj, report: Report): void {
   const names = new Map<string, number>();
   cases.forEach((c: unknown, i) => {
     const at = `cases[${i}]`;
+    const kp = keyStep(keyStep('', 'cases'), i);
     if (!isObject(c)) {
       report(at, 'must be an object');
       return;
@@ -316,14 +420,14 @@ function validateCanonical(vector: Obj, report: Report): void {
       report(`${at}.name`, `duplicates the name of cases[${names.get(c.name)}]`);
     } else names.set(c.name, i);
 
-    const hasInput = 'input' in c;
-    const hasInvalid = 'invalid' in c;
+    const hasInput = has(c, 'input');
+    const hasInvalid = has(c, 'invalid');
     if (hasInput === hasInvalid) {
       report(at, 'must have exactly one of "input" or "invalid"');
       return;
     }
     const allowed = hasInput ? ['name', 'input', 'output'] : ['name', 'invalid', 'error'];
-    for (const key of Object.keys(c)) {
+    for (const key of ctx.keys(c, kp)) {
       if (!allowed.includes(key)) report(`${at}.${key}`, 'is not a known key');
     }
     if (hasInput) {
@@ -331,16 +435,18 @@ function validateCanonical(vector: Obj, report: Report): void {
         report(`${at}.output`, 'must be a string');
       }
     } else {
-      validateInvalidCase(c, at, report);
+      validateInvalidCase(c, at, kp, ctx);
     }
   });
 }
 
-function validateInvalidCase(c: Obj, at: string, report: Report): void {
+function validateInvalidCase(c: Obj, at: string, kp: string, ctx: Ctx): void {
+  const { report } = ctx;
   if (requireKey(c, 'error', `${at}.error`, report)) {
+    const error = c.error;
     if (
-      typeof c.error !== 'string' ||
-      !(CANONICAL_ERROR_CODES as readonly string[]).includes(c.error)
+      typeof error !== 'string' ||
+      !(CANONICAL_ERROR_CODES as readonly string[]).includes(error)
     ) {
       report(`${at}.error`, 'must be a canonical JSON error code');
     }
@@ -350,21 +456,21 @@ function validateInvalidCase(c: Obj, at: string, report: Report): void {
     report(`${at}.invalid`, 'must be an object');
     return;
   }
-  for (const key of Object.keys(invalid)) {
+  for (const key of ctx.keys(invalid, keyStep(kp, 'invalid'))) {
     if (key !== 'kind' && key !== 'value') report(`${at}.invalid.${key}`, 'is not a known key');
   }
-  const kind = invalid.kind;
-  if (!('kind' in invalid)) {
+  if (!has(invalid, 'kind')) {
     report(`${at}.invalid.kind`, 'is required');
     return;
   }
+  const kind = invalid.kind;
   if (typeof kind !== 'string' || !(INVALID_KINDS as readonly string[]).includes(kind)) {
     report(`${at}.invalid.kind`, `must be one of ${INVALID_KINDS.join(', ')}`);
     return;
   }
   const path = `${at}.invalid.value`;
   if (kind === 'nan' || kind === 'infinity') {
-    if ('value' in invalid) report(path, 'must be absent');
+    if (has(invalid, 'value')) report(path, 'must be absent');
     return;
   }
   if (!requireKey(invalid, 'value', path, report)) return;
@@ -381,8 +487,12 @@ function validateInvalidCase(c: Obj, at: string, report: Report): void {
     }
   } else if (kind === 'integer') {
     const ok = /^-?(0|[1-9]\d*)$/.test(text);
-    const magnitude = ok ? (BigInt(text) < 0n ? -BigInt(text) : BigInt(text)) : 0n;
-    if (!ok || magnitude <= MAX_SAFE) {
+    const digits = text.replace('-', '').length;
+    if (!ok) {
+      report(path, 'must be decimal text of an integer outside the safe range');
+    } else if (digits > MAX_INTEGER_DIGITS) {
+      report(path, `must have at most ${MAX_INTEGER_DIGITS} digits`);
+    } else if ((BigInt(text) < 0n ? -BigInt(text) : BigInt(text)) <= MAX_SAFE) {
       report(path, 'must be decimal text of an integer outside the safe range');
     }
   } else if (kind === 'lone_surrogate') {
@@ -427,7 +537,8 @@ export function uncoveredMessage(type: string): string {
 
 /**
  * Checks the coverage rule over the texts of the vector files. A file that fails validation is
- * skipped here (it fails its own test). Returns one message per uncovered type, in registry order.
+ * skipped here (it fails its own test), and so is a file that cannot be processed: one broken file
+ * never aborts the check. Returns one message per uncovered type, in registry order.
  */
 export function checkCoverage(
   files: readonly { name: string; text: string }[],
@@ -435,8 +546,12 @@ export function checkCoverage(
 ): string[] {
   const seen = new Set<string>();
   for (const { name, text } of files) {
-    if (validateVectorText(name, text).length > 0) continue;
-    for (const type of exercisedEventTypes(JSON.parse(text) as Obj)) seen.add(type);
+    try {
+      if (validateVectorText(name, text).length > 0) continue;
+      for (const type of exercisedEventTypes(JSON.parse(text) as Obj)) seen.add(type);
+    } catch {
+      continue;
+    }
   }
   return registry.filter((type) => !seen.has(type)).map(uncoveredMessage);
 }

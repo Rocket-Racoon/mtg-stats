@@ -1,0 +1,695 @@
+# Archidekt GET https://archidekt.com/api/decks/2000000000/  (recorded 2026-11-21)
+# Status 200, Content-Type: application/json. Recorded from a public deck (full body 249435 bytes, 80 cards); the deck id
+# was replaced by a synthetic one that cannot exist (2000000000), so this sample identifies no real deck.
+# Trimmed to 8 of its 80 cards and sanitised: owner, deck name and description are placeholders; the owner id and avatar,
+# comment/folder ids, featured image, per-card prices, tags and legalities are removed; deck and per-card row ids and
+# timestamps are synthetic and the view count is zeroed. Card data (Scryfall ids, names, sets, collector numbers) is public.
+# CONSTRUCTED, not recorded: the recorded deck had only Commander and card-type categories. The Maybeboard and
+# Sideboard categories (includedInDeck false), the custom Ramp category and the two-category card (Sol Ring) were
+# edited in to give the mapper (S-4.3.2) one of each shape; check them against a real deck before relying on them.
+# Lines starting with '# ' are comments; the loader in the tests strips them. The rest is the JSON body.
+{
+ "id": 2000000000,
+ "createdAt": "2025-01-01T00:00:00Z",
+ "updatedAt": "2025-01-01T00:00:00Z",
+ "deckFormat": 3,
+ "edhBracket": null,
+ "game": null,
+ "viewCount": 0,
+ "private": false,
+ "unlisted": true,
+ "theorycrafted": false,
+ "points": 0,
+ "userInput": 0,
+ "hasPrimer": false,
+ "editors": null,
+ "bookmarked": false,
+ "playgroupDeckUrl": null,
+ "cardPackage": null,
+ "deckHelp": null,
+ "customCards": [],
+ "deckTags": [],
+ "intentionallySkippedCardData": false,
+ "name": "Sample deck name",
+ "description": "Sample deck description",
+ "featured": null,
+ "customFeatured": "",
+ "owner": {
+  "id": 1,
+  "username": "sample-owner",
+  "avatar": null,
+  "frame": null
+ },
+ "categories": [
+  {
+   "id": 1,
+   "name": "Commander",
+   "isPremier": true,
+   "includedInDeck": true,
+   "includedInPrice": true
+  },
+  {
+   "id": 2,
+   "name": "Maybeboard",
+   "isPremier": true,
+   "includedInDeck": false,
+   "includedInPrice": false
+  },
+  {
+   "id": 3,
+   "name": "Sideboard",
+   "isPremier": true,
+   "includedInDeck": false,
+   "includedInPrice": false
+  },
+  {
+   "id": 4,
+   "name": "Ramp",
+   "isPremier": false,
+   "includedInDeck": true,
+   "includedInPrice": true
+  }
+ ],
+ "cards": [
+  {
+   "id": 1001,
+   "categories": [
+    "Commander"
+   ],
+   "companion": false,
+   "flippedDefault": false,
+   "label": ",#656565",
+   "modifier": "Normal",
+   "quantity": 1,
+   "customCmc": null,
+   "removedCategories": null,
+   "createdAt": "2025-01-01T00:00:00Z",
+   "updatedAt": "2025-01-01T00:00:00Z",
+   "deletedAt": null,
+   "notes": null,
+   "card": {
+    "id": 127063,
+    "collectorNumber": "1411",
+    "multiverseid": 0,
+    "uid": "41c42be7-84fe-4d9d-bf5c-e75e4d5635fa",
+    "displayName": null,
+    "releasedAt": "2023-12-06",
+    "contentWarning": false,
+    "edition": {
+     "editioncode": "sld",
+     "editionname": "Secret Lair Drop",
+     "editiondate": "2019-12-02",
+     "editiontype": "box",
+     "mtgoCode": null
+    },
+    "options": [
+     "Normal"
+    ],
+    "oracleCard": {
+     "id": 4841,
+     "cmc": 4,
+     "colorIdentity": [
+      "White",
+      "Black"
+     ],
+     "colors": [
+      "White",
+      "Black"
+     ],
+     "faces": [],
+     "layout": "normal",
+     "uid": "ce35f262-b93f-4409-8b33-26a7ed7abac8",
+     "manaCost": "{2}{W}{B}",
+     "name": "Elenda, the Dusk Rose",
+     "power": "1",
+     "subTypes": [
+      "Knight",
+      "Vampire"
+     ],
+     "superTypes": [
+      "Legendary"
+     ],
+     "keywords": [
+      "Lifelink"
+     ],
+     "toughness": "1",
+     "types": [
+      "Creature"
+     ],
+     "loyalty": null,
+     "canlanderPoints": null,
+     "isPDHCommander": false,
+     "defaultCategory": "Tokens",
+     "gameChanger": false,
+     "extraTurns": false,
+     "tutor": false,
+     "massLandDenial": false,
+     "twoCardComboSingelton": false,
+     "lang": "en"
+    },
+    "rarity": "mythic",
+    "globalCategories": []
+   }
+  },
+  {
+   "id": 1002,
+   "categories": [
+    "Land"
+   ],
+   "companion": false,
+   "flippedDefault": false,
+   "label": ",#656565",
+   "modifier": "Normal",
+   "quantity": 1,
+   "customCmc": null,
+   "removedCategories": null,
+   "createdAt": "2025-01-01T00:00:00Z",
+   "updatedAt": "2025-01-01T00:00:00Z",
+   "deletedAt": null,
+   "notes": null,
+   "card": {
+    "id": 145003,
+    "collectorNumber": "286",
+    "multiverseid": 0,
+    "uid": "8a837256-6bb4-4a60-962d-d2793548d26c",
+    "displayName": null,
+    "releasedAt": "2025-06-13",
+    "contentWarning": false,
+    "edition": {
+     "editioncode": "fin",
+     "editionname": "Final Fantasy",
+     "editiondate": "2025-06-13",
+     "editiontype": "expansion",
+     "mtgoCode": null
+    },
+    "options": [
+     "Normal",
+     "Foil"
+    ],
+    "oracleCard": {
+     "id": 46616,
+     "cmc": 0,
+     "colorIdentity": [
+      "Black"
+     ],
+     "colors": [],
+     "faces": [
+      {
+       "colors": [],
+       "flavor": "A triumph of technology and testament to man's potential.",
+       "manaCost": "",
+       "name": "Midgar, City of Mako",
+       "power": "",
+       "subTypes": [
+        "Town"
+       ],
+       "superTypes": [],
+       "text": "This land enters tapped.\n{T}: Add {B}.",
+       "toughness": "",
+       "types": [
+        "Land"
+       ],
+       "loyalty": null
+      },
+      {
+       "colors": [],
+       "flavor": "",
+       "manaCost": "{2}{B}",
+       "name": "Reactor Raid",
+       "power": "",
+       "subTypes": [
+        "Adventure"
+       ],
+       "superTypes": [],
+       "text": "You may sacrifice an artifact or creature. If you do, draw two cards. (Then exile this card. You may play the land later from exile.)",
+       "toughness": "",
+       "types": [
+        "Sorcery"
+       ],
+       "loyalty": null
+      }
+     ],
+     "layout": "adventure",
+     "uid": "4e34a49d-f031-48ac-a458-97b79124b76c",
+     "manaCost": "{2}{B}",
+     "name": "Midgar, City of Mako // Reactor Raid",
+     "power": "",
+     "subTypes": [
+      "Town"
+     ],
+     "superTypes": [],
+     "keywords": [],
+     "toughness": "",
+     "types": [
+      "Land"
+     ],
+     "loyalty": null,
+     "canlanderPoints": null,
+     "isPDHCommander": false,
+     "defaultCategory": null,
+     "gameChanger": false,
+     "extraTurns": false,
+     "tutor": false,
+     "massLandDenial": false,
+     "twoCardComboSingelton": false,
+     "lang": "en"
+    },
+    "rarity": "rare",
+    "globalCategories": []
+   }
+  },
+  {
+   "id": 1003,
+   "categories": [
+    "Creature"
+   ],
+   "companion": false,
+   "flippedDefault": false,
+   "label": ",#656565",
+   "modifier": "Normal",
+   "quantity": 1,
+   "customCmc": null,
+   "removedCategories": null,
+   "createdAt": "2025-01-01T00:00:00Z",
+   "updatedAt": "2025-01-01T00:00:00Z",
+   "deletedAt": null,
+   "notes": null,
+   "card": {
+    "id": 116301,
+    "collectorNumber": "1235",
+    "multiverseid": 0,
+    "uid": "4a80fbb2-4b3a-46fc-b105-09e512bc414a",
+    "displayName": null,
+    "releasedAt": "2023-04-14",
+    "contentWarning": false,
+    "edition": {
+     "editioncode": "sld",
+     "editionname": "Secret Lair Drop",
+     "editiondate": "2019-12-02",
+     "editiontype": "box",
+     "mtgoCode": null
+    },
+    "options": [
+     "Normal",
+     "Foil"
+    ],
+    "oracleCard": {
+     "id": 16810,
+     "cmc": 4,
+     "colorIdentity": [
+      "White",
+      "Black"
+     ],
+     "colors": [
+      "White",
+      "Black"
+     ],
+     "faces": [],
+     "layout": "normal",
+     "uid": "644eeefd-e684-4ca8-8aef-a892ca130c07",
+     "manaCost": "{2}{W}{B}",
+     "name": "Teysa Karlov",
+     "power": "2",
+     "subTypes": [
+      "Human",
+      "Advisor"
+     ],
+     "superTypes": [
+      "Legendary"
+     ],
+     "keywords": [],
+     "toughness": "4",
+     "types": [
+      "Creature"
+     ],
+     "loyalty": null,
+     "canlanderPoints": null,
+     "isPDHCommander": false,
+     "defaultCategory": "Tokens",
+     "gameChanger": false,
+     "extraTurns": false,
+     "tutor": false,
+     "massLandDenial": false,
+     "twoCardComboSingelton": false,
+     "lang": "en"
+    },
+    "rarity": "rare",
+    "globalCategories": []
+   }
+  },
+  {
+   "id": 1004,
+   "categories": [
+    "Sideboard"
+   ],
+   "companion": false,
+   "flippedDefault": false,
+   "label": ",#656565",
+   "modifier": "Normal",
+   "quantity": 1,
+   "customCmc": null,
+   "removedCategories": null,
+   "createdAt": "2025-01-01T00:00:00Z",
+   "updatedAt": "2025-01-01T00:00:00Z",
+   "deletedAt": null,
+   "notes": null,
+   "card": {
+    "id": 141596,
+    "collectorNumber": "89",
+    "multiverseid": 692439,
+    "uid": "1b25c224-4531-4fdc-9845-6663eaf60540",
+    "displayName": null,
+    "releasedAt": "2025-02-14",
+    "contentWarning": false,
+    "edition": {
+     "editioncode": "drc",
+     "editionname": "Aetherdrift Commander",
+     "editiondate": "2025-02-14",
+     "editiontype": "commander",
+     "mtgoCode": "drc"
+    },
+    "options": [
+     "Normal"
+    ],
+    "oracleCard": {
+     "id": 23769,
+     "cmc": 2,
+     "colorIdentity": [
+      "White",
+      "Black"
+     ],
+     "colors": [
+      "Black"
+     ],
+     "faces": [],
+     "layout": "normal",
+     "uid": "b01d61cc-9844-4191-86a0-f2db6d42d6e5",
+     "manaCost": "{B}{B}",
+     "name": "Damn",
+     "power": "",
+     "subTypes": [],
+     "superTypes": [],
+     "keywords": [
+      "Overload"
+     ],
+     "toughness": "",
+     "types": [
+      "Sorcery"
+     ],
+     "loyalty": null,
+     "canlanderPoints": null,
+     "isPDHCommander": false,
+     "defaultCategory": "Removal",
+     "gameChanger": false,
+     "extraTurns": false,
+     "tutor": false,
+     "massLandDenial": false,
+     "twoCardComboSingelton": false,
+     "lang": "en"
+    },
+    "rarity": "rare",
+    "globalCategories": []
+   }
+  },
+  {
+   "id": 1005,
+   "categories": [
+    "Maybeboard"
+   ],
+   "companion": false,
+   "flippedDefault": false,
+   "label": ",#656565",
+   "modifier": "Normal",
+   "quantity": 1,
+   "customCmc": null,
+   "removedCategories": null,
+   "createdAt": "2025-01-01T00:00:00Z",
+   "updatedAt": "2025-01-01T00:00:00Z",
+   "deletedAt": null,
+   "notes": null,
+   "card": {
+    "id": 142840,
+    "collectorNumber": "134",
+    "multiverseid": 696290,
+    "uid": "f87cf997-14b5-4a2c-a7d1-34b7de6561a2",
+    "displayName": null,
+    "releasedAt": "2025-04-11",
+    "contentWarning": false,
+    "edition": {
+     "editioncode": "tdc",
+     "editionname": "Tarkir: Dragonstorm Commander",
+     "editiondate": "2025-04-11",
+     "editiontype": "commander",
+     "mtgoCode": "tdc"
+    },
+    "options": [
+     "Normal"
+    ],
+    "oracleCard": {
+     "id": 16438,
+     "cmc": 1,
+     "colorIdentity": [
+      "White"
+     ],
+     "colors": [
+      "White"
+     ],
+     "faces": [],
+     "layout": "normal",
+     "uid": "b1544f21-7e98-461b-aed5-e748b0168c52",
+     "manaCost": "{W}",
+     "name": "Swords to Plowshares",
+     "power": "",
+     "subTypes": [],
+     "superTypes": [],
+     "keywords": [],
+     "toughness": "",
+     "types": [
+      "Instant"
+     ],
+     "loyalty": null,
+     "canlanderPoints": null,
+     "isPDHCommander": false,
+     "defaultCategory": "Removal",
+     "gameChanger": false,
+     "extraTurns": false,
+     "tutor": false,
+     "massLandDenial": false,
+     "twoCardComboSingelton": false,
+     "lang": "en"
+    },
+    "rarity": "uncommon",
+    "globalCategories": []
+   }
+  },
+  {
+   "id": 1006,
+   "categories": [
+    "Ramp",
+    "Artifact"
+   ],
+   "companion": false,
+   "flippedDefault": false,
+   "label": ",#656565",
+   "modifier": "Normal",
+   "quantity": 1,
+   "customCmc": null,
+   "removedCategories": null,
+   "createdAt": "2025-01-01T00:00:00Z",
+   "updatedAt": "2025-01-01T00:00:00Z",
+   "deletedAt": null,
+   "notes": null,
+   "card": {
+    "id": 142776,
+    "collectorNumber": "106",
+    "multiverseid": 0,
+    "uid": "7b0ccfd4-f118-4497-9c5a-54cf12000e16",
+    "displayName": null,
+    "releasedAt": "2025-04-11",
+    "contentWarning": false,
+    "edition": {
+     "editioncode": "tdc",
+     "editionname": "Tarkir: Dragonstorm Commander",
+     "editiondate": "2025-04-11",
+     "editiontype": "commander",
+     "mtgoCode": "tdc"
+    },
+    "options": [
+     "Normal"
+    ],
+    "oracleCard": {
+     "id": 15342,
+     "cmc": 1,
+     "colorIdentity": [],
+     "colors": [],
+     "faces": [],
+     "layout": "normal",
+     "uid": "6ad8011d-3471-4369-9d68-b264cc027487",
+     "manaCost": "{1}",
+     "name": "Sol Ring",
+     "power": "",
+     "subTypes": [],
+     "superTypes": [],
+     "keywords": [],
+     "toughness": "",
+     "types": [
+      "Artifact"
+     ],
+     "loyalty": null,
+     "canlanderPoints": 3,
+     "isPDHCommander": false,
+     "defaultCategory": "Ramp",
+     "gameChanger": false,
+     "extraTurns": false,
+     "tutor": false,
+     "massLandDenial": false,
+     "twoCardComboSingelton": false,
+     "lang": "en"
+    },
+    "rarity": "uncommon",
+    "globalCategories": []
+   }
+  },
+  {
+   "id": 1007,
+   "categories": [
+    "Artifact"
+   ],
+   "companion": false,
+   "flippedDefault": false,
+   "label": ",#656565",
+   "modifier": "Normal",
+   "quantity": 1,
+   "customCmc": null,
+   "removedCategories": null,
+   "createdAt": "2025-01-01T00:00:00Z",
+   "updatedAt": "2025-01-01T00:00:00Z",
+   "deletedAt": null,
+   "notes": null,
+   "card": {
+    "id": 142778,
+    "collectorNumber": "105",
+    "multiverseid": 0,
+    "uid": "935644d4-a140-4f24-b8ab-d5e79a682a9b",
+    "displayName": null,
+    "releasedAt": "2025-04-11",
+    "contentWarning": false,
+    "edition": {
+     "editioncode": "tdc",
+     "editionname": "Tarkir: Dragonstorm Commander",
+     "editiondate": "2025-04-11",
+     "editiontype": "commander",
+     "mtgoCode": "tdc"
+    },
+    "options": [
+     "Normal"
+    ],
+    "oracleCard": {
+     "id": 20089,
+     "cmc": 2,
+     "colorIdentity": [],
+     "colors": [],
+     "faces": [],
+     "layout": "normal",
+     "uid": "0bc7f093-bef0-4f1a-852c-4b75ebf54838",
+     "manaCost": "{2}",
+     "name": "Arcane Signet",
+     "power": "",
+     "subTypes": [],
+     "superTypes": [],
+     "keywords": [],
+     "toughness": "",
+     "types": [
+      "Artifact"
+     ],
+     "loyalty": null,
+     "canlanderPoints": null,
+     "isPDHCommander": false,
+     "defaultCategory": "Ramp",
+     "gameChanger": false,
+     "extraTurns": false,
+     "tutor": false,
+     "massLandDenial": false,
+     "twoCardComboSingelton": false,
+     "lang": "en"
+    },
+    "rarity": "uncommon",
+    "globalCategories": []
+   }
+  },
+  {
+   "id": 1008,
+   "categories": [
+    "Land"
+   ],
+   "companion": false,
+   "flippedDefault": false,
+   "label": ",#656565",
+   "modifier": "Normal",
+   "quantity": 11,
+   "customCmc": null,
+   "removedCategories": null,
+   "createdAt": "2025-01-01T00:00:00Z",
+   "updatedAt": "2025-01-01T00:00:00Z",
+   "deletedAt": null,
+   "notes": null,
+   "card": {
+    "id": 142789,
+    "collectorNumber": "278",
+    "multiverseid": 693321,
+    "uid": "b8c391f2-b340-43c7-89e6-afac5b70491f",
+    "displayName": null,
+    "releasedAt": "2025-04-11",
+    "contentWarning": false,
+    "edition": {
+     "editioncode": "tdm",
+     "editionname": "Tarkir: Dragonstorm",
+     "editiondate": "2025-04-11",
+     "editiontype": "expansion",
+     "mtgoCode": "tdm"
+    },
+    "options": [
+     "Normal",
+     "Foil"
+    ],
+    "oracleCard": {
+     "id": 12249,
+     "cmc": 0,
+     "colorIdentity": [
+      "White"
+     ],
+     "colors": [],
+     "faces": [],
+     "layout": "normal",
+     "uid": "bc71ebf6-2056-41f7-be35-b2e5c34afa99",
+     "manaCost": "",
+     "name": "Plains",
+     "power": "",
+     "subTypes": [
+      "Plains"
+     ],
+     "superTypes": [
+      "Basic"
+     ],
+     "keywords": [],
+     "toughness": "",
+     "types": [
+      "Land"
+     ],
+     "loyalty": null,
+     "canlanderPoints": null,
+     "isPDHCommander": false,
+     "defaultCategory": null,
+     "gameChanger": false,
+     "extraTurns": false,
+     "tutor": false,
+     "massLandDenial": false,
+     "twoCardComboSingelton": false,
+     "lang": "en"
+    },
+    "rarity": "common",
+    "globalCategories": []
+   }
+  }
+ ]
+}

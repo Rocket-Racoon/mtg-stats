@@ -26,7 +26,16 @@ from tests.statement_counter import StatementCounter
 
 pytestmark = pytest.mark.usefixtures("app_schema")
 WEB = "http://localhost:5173"  # forced PUBLIC_WEB_URL in conftest
-ITEM_KEYS = {"id", "status", "expires_at", "max_uses", "use_count", "revoked_at", "created_at"}
+ITEM_KEYS = {
+    "id",
+    "playgroup_id",
+    "status",
+    "expires_at",
+    "max_uses",
+    "use_count",
+    "revoked_at",
+    "created_at",
+}
 SLACK = timedelta(seconds=5)
 
 

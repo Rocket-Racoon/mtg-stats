@@ -78,6 +78,9 @@ class InviteOut(BaseModel):
     """An invite as listed. It never carries the token or the URL."""
 
     id: UUID
+    playgroup_id: UUID | None = Field(
+        description="The playgroup it joins people to; null for a site-level invite."
+    )
     status: Literal["active", "used", "expired", "revoked"]
     expires_at: datetime
     max_uses: int
@@ -103,10 +106,19 @@ class InvitePreviewRequest(BaseModel):
 
 
 class InvitePreviewOut(BaseModel):
-    """What the public preview shows: nothing but the inviter's name and the expiry."""
+    """What the public preview shows: the inviter's name, the expiry and the playgroup's name."""
 
     inviter_display_name: str
     expires_at: datetime
+    playgroup_name: str | None = Field(
+        description="The playgroup's name for a playgroup invite; null for a site-level invite."
+    )
+
+
+class InviteJoinRequest(BaseModel):
+    """Body of ``POST /invites/join``. The token travels in the body, never in a URL."""
+
+    token: str = Field(min_length=1, max_length=128, description="The invite token.")
 
 
 class PlaygroupCreate(BaseModel):
@@ -144,6 +156,16 @@ class PlaygroupOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     joined_at: datetime = Field(description="When the caller joined.")
+
+
+class InviteJoinOut(BaseModel):
+    """The result of confirming a playgroup invite."""
+
+    already_member: bool = Field(
+        description="True when the caller was already a member: nothing changed and no use was "
+        'counted. Show "You\'re already in <name>".'
+    )
+    playgroup: PlaygroupOut
 
 
 class PlaygroupPageOut(Page[PlaygroupOut]):

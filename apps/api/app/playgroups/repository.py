@@ -15,8 +15,13 @@ def add_invite(session: AsyncSession, invite: Invite) -> None:
 
 
 def invites_created_by(user_id: UUID) -> Select[Invite]:
-    """A select of the invites this user created (ordering and paging are applied later)."""
-    return select(Invite).where(Invite.created_by == user_id)
+    """A select of the site-level invites this user created (no playgroup; paged later)."""
+    return select(Invite).where(Invite.created_by == user_id, Invite.playgroup_id.is_(None))
+
+
+def invites_of_playgroup(playgroup_id: UUID) -> Select[Invite]:
+    """A select of every invite bound to this playgroup (ordering and paging are applied later)."""
+    return select(Invite).where(Invite.playgroup_id == playgroup_id)
 
 
 async def get_invite_by_hash(
@@ -41,11 +46,30 @@ async def get_invite_for_update(session: AsyncSession, invite_id: UUID) -> Invit
 
 
 async def get_invite_of(session: AsyncSession, invite_id: UUID, user_id: UUID) -> Invite | None:
-    """Return this invite if ``user_id`` created it, else None."""
+    """Return this site-level invite if ``user_id`` created it, else None."""
     result = await session.execute(
-        select(Invite).where(Invite.id == invite_id, Invite.created_by == user_id)
+        select(Invite).where(
+            Invite.id == invite_id,
+            Invite.created_by == user_id,
+            Invite.playgroup_id.is_(None),
+        )
     )
     return result.scalar_one_or_none()
+
+
+async def get_playgroup_invite(
+    session: AsyncSession, playgroup_id: UUID, invite_id: UUID
+) -> Invite | None:
+    """Return this invite if it is bound to the playgroup, else None."""
+    result = await session.execute(
+        select(Invite).where(Invite.id == invite_id, Invite.playgroup_id == playgroup_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_playgroup(session: AsyncSession, playgroup_id: UUID) -> Playgroup | None:
+    """Return the playgroup, or None."""
+    return await session.get(Playgroup, playgroup_id)
 
 
 def add_playgroup(session: AsyncSession, playgroup: Playgroup) -> None:

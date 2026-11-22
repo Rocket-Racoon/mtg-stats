@@ -261,16 +261,19 @@ export interface paths {
         };
         /**
          * List my invites
-         * @description The caller's own invites, newest first, with a derived status. Never the token.
+         * @description The caller's own site-level invites, newest first, with a derived status.
+         *
+         *     Playgroup invites are not listed here (see `/playgroups/{id}/invites`). Never the token.
          */
         get: operations["playgroups_list_invites"];
         put?: never;
         /**
          * Create an invite link
-         * @description Create an invite and return its `https` URL, which is shown only once.
+         * @description Create a site-level invite and return its `https` URL, which is shown only once.
          *
-         *     Site admins only (403 otherwise). The body is optional: `expires_in_days` 1-30 (default 7)
-         *     and `max_uses` 1-20 (default 1).
+         *     Site admins only (403 otherwise). It lets someone register but joins no playgroup; playgroup
+         *     invites are created under `/playgroups/{id}/invites`. The body is optional:
+         *     `expires_in_days` 1-30 (default 7) and `max_uses` 1-20 (default 1).
          */
         post: operations["playgroups_create_invite"];
         delete?: never;
@@ -290,9 +293,37 @@ export interface paths {
         put?: never;
         /**
          * Revoke an invite
-         * @description Revoke one of the caller's invites. Idempotent. Anyone else's, or unknown, is a 404.
+         * @description Revoke one of the caller's site-level invites. Idempotent.
+         *
+         *     Anyone else's, a playgroup invite, or an unknown id is a 404.
          */
         post: operations["playgroups_revoke_invite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invites/join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Join a playgroup with an invite
+         * @description Confirm "Join <playgroup>" as the signed-in user: they become a `member`.
+         *
+         *     The invite's use count goes up in the same transaction. A user who is already an active
+         *     member (the owner and admins included) gets 200 with `already_member: true`; nothing changes
+         *     and no use is counted. A former member joins again with a new membership. A revoked,
+         *     expired, used-up or unknown token, or a site-level invite with no playgroup, is a 410
+         *     `invite_no_longer_valid`. The token is in the body so it never reaches a URL or a log.
+         */
+        post: operations["playgroups_join_with_invite"];
         delete?: never;
         options?: never;
         head?: never;
@@ -372,6 +403,57 @@ export interface paths {
          *     non-member 404.
          */
         patch: operations["playgroups_update_playgroup"];
+        trace?: never;
+    };
+    "/api/v1/playgroups/{playgroup_id}/invites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a playgroup's invites
+         * @description Every invite of the playgroup, whoever created it, newest first. Never the token.
+         *
+         *     Owner or admin only: a plain member gets 403, a non-member 404.
+         */
+        get: operations["playgroups_list_playgroup_invites"];
+        put?: never;
+        /**
+         * Create an invite to a playgroup
+         * @description Create an invite bound to this playgroup; its `https` URL is shown only once.
+         *
+         *     Owner or admin only: a plain member gets 403, a non-member 404. The body is optional:
+         *     `expires_in_days` 1-30 (default 7) and `max_uses` 1-20 (default 1).
+         */
+        post: operations["playgroups_create_playgroup_invite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/playgroups/{playgroup_id}/invites/{invite_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke a playgroup invite
+         * @description Revoke any invite of this playgroup. Idempotent. Owner or admin only.
+         *
+         *     An invite that is unknown or belongs to another playgroup is a 404.
+         */
+        post: operations["playgroups_revoke_playgroup_invite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/playgroups/{playgroup_id}/members/{player_id}": {
@@ -511,6 +593,11 @@ export interface components {
             id: string;
             /** Max Uses */
             max_uses: number;
+            /**
+             * Playgroup Id
+             * @description The playgroup it joins people to; null for a site-level invite.
+             */
+            playgroup_id: string | null;
             /** Revoked At */
             revoked_at: string | null;
             /**
@@ -525,6 +612,29 @@ export interface components {
             url: string;
             /** Use Count */
             use_count: number;
+        };
+        /**
+         * InviteJoinOut
+         * @description The result of confirming a playgroup invite.
+         */
+        InviteJoinOut: {
+            /**
+             * Already Member
+             * @description True when the caller was already a member: nothing changed and no use was counted. Show "You're already in <name>".
+             */
+            already_member: boolean;
+            playgroup: components["schemas"]["PlaygroupOut"];
+        };
+        /**
+         * InviteJoinRequest
+         * @description Body of ``POST /invites/join``. The token travels in the body, never in a URL.
+         */
+        InviteJoinRequest: {
+            /**
+             * Token
+             * @description The invite token.
+             */
+            token: string;
         };
         /**
          * InviteOut
@@ -548,6 +658,11 @@ export interface components {
             id: string;
             /** Max Uses */
             max_uses: number;
+            /**
+             * Playgroup Id
+             * @description The playgroup it joins people to; null for a site-level invite.
+             */
+            playgroup_id: string | null;
             /** Revoked At */
             revoked_at: string | null;
             /**
@@ -573,7 +688,7 @@ export interface components {
         };
         /**
          * InvitePreviewOut
-         * @description What the public preview shows: nothing but the inviter's name and the expiry.
+         * @description What the public preview shows: the inviter's name, the expiry and the playgroup's name.
          */
         InvitePreviewOut: {
             /**
@@ -583,6 +698,11 @@ export interface components {
             expires_at: string;
             /** Inviter Display Name */
             inviter_display_name: string;
+            /**
+             * Playgroup Name
+             * @description The playgroup's name for a playgroup invite; null for a site-level invite.
+             */
+            playgroup_name: string | null;
         };
         /**
          * InvitePreviewRequest
@@ -2299,6 +2419,111 @@ export interface operations {
             };
         };
     };
+    playgroups_join_with_invite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InviteJoinRequest"];
+            };
+        };
+        responses: {
+            /** @description Client error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteJoinOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     playgroups_preview_invite: {
         parameters: {
             query?: never;
@@ -2758,6 +2983,325 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlaygroupOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    playgroups_list_playgroup_invites: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor from `next_cursor`. */
+                cursor?: string | null;
+                /** @description Page size (1 to 200). */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                playgroup_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Client error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitePageOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    playgroups_create_playgroup_invite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                playgroup_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["InviteCreate"] | null;
+            };
+        };
+        responses: {
+            /** @description Client error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteCreated"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    playgroups_revoke_playgroup_invite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invite_id: string;
+                playgroup_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Client error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteOut"];
                 };
             };
             /** @description Unauthorized */

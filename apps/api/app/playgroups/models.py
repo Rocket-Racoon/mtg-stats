@@ -90,6 +90,8 @@ class Invite(IdMixin, Base):
         CheckConstraint("use_count >= 0 AND use_count <= max_uses", name="use_count_valid"),
         # Serves the keyset list; its leading column also covers FK lookups and cascades.
         Index("ix_invites_created_by_created_at_id", "created_by", "created_at", "id"),
+        # Serves the playgroup's keyset list; its leading column also covers the FK cascade.
+        Index("ix_invites_playgroup_id_created_at_id", "playgroup_id", "created_at", "id"),
     )
 
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
@@ -97,5 +99,9 @@ class Invite(IdMixin, Base):
     expires_at: Mapped[datetime] = mapped_column(UtcDateTime)
     max_uses: Mapped[int]
     use_count: Mapped[int] = mapped_column(default=0)
+    playgroup_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("playgroups.id", ondelete="CASCADE"), default=None
+    )
+    """The playgroup this invite joins its user to; None for a site-level invite (S-2.1.2)."""
     revoked_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_utcnow)

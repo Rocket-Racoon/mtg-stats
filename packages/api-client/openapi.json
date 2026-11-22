@@ -121,6 +121,19 @@
             "title": "Max Uses",
             "type": "integer"
           },
+          "playgroup_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The playgroup it joins people to; null for a site-level invite.",
+            "title": "Playgroup Id"
+          },
           "revoked_at": {
             "anyOf": [
               {
@@ -155,6 +168,7 @@
         },
         "required": [
           "id",
+          "playgroup_id",
           "status",
           "expires_at",
           "max_uses",
@@ -164,6 +178,42 @@
           "url"
         ],
         "title": "InviteCreated",
+        "type": "object"
+      },
+      "InviteJoinOut": {
+        "description": "The result of confirming a playgroup invite.",
+        "properties": {
+          "already_member": {
+            "description": "True when the caller was already a member: nothing changed and no use was counted. Show \"You're already in <name>\".",
+            "title": "Already Member",
+            "type": "boolean"
+          },
+          "playgroup": {
+            "$ref": "#/components/schemas/PlaygroupOut"
+          }
+        },
+        "required": [
+          "already_member",
+          "playgroup"
+        ],
+        "title": "InviteJoinOut",
+        "type": "object"
+      },
+      "InviteJoinRequest": {
+        "description": "Body of ``POST /invites/join``. The token travels in the body, never in a URL.",
+        "properties": {
+          "token": {
+            "description": "The invite token.",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "InviteJoinRequest",
         "type": "object"
       },
       "InviteOut": {
@@ -187,6 +237,19 @@
           "max_uses": {
             "title": "Max Uses",
             "type": "integer"
+          },
+          "playgroup_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The playgroup it joins people to; null for a site-level invite.",
+            "title": "Playgroup Id"
           },
           "revoked_at": {
             "anyOf": [
@@ -217,6 +280,7 @@
         },
         "required": [
           "id",
+          "playgroup_id",
           "status",
           "expires_at",
           "max_uses",
@@ -258,7 +322,7 @@
         "type": "object"
       },
       "InvitePreviewOut": {
-        "description": "What the public preview shows: nothing but the inviter's name and the expiry.",
+        "description": "What the public preview shows: the inviter's name, the expiry and the playgroup's name.",
         "properties": {
           "expires_at": {
             "format": "date-time",
@@ -268,11 +332,24 @@
           "inviter_display_name": {
             "title": "Inviter Display Name",
             "type": "string"
+          },
+          "playgroup_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The playgroup's name for a playgroup invite; null for a site-level invite.",
+            "title": "Playgroup Name"
           }
         },
         "required": [
           "inviter_display_name",
-          "expires_at"
+          "expires_at",
+          "playgroup_name"
         ],
         "title": "InvitePreviewOut",
         "type": "object"
@@ -2101,7 +2178,7 @@
     },
     "/api/v1/invites": {
       "get": {
-        "description": "The caller's own invites, newest first, with a derived status. Never the token.",
+        "description": "The caller's own site-level invites, newest first, with a derived status.\n\nPlaygroup invites are not listed here (see `/playgroups/{id}/invites`). Never the token.",
         "operationId": "playgroups_list_invites",
         "parameters": [
           {
@@ -2250,7 +2327,7 @@
         ]
       },
       "post": {
-        "description": "Create an invite and return its `https` URL, which is shown only once.\n\nSite admins only (403 otherwise). The body is optional: `expires_in_days` 1-30 (default 7)\nand `max_uses` 1-20 (default 1).",
+        "description": "Create a site-level invite and return its `https` URL, which is shown only once.\n\nSite admins only (403 otherwise). It lets someone register but joins no playgroup; playgroup\ninvites are created under `/playgroups/{id}/invites`. The body is optional:\n`expires_in_days` 1-30 (default 7) and `max_uses` 1-20 (default 1).",
         "operationId": "playgroups_create_invite",
         "requestBody": {
           "content": {
@@ -2382,6 +2459,133 @@
         ]
       }
     },
+    "/api/v1/invites/join": {
+      "post": {
+        "description": "Confirm \"Join <playgroup>\" as the signed-in user: they become a `member`.\n\nThe invite's use count goes up in the same transaction. A user who is already an active\nmember (the owner and admins included) gets 200 with `already_member: true`; nothing changes\nand no use is counted. A former member joins again with a new membership. A revoked,\nexpired, used-up or unknown token, or a site-level invite with no playgroup, is a 410\n`invite_no_longer_valid`. The token is in the body so it never reaches a URL or a log.",
+        "operationId": "playgroups_join_with_invite",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteJoinRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteJoinOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Client error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Join a playgroup with an invite",
+        "tags": [
+          "invites"
+        ]
+      }
+    },
     "/api/v1/invites/preview": {
       "post": {
         "description": "Show the inviter's display name and the expiry of an invite. No authentication.\n\nLimited to 30 requests per IP address per 15 minutes by default, shared with registration (429\n`rate_limited`, with `Retry-After`). The token is in the body so it never reaches a URL or an\naccess log. A revoked, expired, used-up or unknown token is a 410 `invite_no_longer_valid`.",
@@ -2506,7 +2710,7 @@
     },
     "/api/v1/invites/{invite_id}/revoke": {
       "post": {
-        "description": "Revoke one of the caller's invites. Idempotent. Anyone else's, or unknown, is a 404.",
+        "description": "Revoke one of the caller's site-level invites. Idempotent.\n\nAnyone else's, a playgroup invite, or an unknown id is a 404.",
         "operationId": "playgroups_revoke_invite",
         "parameters": [
           {
@@ -3167,6 +3371,446 @@
           }
         ],
         "summary": "Rename or re-describe a playgroup",
+        "tags": [
+          "playgroups"
+        ]
+      }
+    },
+    "/api/v1/playgroups/{playgroup_id}/invites": {
+      "get": {
+        "description": "Every invite of the playgroup, whoever created it, newest first. Never the token.\n\nOwner or admin only: a plain member gets 403, a non-member 404.",
+        "operationId": "playgroups_list_playgroup_invites",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "playgroup_id",
+            "required": true,
+            "schema": {
+              "title": "Playgroup Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque cursor from `next_cursor`.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from `next_cursor`.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Page size (1 to 200).",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Page size (1 to 200).",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitePageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Client error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List a playgroup's invites",
+        "tags": [
+          "playgroups"
+        ]
+      },
+      "post": {
+        "description": "Create an invite bound to this playgroup; its `https` URL is shown only once.\n\nOwner or admin only: a plain member gets 403, a non-member 404. The body is optional:\n`expires_in_days` 1-30 (default 7) and `max_uses` 1-20 (default 1).",
+        "operationId": "playgroups_create_playgroup_invite",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "playgroup_id",
+            "required": true,
+            "schema": {
+              "title": "Playgroup Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/InviteCreate"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Client error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create an invite to a playgroup",
+        "tags": [
+          "playgroups"
+        ]
+      }
+    },
+    "/api/v1/playgroups/{playgroup_id}/invites/{invite_id}/revoke": {
+      "post": {
+        "description": "Revoke any invite of this playgroup. Idempotent. Owner or admin only.\n\nAn invite that is unknown or belongs to another playgroup is a 404.",
+        "operationId": "playgroups_revoke_playgroup_invite",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "playgroup_id",
+            "required": true,
+            "schema": {
+              "title": "Playgroup Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "invite_id",
+            "required": true,
+            "schema": {
+              "title": "Invite Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Client error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Revoke a playgroup invite",
         "tags": [
           "playgroups"
         ]

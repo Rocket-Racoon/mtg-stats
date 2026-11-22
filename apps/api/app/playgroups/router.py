@@ -14,6 +14,8 @@ from app.playgroups import services
 from app.playgroups.schemas import (
     InviteCreate,
     InviteCreated,
+    InviteJoinOut,
+    InviteJoinRequest,
     InviteOut,
     InvitePageOut,
     InvitePreviewOut,
@@ -35,6 +37,7 @@ router = APIRouter()
 def _out(info: services.InviteInfo) -> InviteOut:
     return InviteOut(
         id=info.id,
+        playgroup_id=info.playgroup_id,
         status=info.status,
         expires_at=info.expires_at,
         max_uses=info.max_uses,
@@ -50,10 +53,11 @@ async def create_invite(
     session: SessionDep,
     body: Annotated[InviteCreate | None, Body()] = None,
 ) -> InviteCreated:
-    """Create an invite and return its `https` URL, which is shown only once.
+    """Create a site-level invite and return its `https` URL, which is shown only once.
 
-    Site admins only (403 otherwise). The body is optional: `expires_in_days` 1-30 (default 7)
-    and `max_uses` 1-20 (default 1).
+    Site admins only (403 otherwise). It lets someone register but joins no playgroup; playgroup
+    invites are created under `/playgroups/{id}/invites`. The body is optional:
+    `expires_in_days` 1-30 (default 7) and `max_uses` 1-20 (default 1).
     """
     body = body or InviteCreate()
     created = await services.create_invite(
@@ -77,7 +81,27 @@ async def preview_invite(
     """
     preview = await services.preview_invite(session, body.token)
     return InvitePreviewOut(
-        inviter_display_name=preview.inviter_display_name, expires_at=preview.expires_at
+        inviter_display_name=preview.inviter_display_name,
+        expires_at=preview.expires_at,
+        playgroup_name=preview.playgroup_name,
+    )
+
+
+@invites_router.post("/join", summary="Join a playgroup with an invite")
+async def join_with_invite(
+    body: InviteJoinRequest, user: CurrentUserDep, session: SessionDep
+) -> InviteJoinOut:
+    """Confirm "Join <playgroup>" as the signed-in user: they become a `member`.
+
+    The invite's use count goes up in the same transaction. A user who is already an active
+    member (the owner and admins included) gets 200 with `already_member: true`; nothing changes
+    and no use is counted. A former member joins again with a new membership. A revoked,
+    expired, used-up or unknown token, or a site-level invite with no playgroup, is a 410
+    `invite_no_longer_valid`. The token is in the body so it never reaches a URL or a log.
+    """
+    result = await services.join_with_invite(session, user_id=user.id, token=body.token)
+    return InviteJoinOut(
+        already_member=result.already_member, playgroup=_group_out(result.playgroup)
     )
 
 
@@ -85,14 +109,20 @@ async def preview_invite(
 async def list_invites(
     user: CurrentUserDep, session: SessionDep, params: PageParamsDep
 ) -> InvitePageOut:
-    """The caller's own invites, newest first, with a derived status. Never the token."""
+    """The caller's own site-level invites, newest first, with a derived status.
+
+    Playgroup invites are not listed here (see `/playgroups/{id}/invites`). Never the token.
+    """
     page = await services.list_invites(session, user_id=user.id, params=params)
     return InvitePageOut(items=[_out(i) for i in page.items], next_cursor=page.next_cursor)
 
 
 @invites_router.post("/{invite_id}/revoke", summary="Revoke an invite")
 async def revoke_invite(invite_id: str, user: CurrentUserDep, session: SessionDep) -> InviteOut:
-    """Revoke one of the caller's invites. Idempotent. Anyone else's, or unknown, is a 404."""
+    """Revoke one of the caller's site-level invites. Idempotent.
+
+    Anyone else's, a playgroup invite, or an unknown id is a 404.
+    """
     try:
         parsed = UUID(invite_id)
     except ValueError:
@@ -196,6 +226,62 @@ async def transfer_ownership(
     404; the owner naming themselves is 409 `already_owner`.
     """
     return _group_out(await services.transfer_ownership(session, access, player_id=body.player_id))
+
+
+@playgroups_router.post(
+    "/{playgroup_id}/invites", summary="Create an invite to a playgroup", status_code=201
+)
+async def create_playgroup_invite(
+    playgroup_id: str,
+    access: services.PlaygroupAdminDep,
+    session: SessionDep,
+    body: Annotated[InviteCreate | None, Body()] = None,
+) -> InviteCreated:
+    """Create an invite bound to this playgroup; its `https` URL is shown only once.
+
+    Owner or admin only: a plain member gets 403, a non-member 404. The body is optional:
+    `expires_in_days` 1-30 (default 7) and `max_uses` 1-20 (default 1).
+    """
+    body = body or InviteCreate()
+    created = await services.create_playgroup_invite(
+        session, access, expires_in_days=body.expires_in_days, max_uses=body.max_uses
+    )
+    return InviteCreated(**_out(created.invite).model_dump(), url=created.url)
+
+
+@playgroups_router.get("/{playgroup_id}/invites", summary="List a playgroup's invites")
+async def list_playgroup_invites(
+    playgroup_id: str,
+    access: services.PlaygroupAdminDep,
+    session: SessionDep,
+    params: PageParamsDep,
+) -> InvitePageOut:
+    """Every invite of the playgroup, whoever created it, newest first. Never the token.
+
+    Owner or admin only: a plain member gets 403, a non-member 404.
+    """
+    page = await services.list_playgroup_invites(session, access, params=params)
+    return InvitePageOut(items=[_out(i) for i in page.items], next_cursor=page.next_cursor)
+
+
+@playgroups_router.post(
+    "/{playgroup_id}/invites/{invite_id}/revoke", summary="Revoke a playgroup invite"
+)
+async def revoke_playgroup_invite(
+    playgroup_id: str,
+    invite_id: str,
+    access: services.PlaygroupAdminDep,
+    session: SessionDep,
+) -> InviteOut:
+    """Revoke any invite of this playgroup. Idempotent. Owner or admin only.
+
+    An invite that is unknown or belongs to another playgroup is a 404.
+    """
+    try:
+        parsed = UUID(invite_id)
+    except ValueError:
+        raise NotFoundError from None
+    return _out(await services.revoke_playgroup_invite(session, access, invite_id=parsed))
 
 
 router.include_router(invites_router)

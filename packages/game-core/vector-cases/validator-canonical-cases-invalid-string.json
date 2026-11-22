@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-canonical-cases-invalid-string",
+  "rule": "8.3 cases",
+  "description": "cases that is present and not a non-empty array.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":\"x\"}",
+  "messages": ["vec.json: cases must be a non-empty array"]
+}

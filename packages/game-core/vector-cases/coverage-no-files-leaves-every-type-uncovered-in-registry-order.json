@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "kind": "coverage",
+  "name": "coverage-no-files-leaves-every-type-uncovered-in-registry-order",
+  "rule": "8.4",
+  "description": "No vector at all: one message per type, in registry order (not sorted).",
+  "registry": ["gamma", "alpha", "beta"],
+  "files": [],
+  "messages": [
+    "uncovered event type: gamma",
+    "uncovered event type: alpha",
+    "uncovered event type: beta"
+  ]
+}

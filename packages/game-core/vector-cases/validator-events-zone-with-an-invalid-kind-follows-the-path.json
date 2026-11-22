@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-events-zone-with-an-invalid-kind-follows-the-path",
+  "rule": "8.3.1 events",
+  "description": "With an unusable kind, the path rule still decides: events[0] with 1.0 gets the events message.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"nope\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"events\":[1.0]}",
+  "messages": [
+    "vec.json: kind must be \"reducer\" or \"canonical_json\"",
+    "vec.json: events[0] has the number token 1.0; write an integral value as an integer"
+  ]
+}

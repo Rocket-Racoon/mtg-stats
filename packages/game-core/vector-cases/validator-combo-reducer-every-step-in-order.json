@@ -1,0 +1,22 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-combo-reducer-every-step-in-order",
+  "rule": "8.3 order of checks",
+  "description": "Header, reducer rows, unknown keys, tokens and duplicates in one file: all problems are reported, in the contract's order.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":2,\"name\":\"other\",\"description\":\"\",\"game_id\":\"\",\"extra\":1,\"settings\":{\"x\":1.5},\"events\":[{\"type\":5},{\"type\":7}],\"expect\":{\"error\":{\"index\":1,\"code\":\"bogus\"},\"zzz\":1},\"game_id\":\"\"}",
+  "messages": [
+    "vec.json: format must be the integer 1",
+    "vec.json: name must equal \"vec\"",
+    "vec.json: description must be a non-empty string",
+    "vec.json: game_id must be a non-empty string",
+    "vec.json: settings.x is not a known key",
+    "vec.json: expect.zzz is not a known key",
+    "vec.json: expect.error.code must be a known reducer error code",
+    "vec.json: events[0].type must be a string",
+    "vec.json: extra is not a known key",
+    "vec.json: settings.x must be an integer (found the number token 1.5)",
+    "vec.json: game_id is a duplicate key"
+  ]
+}

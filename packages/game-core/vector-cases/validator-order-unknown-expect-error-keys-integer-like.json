@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-order-unknown-expect-error-keys-integer-like",
+  "rule": "8.3 unknown keys in document order",
+  "description": "Unknown expect.error keys come in document order.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"t\"}],\"expect\":{\"error\":{\"index\":0,\"code\":\"invalid_event\",\"zeta\":1,\"10\":1,\"2\":1}}}",
+  "messages": [
+    "vec.json: expect.error.zeta is not a known key",
+    "vec.json: expect.error.10 is not a known key",
+    "vec.json: expect.error.2 is not a known key"
+  ]
+}

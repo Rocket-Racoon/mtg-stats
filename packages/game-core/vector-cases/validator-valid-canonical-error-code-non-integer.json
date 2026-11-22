@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-valid-canonical-error-code-non-integer",
+  "rule": "8.3 invalid case error",
+  "description": "non_integer is one of the four canonical JSON error codes of 5.4.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"invalid\":{\"kind\":\"nan\"},\"error\":\"non_integer\"}]}",
+  "messages": []
+}

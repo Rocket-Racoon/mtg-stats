@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-canonical-invalid-case-error-invalid-unknown",
+  "rule": "8.3 invalid case error",
+  "description": "error that is present and not one of the four codes of 5.4.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"invalid\":{\"kind\":\"nan\"},\"error\":\"bogus\"}]}",
+  "messages": ["vec.json: cases[0].error must be a canonical JSON error code"]
+}

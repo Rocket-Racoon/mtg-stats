@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-gap-type-rule-when-expect-has-neither",
+  "rule": "8.3 events[i].type with a malformed expect",
+  "description": "expect {} and an event without a type: all events are applied, so the type message appears.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{}],\"expect\":{}}",
+  "messages": [
+    "vec.json: expect must have exactly one of \"state\" or \"error\"",
+    "vec.json: events[0].type must be a string"
+  ]
+}

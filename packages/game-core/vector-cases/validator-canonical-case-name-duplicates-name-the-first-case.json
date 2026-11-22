@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-canonical-case-name-duplicates-name-the-first-case",
+  "rule": "8.3 cases[i].name",
+  "description": "Every later case with a repeated name points at the first case with that name.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"input\":1,\"output\":\"1\"},{\"name\":\"b\",\"input\":1,\"output\":\"1\"},{\"name\":\"a\",\"input\":1,\"output\":\"1\"},{\"name\":\"b\",\"input\":1,\"output\":\"1\"},{\"name\":\"a\",\"input\":1,\"output\":\"1\"}]}",
+  "messages": [
+    "vec.json: cases[2].name duplicates the name of cases[0]",
+    "vec.json: cases[3].name duplicates the name of cases[1]",
+    "vec.json: cases[4].name duplicates the name of cases[0]"
+  ]
+}

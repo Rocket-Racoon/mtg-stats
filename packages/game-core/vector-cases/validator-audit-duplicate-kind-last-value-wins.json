@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-audit-duplicate-kind-last-value-wins",
+  "rule": "8.3 step 5",
+  "description": "kind is reducer first and nope last: the rules see the last value, so kind is invalid and the kind checks are skipped.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"kind\":\"nope\"}",
+  "messages": [
+    "vec.json: kind must be \"reducer\" or \"canonical_json\"",
+    "vec.json: kind is a duplicate key"
+  ]
+}

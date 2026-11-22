@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-canonical-invalid-deep-object-value-required",
+  "rule": "8.3 invalid.value",
+  "description": "kind deep_object needs a value.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"invalid\":{\"kind\":\"deep_object\"},\"error\":\"non_integer\"}]}",
+  "messages": ["vec.json: cases[0].invalid.value is required"]
+}

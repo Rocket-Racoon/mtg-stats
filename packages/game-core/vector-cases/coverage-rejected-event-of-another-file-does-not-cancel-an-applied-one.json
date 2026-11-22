@@ -1,0 +1,19 @@
+{
+  "format": 1,
+  "kind": "coverage",
+  "name": "coverage-rejected-event-of-another-file-does-not-cancel-an-applied-one",
+  "rule": "8.4",
+  "description": "alpha is applied in one file and rejected in another: still exercised.",
+  "registry": ["alpha"],
+  "files": [
+    {
+      "file": "v1.json",
+      "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"v1\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"alpha\",\"payload\":{}}],\"expect\":{\"error\":{\"index\":0,\"code\":\"invalid_event\"}}}"
+    },
+    {
+      "file": "v2.json",
+      "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"v2\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"alpha\",\"payload\":{}}],\"expect\":{\"state\":{}}}"
+    }
+  ],
+  "messages": []
+}

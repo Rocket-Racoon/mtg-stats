@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-valid-canonical-every-invalid-kind",
+  "rule": "8.3 invalid.value",
+  "description": "Each invalid kind with a well-formed value.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"f\",\"invalid\":{\"kind\":\"float\",\"value\":\"1.5\"},\"error\":\"non_integer\"},{\"name\":\"f2\",\"invalid\":{\"kind\":\"float\",\"value\":\"1e-7\"},\"error\":\"non_integer\"},{\"name\":\"f3\",\"invalid\":{\"kind\":\"float\",\"value\":\"5e-324\"},\"error\":\"non_integer\"},{\"name\":\"f4\",\"invalid\":{\"kind\":\"float\",\"value\":\"-0.5\"},\"error\":\"non_integer\"},{\"name\":\"n\",\"invalid\":{\"kind\":\"nan\"},\"error\":\"unsupported_value\"},{\"name\":\"i\",\"invalid\":{\"kind\":\"infinity\"},\"error\":\"unsupported_value\"},{\"name\":\"g\",\"invalid\":{\"kind\":\"integer\",\"value\":\"9007199254740992\"},\"error\":\"integer_out_of_range\"},{\"name\":\"g2\",\"invalid\":{\"kind\":\"integer\",\"value\":\"-9007199254740992\"},\"error\":\"integer_out_of_range\"},{\"name\":\"g3\",\"invalid\":{\"kind\":\"integer\",\"value\":\"123456789012345678901234567890\"},\"error\":\"integer_out_of_range\"},{\"name\":\"l\",\"invalid\":{\"kind\":\"lone_surrogate\",\"value\":\"d800\"},\"error\":\"lone_surrogate\"},{\"name\":\"l2\",\"invalid\":{\"kind\":\"lone_surrogate\",\"value\":\"DFFF\"},\"error\":\"lone_surrogate\"},{\"name\":\"l3\",\"invalid\":{\"kind\":\"lone_surrogate\",\"value\":\"dBff\"},\"error\":\"lone_surrogate\"},{\"name\":\"da\",\"invalid\":{\"kind\":\"deep_array\",\"value\":\"1\"},\"error\":\"unsupported_value\"},{\"name\":\"da2\",\"invalid\":{\"kind\":\"deep_array\",\"value\":\"66\"},\"error\":\"unsupported_value\"},{\"name\":\"do\",\"invalid\":{\"kind\":\"deep_object\",\"value\":\"10000\"},\"error\":\"unsupported_value\"}]}",
+  "messages": []
+}

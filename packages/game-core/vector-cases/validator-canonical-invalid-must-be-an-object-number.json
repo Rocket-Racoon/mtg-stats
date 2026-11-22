@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-canonical-invalid-must-be-an-object-number",
+  "rule": "8.3 invalid",
+  "description": "invalid that is present and not an object (the error rule comes first, and is fine here).",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"invalid\":5,\"error\":\"non_integer\"}]}",
+  "messages": ["vec.json: cases[0].invalid must be an object"]
+}

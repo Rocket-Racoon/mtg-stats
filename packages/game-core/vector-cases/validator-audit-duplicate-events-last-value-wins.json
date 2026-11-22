@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-audit-duplicate-events-last-value-wins",
+  "rule": "8.3 step 5",
+  "description": "events holds a bad item first and [] last: the rules see [], so only the duplicate is reported.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[1],\"expect\":{\"state\":{}},\"events\":[]}",
+  "messages": ["vec.json: events is a duplicate key"]
+}

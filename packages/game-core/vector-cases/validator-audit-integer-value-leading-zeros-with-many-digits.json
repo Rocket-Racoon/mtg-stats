@@ -1,0 +1,12 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-audit-integer-value-leading-zeros-with-many-digits",
+  "rule": "8.3 integer value",
+  "description": "A leading zero is not an integer in decimal: one message, the safe-range one, even though the text is over 300 digits.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"invalid\":{\"kind\":\"integer\",\"value\":\"09999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999\"},\"error\":\"integer_out_of_range\"}]}",
+  "messages": [
+    "vec.json: cases[0].invalid.value must be decimal text of an integer outside the safe range"
+  ]
+}

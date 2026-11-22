@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-reducer-expect-error-index-invalid-above-safe-range",
+  "rule": "8.3 expect.error.index, 8.3.1",
+  "description": "index that is present and not a non-negative safe integer; no `less than` message for a value that is not an integer; a token problem follows in step 4.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1},{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1}],\"expect\":{\"error\":{\"index\":9007199254740992,\"code\":\"invalid_event\"}}}",
+  "messages": [
+    "vec.json: expect.error.index must be a non-negative integer",
+    "vec.json: expect.error.index must be an integer in the safe range (found 9007199254740992)"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "kind": "coverage",
+  "name": "coverage-type-only-after-the-rejected-index-does-not-count",
+  "rule": "8.4",
+  "description": "beta appears only after the rejected index.",
+  "registry": ["alpha", "beta"],
+  "files": [
+    {
+      "file": "v1.json",
+      "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"v1\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"alpha\",\"payload\":{}},{\"type\":\"alpha\",\"payload\":{}},{\"type\":\"beta\",\"payload\":{}}],\"expect\":{\"error\":{\"index\":1,\"code\":\"invalid_event\"}}}"
+    }
+  ],
+  "messages": ["uncovered event type: beta"]
+}

@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-gap-type-rule-when-error-index-is-out-of-range",
+  "rule": "8.3 events[i].type with a malformed expect",
+  "description": "expect.error.index is 5 with 1 event lacking a type: an out-of-range index is not a valid index, so all events are applied.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{}],\"expect\":{\"error\":{\"index\":5,\"code\":\"invalid_event\"}}}",
+  "messages": [
+    "vec.json: expect.error.index must be less than the number of events (1)",
+    "vec.json: events[0].type must be a string"
+  ]
+}

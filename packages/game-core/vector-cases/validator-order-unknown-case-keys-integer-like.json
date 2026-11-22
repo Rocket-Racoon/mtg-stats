@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-order-unknown-case-keys-integer-like",
+  "rule": "8.3 unknown keys in document order",
+  "description": "Unknown keys of an input case come in document order.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"input\":1,\"output\":\"1\",\"zeta\":1,\"10\":1,\"2\":1}]}",
+  "messages": [
+    "vec.json: cases[0].zeta is not a known key",
+    "vec.json: cases[0].10 is not a known key",
+    "vec.json: cases[0].2 is not a known key"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-header-name-message-quotes-the-stem",
+  "rule": "8.3 header name",
+  "description": "The message quotes the stem: only a trailing .json is removed.",
+  "file": "a.b.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"x\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1},{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1}],\"expect\":{\"state\":{}}}",
+  "messages": ["a.b.json: name must equal \"a.b\""]
+}

@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-top-level-not-an-object-true",
+  "rule": "8.3 whole-file",
+  "description": "A top-level value that is not an object gives the single message `$ must be an object`.",
+  "file": "vec.json",
+  "text": "true",
+  "messages": ["vec.json: $ must be an object"]
+}

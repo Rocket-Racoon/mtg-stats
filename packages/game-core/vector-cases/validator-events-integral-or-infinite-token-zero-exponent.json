@@ -1,0 +1,12 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-events-integral-or-infinite-token-zero-exponent",
+  "rule": "8.3.1 events",
+  "description": "Inside events a fractional or exponent token whose value is an integer or is not finite is reported with the token text.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"t\",\"v\":0e0}],\"expect\":{\"state\":{}}}",
+  "messages": [
+    "vec.json: events[0].v has the number token 0e0; write an integral value as an integer"
+  ]
+}

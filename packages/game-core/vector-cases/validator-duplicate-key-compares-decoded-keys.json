@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-duplicate-key-compares-decoded-keys",
+  "rule": "8.3 step 5",
+  "description": "Keys are strings: name written with a \\u escape is the same key as name.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"\\u006eame\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[],\"expect\":{\"state\":{}}}",
+  "messages": ["vec.json: name is a duplicate key"]
+}

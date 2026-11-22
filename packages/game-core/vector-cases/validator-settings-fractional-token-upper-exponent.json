@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-settings-fractional-token-upper-exponent",
+  "rule": "8.3.1 everywhere else",
+  "description": "Outside events any token with a fraction or exponent is reported, integral or not.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{\"starting_life\":1E2},\"events\":[],\"expect\":{\"state\":{}}}",
+  "messages": ["vec.json: settings.starting_life must be an integer (found the number token 1E2)"]
+}

@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-audit-float-index-1.0-with-one-event-is-out-of-range",
+  "rule": "8.3 details",
+  "description": "1.0 equals the integer 1, which is not below 1 event: the range message and the token message.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1}],\"expect\":{\"error\":{\"index\":1.0,\"code\":\"invalid_event\"}}}",
+  "messages": [
+    "vec.json: expect.error.index must be less than the number of events (1)",
+    "vec.json: expect.error.index must be an integer (found the number token 1.0)"
+  ]
+}

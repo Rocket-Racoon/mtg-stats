@@ -1,0 +1,19 @@
+{
+  "format": 1,
+  "kind": "coverage",
+  "name": "coverage-same-type-many-times-is-one-coverage",
+  "rule": "8.4",
+  "description": "Repeats change nothing: one message per uncovered type only.",
+  "registry": ["alpha", "beta"],
+  "files": [
+    {
+      "file": "v1.json",
+      "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"v1\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"alpha\",\"payload\":{}},{\"type\":\"alpha\",\"payload\":{}},{\"type\":\"alpha\",\"payload\":{}}],\"expect\":{\"state\":{}}}"
+    },
+    {
+      "file": "v2.json",
+      "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"v2\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"alpha\",\"payload\":{}}],\"expect\":{\"state\":{}}}"
+    }
+  ],
+  "messages": ["uncovered event type: beta"]
+}

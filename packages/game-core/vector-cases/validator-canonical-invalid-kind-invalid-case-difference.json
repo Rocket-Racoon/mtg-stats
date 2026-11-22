@@ -1,0 +1,12 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-canonical-invalid-kind-invalid-case-difference",
+  "rule": "8.3 invalid.kind",
+  "description": "kind that is present and not one of the seven kinds; the value is not checked then.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"invalid\":{\"kind\":\"Float\",\"value\":5},\"error\":\"non_integer\"}]}",
+  "messages": [
+    "vec.json: cases[0].invalid.kind must be one of float, nan, infinity, integer, lone_surrogate, deep_array, deep_object"
+  ]
+}

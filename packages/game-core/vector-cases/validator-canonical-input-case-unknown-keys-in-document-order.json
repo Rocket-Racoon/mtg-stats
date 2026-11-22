@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-canonical-input-case-unknown-keys-in-document-order",
+  "rule": "8.3 cases[i] unknown keys",
+  "description": "In an input case only name input output are known: error and invalid-case keys are unknown.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"error\":\"non_integer\",\"input\":1,\"extra\":2,\"output\":\"1\"}]}",
+  "messages": [
+    "vec.json: cases[0].error is not a known key",
+    "vec.json: cases[0].extra is not a known key"
+  ]
+}

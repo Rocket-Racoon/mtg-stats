@@ -1,0 +1,19 @@
+{
+  "format": 1,
+  "kind": "coverage",
+  "name": "coverage-vector-with-an-untyped-applied-event-does-not-count",
+  "rule": "8.4 and 8.3 events[i].type",
+  "description": "An applied event without a string type makes the file invalid, so its other events do not count.",
+  "registry": ["alpha", "beta"],
+  "files": [
+    {
+      "file": "v1.json",
+      "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"v1\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"alpha\",\"payload\":{}}],\"expect\":{\"state\":{}}}"
+    },
+    {
+      "file": "v2.json",
+      "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"v2\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"type\":\"beta\",\"payload\":{}},{\"payload\":{}}],\"expect\":{\"state\":{}}}"
+    }
+  ],
+  "messages": ["uncovered event type: beta"]
+}

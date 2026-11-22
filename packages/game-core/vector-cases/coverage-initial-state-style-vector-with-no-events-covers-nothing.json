@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "kind": "coverage",
+  "name": "coverage-initial-state-style-vector-with-no-events-covers-nothing",
+  "rule": "8.4",
+  "description": "An empty events array is valid and exercises no type.",
+  "registry": ["alpha"],
+  "files": [
+    {
+      "file": "v1.json",
+      "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"v1\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[],\"expect\":{\"state\":{}}}"
+    }
+  ],
+  "messages": ["uncovered event type: alpha"]
+}

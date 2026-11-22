@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-valid-canonical-minimal",
+  "rule": "8.2",
+  "description": "A minimal canonical_json file.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"name\":\"a\",\"input\":1,\"output\":\"1\"}]}",
+  "messages": []
+}

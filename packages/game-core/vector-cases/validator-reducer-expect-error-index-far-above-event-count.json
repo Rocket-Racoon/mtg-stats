@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-reducer-expect-error-index-far-above-event-count",
+  "rule": "8.3 expect.error.index",
+  "description": "index above the count, with 1 event.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1}],\"expect\":{\"error\":{\"index\":7,\"code\":\"invalid_event\"}}}",
+  "messages": ["vec.json: expect.error.index must be less than the number of events (1)"]
+}

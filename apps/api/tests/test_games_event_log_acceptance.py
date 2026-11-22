@@ -569,6 +569,36 @@ async def test_two_racing_appends_of_one_event_id_store_exactly_one_row(rig: Rig
     await assert_log_is_consistent(rig.probe, game_id, 1)
 
 
+async def test_a_duplicate_arriving_while_another_transaction_holds_the_game_lock_is_answered(
+    rig: Rig,
+) -> None:
+    game_id = await new_game(rig)
+    sub = envelope(game_id)
+    first = await commit_append(rig.a, game_id, sub)
+    assert isinstance(first, Appended)
+    log_before = await stored_log(rig.probe, game_id)
+
+    holder = rig.a()  # a new event whose transaction stays open, so the game row is locked
+    try:
+        held = await append_event(holder, game_id, envelope(game_id), actor=player())
+        assert isinstance(held, Appended)
+        assert held.event.seq == 2
+        retry = asyncio.create_task(commit_append(rig.b, game_id, dict(sub)))
+        await asyncio.sleep(0.5)  # give the retry the chance to run into the lock
+        await holder.commit()
+        again = await asyncio.wait_for(retry, TIMEOUT)
+    finally:
+        await holder.close()
+
+    assert isinstance(again, Appended)
+    assert again.duplicate is True
+    assert again.event == first.event
+    assert again.event.seq == 1
+    log_after = await stored_log(rig.probe, game_id)
+    assert log_after[:1] == log_before  # the original row is untouched
+    await assert_log_is_consistent(rig.probe, game_id, 2)  # only the holder's event was added
+
+
 async def test_six_simultaneous_submissions_of_one_event_id_store_exactly_one_row(
     rig: Rig,
 ) -> None:
@@ -1088,6 +1118,7 @@ AUDITED_FUNCTIONS = {"reassign_player", "delete_playgroup_data"}
 GAMES_ROW_FUNCTIONS = {"add_game", "get_game", "lock_game", "save_snapshot"}
 GAME_EVENT_COLUMNS = {"seq", "event_id", "type", "payload", "actor", "on_behalf_of_seat", "ts", "v"}
 MUTATING_CALLS = {
+    "add_all",
     "update",
     "delete",
     "merge",
@@ -1146,21 +1177,12 @@ def test_the_two_audited_operations_exist_in_the_repository() -> None:
     assert inspect.iscoroutinefunction(functions["delete_playgroup_data"])
 
 
-def _references_guarded_name(node: ast.AST) -> bool:
-    for child in ast.walk(node):
-        if isinstance(child, ast.Name) and child.id == "GameEvent":
-            return True
-        if isinstance(child, ast.Attribute) and child.attr == "GameEvent":
-            return True
-        if isinstance(child, ast.alias) and child.name == "GameEvent":
-            return True
-        if (
-            isinstance(child, ast.Constant)
-            and isinstance(child.value, str)
-            and re.search(r"game_events|GameEvent", child.value, re.I)
-        ):
-            return True
-    return False
+EVENT_NAME = re.compile(r"game_events|GameEvent", re.I)
+GAMES_MODULES = {
+    Path("games/models.py"),
+    Path("games/repository.py"),
+    Path("games/services/events.py"),
+}
 
 
 def _docstring_nodes(tree: ast.AST) -> set[int]:
@@ -1173,15 +1195,69 @@ def _docstring_nodes(tree: ast.AST) -> set[int]:
     return nodes
 
 
-def _is_event_mutation_call(call: ast.Call) -> bool:
-    name = _call_name(call)
-    if name not in MUTATING_CALLS:
-        return False
-    if name == "update" and isinstance(call.func, ast.Attribute):
-        # ``candidate.update(...)`` is a dict; ``GameEvent.__table__.update()`` is not.
-        receiver = ast.dump(call.func.value)
-        return "GameEvent" in receiver or "__table__" in receiver or "game_events" in receiver
-    return True
+def _event_aliases(tree: ast.AST) -> set[str]:
+    """``GameEvent`` and every name it is imported as."""
+    names = {"GameEvent"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom | ast.Import):
+            names.update(a.asname for a in node.names if a.name == "GameEvent" and a.asname)
+    return names
+
+
+def _mentions_event(node: ast.AST, tainted: set[str], docstrings: set[int]) -> bool:
+    """True when ``node`` names the event model, the event table or an event-derived name."""
+    for child in ast.walk(node):
+        if isinstance(child, ast.Name) and child.id in tainted:
+            return True
+        if isinstance(child, ast.Attribute) and child.attr == "GameEvent":
+            return True
+        if (
+            isinstance(child, ast.Constant)
+            and isinstance(child.value, str)
+            and id(child) not in docstrings
+            and EVENT_NAME.search(child.value)
+        ):
+            return True
+    return False
+
+
+def _bound_names(target: ast.AST) -> Iterator[str]:
+    for child in ast.walk(target):
+        if isinstance(child, ast.Name):
+            yield child.id
+
+
+def _tainted_names(scope: ast.AST, aliases: set[str], docstrings: set[int]) -> set[str]:
+    """Names bound from an expression that mentions an event (assignment, ``for``, ``with``,
+    comprehension, walrus, annotated parameter), to a fixed point."""
+    tainted = set(aliases)
+    changed = True
+    while changed:
+        changed = False
+        for node in ast.walk(scope):
+            pairs: list[tuple[ast.AST, ast.AST | None]] = []
+            if isinstance(node, ast.Assign):
+                pairs = [(t, node.value) for t in node.targets]
+            elif isinstance(node, ast.AnnAssign | ast.AugAssign):
+                pairs = [(node.target, node.value)]
+                if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                    pairs.append((node.target, node.annotation))
+            elif isinstance(node, ast.For | ast.AsyncFor | ast.comprehension):
+                pairs = [(node.target, node.iter)]
+            elif isinstance(node, ast.With | ast.AsyncWith):
+                pairs = [(i.optional_vars, i.context_expr) for i in node.items if i.optional_vars]
+            elif isinstance(node, ast.NamedExpr):
+                pairs = [(node.target, node.value)]
+            elif isinstance(node, ast.arg) and node.annotation is not None:
+                pairs = [(ast.Name(id=node.arg), node.annotation)]
+            for target, source in pairs:
+                if source is None or not _mentions_event(source, tainted, docstrings):
+                    continue
+                for name in _bound_names(target):
+                    if name not in tainted:
+                        tainted.add(name)
+                        changed = True
+    return tainted
 
 
 def _call_name(call: ast.Call) -> str:
@@ -1189,55 +1265,94 @@ def _call_name(call: ast.Call) -> str:
     return func.id if isinstance(func, ast.Name) else getattr(func, "attr", "")
 
 
+def _joined_constants(node: ast.BinOp) -> str | None:
+    """The text of ``"a" + "b" + ...`` made only of string constants, else ``None``."""
+    parts: list[str] = []
+    todo: list[ast.AST] = [node]
+    while todo:
+        current = todo.pop(0)
+        if isinstance(current, ast.BinOp) and isinstance(current.op, ast.Add):
+            todo[:0] = [current.left, current.right]
+        elif isinstance(current, ast.Constant) and isinstance(current.value, str):
+            parts.append(current.value)
+        else:
+            return None
+    return "".join(parts)
+
+
+def _event_violations(
+    top: ast.AST, aliases: set[str], docstrings: set[int], *, creation_allowed: bool
+) -> Iterator[tuple[int, str]]:
+    tainted = _tainted_names(top, aliases, docstrings)
+    for child in ast.walk(top):
+        line = getattr(child, "lineno", 0)
+        if isinstance(child, ast.Call):
+            name = _call_name(child)
+            receiver = child.func.value if isinstance(child.func, ast.Attribute) else None
+            if name in MUTATING_CALLS and (
+                _mentions_event(child, tainted, docstrings)
+                or (receiver is not None and _mentions_event(receiver, tainted, docstrings))
+            ):
+                yield line, f"{name}() on event rows"
+            if (
+                isinstance(child.func, ast.Name)
+                and child.func.id in aliases
+                and not creation_allowed
+            ):
+                yield line, "creates a GameEvent outside repository.append"
+        elif isinstance(child, ast.Constant) and isinstance(child.value, str):
+            if id(child) not in docstrings and MUTATING_SQL.search(child.value):
+                yield line, "mutating SQL on game_events"
+        elif isinstance(child, ast.BinOp):
+            joined = _joined_constants(child)
+            if joined is not None and MUTATING_SQL.search(joined):
+                yield line, "mutating SQL on game_events (concatenated)"
+        elif isinstance(child, ast.Assign | ast.AugAssign | ast.AnnAssign):
+            targets = child.targets if isinstance(child, ast.Assign) else [child.target]
+            for target in targets:
+                if (
+                    isinstance(target, ast.Attribute)
+                    and target.attr in GAME_EVENT_COLUMNS
+                    and _mentions_event(target.value, tainted, docstrings)
+                ):
+                    yield line, f"writes .{target.attr} of an event row"
+
+
 def scan_for_event_mutations(root: Path) -> list[str]:
     """Every place under ``root`` (the ``app`` tree) that could change or delete event rows.
 
-    Stricter than a keyword search: a module outside the three games modules may not even name
-    ``GameEvent`` or ``game_events`` (so aliases, ``__table__``, ``table("game_events")`` and a
-    ``session.delete(loaded_event)`` all need such a name first). The three games modules may not
-    call update/delete/merge-like functions, write event columns on a loaded row or contain
-    mutating SQL, except inside the two audited repository functions.
+    Outside the three games modules nothing may name ``GameEvent`` or ``game_events`` in code
+    (docstrings are fine). Inside them, other tables are free to use ``delete``, ``update``,
+    ``add_all`` and column writes: only calls, SQL and attribute writes that involve the event
+    model, the event table or a name derived from them count. The two audited repository
+    functions are exempt.
     """
-    allowed = {
-        Path("games/models.py"),
-        Path("games/repository.py"),
-        Path("games/services/events.py"),
-    }
     found: list[str] = []
     for path in sorted(root.rglob("*.py")):
         relative = path.relative_to(root)
         if "tests" in relative.parts or "__pycache__" in relative.parts:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        if relative not in allowed:
-            if _references_guarded_name(tree):
+        docstrings = _docstring_nodes(tree)
+        aliases = _event_aliases(tree)
+        if relative not in GAMES_MODULES:
+            if _mentions_event(tree, aliases, docstrings) or any(
+                isinstance(n, ast.alias) and n.name == "GameEvent" for n in ast.walk(tree)
+            ):
                 found.append(f"{relative.as_posix()}: names GameEvent or game_events")
             continue
-        docstrings = _docstring_nodes(tree)
         for top in tree.body:
-            audited = (
-                relative == Path("games/repository.py")
-                and isinstance(top, ast.FunctionDef | ast.AsyncFunctionDef)
-                and top.name in AUDITED_FUNCTIONS
-            )
-            if audited:
+            is_function = isinstance(top, ast.FunctionDef | ast.AsyncFunctionDef)
+            in_repository = relative == Path("games/repository.py")
+            if in_repository and is_function and top.name in AUDITED_FUNCTIONS:
                 continue
-            for child in ast.walk(top):
-                if isinstance(child, ast.Call) and _is_event_mutation_call(child):
-                    found.append(f"{relative.as_posix()}:{child.lineno}: {_call_name(child)}()")
-                elif (
-                    isinstance(child, ast.Constant)
-                    and isinstance(child.value, str)
-                    and id(child) not in docstrings
-                    and MUTATING_SQL.search(child.value)
-                ):
-                    found.append(f"{relative.as_posix()}:{child.lineno}: mutating SQL")
-                elif (
-                    isinstance(child, ast.Attribute)
-                    and isinstance(child.ctx, ast.Store)
-                    and child.attr in GAME_EVENT_COLUMNS
-                ):
-                    found.append(f"{relative.as_posix()}:{child.lineno}: writes .{child.attr}")
+            creation_allowed = (in_repository and is_function and top.name == "append") or (
+                relative == Path("games/models.py")
+            )
+            for line, what in _event_violations(
+                top, aliases, docstrings, creation_allowed=creation_allowed
+            ):
+                found.append(f"{relative.as_posix()}:{line}: {what}")
     return found
 
 
@@ -1300,16 +1415,137 @@ def test_the_scan_flags_a_new_module_that_mutates_game_events(
     assert scan_for_event_mutations(synthetic_app), name
 
 
-def test_the_scan_flags_a_delete_added_to_a_non_audited_repository_function(
+def _plant_in_repository(root: Path, snippet: str) -> None:
+    target = root / "games" / "repository.py"
+    target.write_text(target.read_text(encoding="utf-8") + "\n\n" + snippet, encoding="utf-8")
+
+
+LEGITIMATE_REPOSITORY_CODE: dict[str, str] = {
+    "delete_other_model": "async def g(s):\n    await s.execute(delete(GameSeat))\n",
+    "update_game": "async def g(s):\n    await s.execute(update(Game).values(last_seq=1))\n",
+    "add_all_seats": "async def g(s, seats):\n    s.add_all(seats)\n",
+    "session_delete_seat": "async def g(s, seat):\n    await s.delete(seat)\n",
+    "column_named_type_on_another_model": (
+        "async def g(game):\n    game.type = 'x'\n    game.seq = 1\n    game.payload = {}\n"
+    ),
+    "dict_update": "def g(d):\n    d.update(seq=1)\n",
+    "loop_over_seats": (
+        "async def g(s):\n    for seat in (await s.execute(select(GameSeat))).scalars():\n"
+        "        await s.delete(seat)\n        seat.type = 'x'\n"
+    ),
+    "raw_sql_on_seats": 'async def g(s):\n    await s.execute(text("DELETE FROM game_seats"))\n',
+    "reading_events_with_a_clause": (
+        "async def g(s):\n    await s.execute(select(GameEvent).where(GameEvent.seq > 1))\n"
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(LEGITIMATE_REPOSITORY_CODE))
+def test_the_scan_allows_legitimate_code_on_other_tables_in_the_repository(
+    synthetic_app: Path, name: str
+) -> None:
+    _plant_in_repository(synthetic_app, LEGITIMATE_REPOSITORY_CODE[name])
+    assert scan_for_event_mutations(synthetic_app) == []
+
+
+def test_the_scan_allows_a_docstring_that_mentions_game_events_in_another_domain(
     synthetic_app: Path,
 ) -> None:
-    repository_copy = synthetic_app / "games" / "repository.py"
-    source = repository_copy.read_text(encoding="utf-8")
-    repository_copy.write_text(
-        source + "\n\nasync def prune(session, event):\n    await session.delete(event)\n",
+    (synthetic_app / "stats" / "reader.py").write_text(
+        '"""Reads game_events through games.services; never GameEvent directly."""\n\n\n'
+        'def total(n: int) -> int:\n    """Counts rows of game_events (via the service)."""\n'
+        "    return n\n",
         encoding="utf-8",
     )
+    assert scan_for_event_mutations(synthetic_app) == []
+
+
+@pytest.mark.parametrize("name", sorted(SYNTHETIC_OFFENDERS))
+def test_the_scan_flags_an_event_offender_in_a_non_audited_repository_function(
+    synthetic_app: Path, name: str
+) -> None:
+    _plant_in_repository(synthetic_app, SYNTHETIC_OFFENDERS[name])
+    assert scan_for_event_mutations(synthetic_app), name
+
+
+@pytest.mark.parametrize("name", sorted(SYNTHETIC_OFFENDERS))
+def test_the_scan_still_flags_an_event_offender_next_to_a_legitimate_delete(
+    synthetic_app: Path, name: str
+) -> None:
+    head = "async def f(s):\n"
+    source = SYNTHETIC_OFFENDERS[name]
+    assert head in source
+    mixed = source.replace(head, head + "    await s.execute(delete(GameSeat))\n", 1)
+    _plant_in_repository(synthetic_app, mixed)
+    flagged = scan_for_event_mutations(synthetic_app)
+    assert flagged, name
+
+
+def test_the_scan_flags_a_concatenated_mutating_statement(synthetic_app: Path) -> None:
+    _plant_in_repository(
+        synthetic_app,
+        'async def g(s):\n    await s.execute(text("UPDATE " + "game_events SET v = 1"))\n',
+    )
     assert scan_for_event_mutations(synthetic_app)
+
+
+def test_the_scan_flags_a_loop_over_events_that_writes_a_column(synthetic_app: Path) -> None:
+    _plant_in_repository(
+        synthetic_app,
+        "async def g(s):\n    rows = (await s.execute(select(GameEvent))).scalars().all()\n"
+        "    for row in rows:\n        row.payload = {}\n",
+    )
+    assert scan_for_event_mutations(synthetic_app)
+
+
+def test_the_scan_flags_a_delete_of_a_loaded_event_in_a_non_audited_repository_function(
+    synthetic_app: Path,
+) -> None:
+    _plant_in_repository(
+        synthetic_app,
+        "async def prune(session, game_id):\n"
+        "    event = await session.get(GameEvent, game_id)\n"
+        "    await session.delete(event)\n",
+    )
+    assert scan_for_event_mutations(synthetic_app)
+
+
+def test_the_scan_flags_creating_an_event_outside_append(synthetic_app: Path) -> None:
+    _plant_in_repository(synthetic_app, "def g(s):\n    s.add(GameEvent(seq=1))\n")
+    assert scan_for_event_mutations(synthetic_app)
+
+
+def _theirs() -> Any:
+    from tests.architecture import test_game_events_append_only as module  # noqa: PLC0415
+
+    return module
+
+
+@pytest.mark.parametrize("name", sorted(SYNTHETIC_OFFENDERS))
+def test_both_scanners_flag_every_event_offender_outside_the_games_modules(
+    synthetic_app: Path, name: str
+) -> None:
+    (synthetic_app / "stats" / "rogue.py").write_text(SYNTHETIC_OFFENDERS[name], encoding="utf-8")
+    assert scan_for_event_mutations(synthetic_app), name
+    assert _theirs().scan(synthetic_app), name
+
+
+@pytest.mark.parametrize("name", sorted(LEGITIMATE_REPOSITORY_CODE))
+def test_both_scanners_allow_the_same_legitimate_repository_code(
+    synthetic_app: Path, name: str
+) -> None:
+    _plant_in_repository(synthetic_app, LEGITIMATE_REPOSITORY_CODE[name])
+    assert scan_for_event_mutations(synthetic_app) == []
+    assert _theirs().scan(synthetic_app) == []
+
+
+@pytest.mark.parametrize("name", sorted(SYNTHETIC_OFFENDERS))
+def test_both_scanners_flag_an_event_offender_in_the_repository(
+    synthetic_app: Path, name: str
+) -> None:
+    _plant_in_repository(synthetic_app, SYNTHETIC_OFFENDERS[name])
+    assert scan_for_event_mutations(synthetic_app), name
+    assert _theirs().scan(synthetic_app), name
 
 
 @pytest.fixture(scope="module")

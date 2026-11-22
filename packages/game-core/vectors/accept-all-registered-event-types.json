@@ -2,7 +2,7 @@
   "format": 1,
   "kind": "reducer",
   "name": "accept-all-registered-event-types",
-  "description": "Every registered event type (4) is accepted in one legal log: game_created at seq 1, a lobby with five seats (one leaves, two swap), a deck and commanders, the start, a turn, then life_changed, player_conceded and player_eliminated with real payloads (4.5), a commander_damage of 4 from the partner commander 2:1 to seat 1 (4.6), and the 16 types whose handlers are still no-ops with an empty payload (they only advance last_seq). Update this vector when a handler story gives one of those types real behaviour.",
+  "description": "Every registered event type (4) is accepted in one legal log: game_created at seq 1, a lobby with five seats (one leaves, two swap), a deck and commanders, the start, a turn, then life_changed, player_conceded and player_eliminated with real payloads (4.5), a commander_damage of 4 from the partner commander 2:1 to seat 1 (4.6), poison_changed, counter_changed, commander_cast, monarch_set and initiative_set with real payloads (4.7: seat 4 becomes the monarch and seat 5 holds the initiative; when seat 4 concedes and seat 5 is declared out, the active seat 1 receives both), and the 11 types whose handlers are still no-ops with an empty payload (they only advance last_seq). Update this vector when a handler story gives one of those types real behaviour.",
   "game_id": "018f0000-0000-7000-8000-000000000001",
   "settings": {
     "starting_life": 30,
@@ -268,7 +268,11 @@
     {
       "event_id": "00000000-0000-4000-8000-000000000018",
       "type": "poison_changed",
-      "payload": {},
+      "payload": {
+        "seat": 2,
+        "delta": 3,
+        "source_seat": 1
+      },
       "actor": {
         "kind": "player",
         "player_id": "018f0000-0000-7000-8000-0000000000a1"
@@ -279,7 +283,11 @@
     {
       "event_id": "00000000-0000-4000-8000-000000000019",
       "type": "counter_changed",
-      "payload": {},
+      "payload": {
+        "seat": 1,
+        "counter": "experience",
+        "delta": 2
+      },
       "actor": {
         "kind": "player",
         "player_id": "018f0000-0000-7000-8000-0000000000a1"
@@ -290,7 +298,11 @@
     {
       "event_id": "00000000-0000-4000-8000-000000000020",
       "type": "commander_cast",
-      "payload": {},
+      "payload": {
+        "seat": 2,
+        "commander": 1,
+        "delta": 1
+      },
       "actor": {
         "kind": "player",
         "player_id": "018f0000-0000-7000-8000-0000000000a1"
@@ -301,7 +313,9 @@
     {
       "event_id": "00000000-0000-4000-8000-000000000021",
       "type": "monarch_set",
-      "payload": {},
+      "payload": {
+        "seat": 4
+      },
       "actor": {
         "kind": "player",
         "player_id": "018f0000-0000-7000-8000-0000000000a1"
@@ -312,7 +326,9 @@
     {
       "event_id": "00000000-0000-4000-8000-000000000022",
       "type": "initiative_set",
-      "payload": {},
+      "payload": {
+        "seat": 5
+      },
       "actor": {
         "kind": "player",
         "player_id": "018f0000-0000-7000-8000-0000000000a1"
@@ -475,7 +491,7 @@
           "life": 23,
           "poison": 0,
           "energy": 0,
-          "experience": 0,
+          "experience": 2,
           "commander_cast": [0],
           "elimination_reason": null,
           "eliminated_by": null,
@@ -499,10 +515,10 @@
             }
           ],
           "life": 30,
-          "poison": 0,
+          "poison": 3,
           "energy": 0,
           "experience": 0,
-          "commander_cast": [0, 0],
+          "commander_cast": [0, 1],
           "elimination_reason": null,
           "eliminated_by": null,
           "eliminated_at_seq": null,
@@ -559,8 +575,8 @@
       "first_seat": 2,
       "turn": 2,
       "round": 1,
-      "monarch": null,
-      "initiative": null,
+      "monarch": 1,
+      "initiative": 1,
       "commander_damage": {
         "1": {
           "2:1": 4

@@ -12,6 +12,7 @@ export default function Play() {
       <Text testID="linked-packages">{linkedPackages.join(', ')}</Text>
       <AppButton label="Open details" onPress={() => router.push('/play/details')} />
       {__DEV__ ? <Link href="/dev/gesture-test">Gesture test</Link> : null}
+      {__DEV__ ? <Link href="/dev/charts">Chart kit</Link> : null}
     </View>
   );
 }

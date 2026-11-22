@@ -81,6 +81,7 @@ export function RootNavigator() {
           {/* Dev-only route: not registered in production builds. */}
           <Stack.Protected guard={__DEV__}>
             <Stack.Screen name="dev/gesture-test" options={{ headerShown: true }} />
+            <Stack.Screen name="dev/charts" options={{ headerShown: true }} />
           </Stack.Protected>
         </Stack>
       </View>

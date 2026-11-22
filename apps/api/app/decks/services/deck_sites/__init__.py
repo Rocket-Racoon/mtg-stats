@@ -1,5 +1,11 @@
 """Deck-site clients: the polite HTTP client and its Redis cache (S-4.2.1)."""
 
+from app.decks.services.deck_sites.archidekt import (
+    ArchidektUrlError,
+    archidekt_deck_url,
+    fetch_archidekt_deck,
+    parse_archidekt_url,
+)
 from app.decks.services.deck_sites.cache import CachedBody, DeckCache, cache_key
 from app.decks.services.deck_sites.http import (
     DeckFetched,
@@ -13,6 +19,7 @@ from app.decks.services.deck_sites.http import (
 )
 
 __all__ = [
+    "ArchidektUrlError",
     "CachedBody",
     "DeckCache",
     "DeckFetchFailed",
@@ -22,6 +29,9 @@ __all__ = [
     "DeckSiteClient",
     "DeckSiteHostError",
     "SiteConfig",
+    "archidekt_deck_url",
     "cache_key",
     "default_sites",
+    "fetch_archidekt_deck",
+    "parse_archidekt_url",
 ]

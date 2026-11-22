@@ -28,6 +28,9 @@ is not a reason here.
   cached. Media types are compared ignoring parameters and case; ``Accept`` may list several
   types, ``type/*`` and ``*/*`` match as usual; a missing ``Content-Type`` cannot contradict
   the request, so it is cached.
+* ``fetch(..., cache_body=...)`` lets site code veto caching of a 200 body (for example an error
+  body sent with a 200): the body is still returned. A callback that raises is logged and counts
+  as a veto, so it never turns a successful fetch into an exception.
 * The client is stateless: cookies are never stored or sent, and ``Accept-Encoding: identity`` is
   sent so a small compressed body cannot expand in memory before the size check (any HTTP server
   must serve identity).
@@ -219,13 +222,23 @@ class DeckSiteClient:
         await self._http.aclose()
 
     async def fetch(
-        self, site: str, deck_id: str, url: str, *, accept: str = DEFAULT_ACCEPT
+        self,
+        site: str,
+        deck_id: str,
+        url: str,
+        *,
+        accept: str = DEFAULT_ACCEPT,
+        cache_body: Callable[[bytes], bool] | None = None,
     ) -> DeckFetchResult:
         """Fetch a deck (``url`` on ``site``'s hosts), from the cache when fresh.
 
         The cache is keyed by ``site`` and ``deck_id`` only and ignores ``url``: a different path
         or query string with the same ``deck_id`` is a cache hit. The per-site code must pass a
         ``deck_id`` that uniquely identifies what is fetched.
+
+        ``cache_body``, when given, is asked about every 200 body that would be cached (right
+        media type); a False answer means the body is returned but not stored. Site code uses it
+        to keep error bodies sent with a 200 (a private deck) out of the cache.
 
         Raises:
             DeckSiteHostError: unregistered site, or a URL that is not acceptable (see
@@ -257,8 +270,10 @@ class DeckSiteClient:
                         config, deck_id, target, accept, deadline
                     )
                     # Written before the slot is released, so a queued fetch finds it.
-                    if isinstance(result, DeckFetched) and _media_type_matches(
-                        accept, result.content_type
+                    if (
+                        isinstance(result, DeckFetched)
+                        and _media_type_matches(accept, result.content_type)
+                        and _may_cache(cache_body, result.body, site)
                     ):
                         await self._cache.set(
                             site, deck_id, CachedBody(result.body, result.content_type)
@@ -346,6 +361,17 @@ class DeckSiteClient:
             chunks.append(chunk)
         content_type = response.headers.get("Content-Type", "")
         return _Attempt(fetched=DeckFetched(site, deck_id, b"".join(chunks), content_type, False))
+
+
+def _may_cache(cache_body: Callable[[bytes], bool] | None, body: bytes, site: str) -> bool:
+    """The site's verdict on caching ``body``; a callback that raises means "do not cache"."""
+    if cache_body is None:
+        return True
+    try:
+        return bool(cache_body(body))
+    except Exception:
+        logger.exception("deck site %s cache_body callback raised; not caching", site)
+        return False
 
 
 def _media_type_matches(accept: str, content_type: str) -> bool:

@@ -500,3 +500,96 @@ async def test_the_invite_body_validates_the_token(
     for body in ({}, {"token": ""}, {"token": "x" * 129}):
         response = await client.post(JOIN, json=body, headers=newcomer)
         assert response.status_code == 422
+
+
+# ------------------------------------------------- join order of checks: members vs dead invites
+
+
+@pytest.mark.parametrize("state", ["used", "expired", "revoked"])
+@pytest.mark.parametrize("role", ["member", "admin", "owner"])
+async def test_a_member_reopening_a_dead_invite_is_told_they_are_already_in(
+    client: httpx.AsyncClient, app_schema: AppSession, state: str, role: str
+) -> None:
+    owner_id, _, owner = await make_user(app_schema)
+    _, player_id, other = await make_user(app_schema)
+    group_id = await _group(client, owner, "Friday Night")
+    await join(app_schema, group_id, player_id, "member" if role == "owner" else role)
+    token = await _group_invite(app_schema, group_id, owner_id, **_dead(state))
+    uses = await use_count_of(app_schema, token)
+    memberships = await _count(app_schema, "SELECT count(*) FROM memberships")
+    caller = owner if role == "owner" else other
+    response = await client.post(JOIN, json={"token": token}, headers=caller)
+    assert response.status_code == 200
+    assert response.json()["already_member"] is True
+    assert response.json()["playgroup"]["name"] == "Friday Night"
+    assert await use_count_of(app_schema, token) == uses
+    assert await _count(app_schema, "SELECT count(*) FROM memberships") == memberships
+
+
+async def test_joining_with_a_single_use_link_then_reopening_it_says_already_in(
+    client: httpx.AsyncClient, app_schema: AppSession
+) -> None:
+    owner_id, _, owner = await make_user(app_schema)
+    _, _, newcomer = await make_user(app_schema)
+    group_id = await _group(client, owner)
+    token = await _group_invite(app_schema, group_id, owner_id)
+    assert (await client.post(JOIN, json={"token": token}, headers=newcomer)).status_code == 200
+    again = await client.post(JOIN, json={"token": token}, headers=newcomer)
+    assert again.status_code == 200
+    assert again.json()["already_member"] is True
+    assert await use_count_of(app_schema, token) == 1
+
+
+@pytest.mark.parametrize("state", ["used", "expired", "revoked"])
+async def test_a_former_member_with_a_dead_invite_gets_410(
+    client: httpx.AsyncClient, app_schema: AppSession, state: str
+) -> None:
+    owner_id, _, owner = await make_user(app_schema)
+    _, player_id, former = await make_user(app_schema)
+    group_id = await _group(client, owner)
+    await join(app_schema, group_id, player_id, "member", left=True)
+    token = await _group_invite(app_schema, group_id, owner_id, **_dead(state))
+    response = await client.post(JOIN, json={"token": token}, headers=former)
+    assert_envelope(response, 410, "invite_no_longer_valid")
+
+
+@pytest.mark.parametrize("state", ["used", "expired", "revoked", "unknown"])
+async def test_a_non_member_gets_the_same_410_for_every_dead_state(
+    client: httpx.AsyncClient, app_schema: AppSession, state: str
+) -> None:
+    owner_id, _, owner = await make_user(app_schema)
+    _, _, outsider = await make_user(app_schema)
+    group_id = await _group(client, owner)
+    token = new_token()
+    if state != "unknown":
+        token = await _group_invite(app_schema, group_id, owner_id, **_dead(state))
+    response = await client.post(JOIN, json={"token": token}, headers=outsider)
+    error = assert_envelope(response, 410, "invite_no_longer_valid")
+    assert error["message"] == "Invite no longer valid."
+    assert error["details"] is None
+
+
+@pytest.mark.parametrize("state", ["used", "expired", "revoked"])
+async def test_a_member_of_another_playgroup_gets_410_for_a_dead_invite(
+    client: httpx.AsyncClient, app_schema: AppSession, state: str
+) -> None:
+    owner_id, _, owner = await make_user(app_schema)
+    _, other_owner_player, other_owner = await make_user(app_schema)
+    group_id = await _group(client, owner)
+    await _group(client, other_owner, "Elsewhere")
+    token = await _group_invite(app_schema, group_id, owner_id, **_dead(state))
+    response = await client.post(JOIN, json={"token": token}, headers=other_owner)
+    assert_envelope(response, 410, "invite_no_longer_valid")
+    assert await _memberships(app_schema, group_id, other_owner_player) == []
+
+
+async def test_a_deactivated_member_gets_401_before_the_already_member_answer(
+    client: httpx.AsyncClient, app_schema: AppSession
+) -> None:
+    owner_id, _, owner = await make_user(app_schema)
+    user_id, headers = await make_account(app_schema, active=False)
+    group_id = await _group(client, owner)
+    token = await _group_invite(app_schema, group_id, owner_id)
+    response = await client.post(JOIN, json={"token": token}, headers=headers)
+    assert_envelope(response, 401, "unauthenticated")
+    assert user_id is not None

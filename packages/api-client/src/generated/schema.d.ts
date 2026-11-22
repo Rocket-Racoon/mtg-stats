@@ -318,10 +318,12 @@ export interface paths {
          * @description Confirm "Join <playgroup>" as the signed-in user: they become a `member`.
          *
          *     The invite's use count goes up in the same transaction. A user who is already an active
-         *     member (the owner and admins included) gets 200 with `already_member: true`; nothing changes
-         *     and no use is counted. A former member joins again with a new membership. A revoked,
-         *     expired, used-up or unknown token, or a site-level invite with no playgroup, is a 410
-         *     `invite_no_longer_valid`. The token is in the body so it never reaches a URL or a log.
+         *     member of the invite's playgroup (the owner and admins included) gets 200 with
+         *     `already_member: true` whatever the invite's state, so re-opening a used-up link says
+         *     "You're already in <name>"; nothing changes and no use is counted. Everyone else needs an
+         *     active invite: a revoked, expired or used-up token is a 410 `invite_no_longer_valid`, the
+         *     same answer as for an unknown token or a site-level invite (a former member joins again with
+         *     a new membership). The token is in the body so it never reaches a URL or a log.
          */
         post: operations["playgroups_join_with_invite"];
         delete?: never;

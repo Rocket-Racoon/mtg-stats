@@ -334,28 +334,44 @@ class JoinResult:
 async def join_with_invite(session: AsyncSession, *, user_id: UUID, token: str) -> JoinResult:
     """Join the invite's playgroup as the signed-in user (the "Join <P>" confirmation).
 
-    In one transaction: lock the invite (:func:`lock_invite`), then either report that the user
-    is already an active member (no use counted; the owner and admins included) or count one use
-    and insert a ``member`` membership. A former member gets a new row. If a concurrent join of
-    the same user through another invite wins the unique index, the use is rolled back with a
-    savepoint and the result is ``already_member``. Never commits.
+    Order of checks:
+
+    1. The account must be active (401).
+    2. The token must name a playgroup invite, in any state; an unknown token or a site-level
+       invite is a 410. This read takes no lock.
+    3. A caller who is already an active member of that playgroup (the owner and admins
+       included) gets ``already_member`` whatever the invite's state: nothing is locked, counted
+       or changed. This is what makes re-opening a used-up single-use link say "You're already
+       in <P>". Only an active member gets this answer, and a member already knows the group
+       exists, so a non-member learns nothing: for them revoked, expired, used-up and unknown
+       tokens are all the same 410. A former member, or a member of another playgroup, is a
+       non-member here.
+    4. Otherwise lock the invite (:func:`lock_invite`, 410 if it is not active), count one use
+       and insert a ``member`` membership. A former member gets a new row.
+
+    Lock order stays invite row first, then memberships; step 3 takes no lock, so it cannot
+    deadlock with a concurrent join. If a concurrent join of the same user through another invite
+    wins the unique index, the use is rolled back with a savepoint and the result is
+    ``already_member``. Never commits.
 
     Raises:
         AuthenticationError: the account is unknown or deactivated (401).
         NotFoundError: the user has no player.
-        InviteNoLongerValidError: revoked, expired, used up or unknown, or a site-level invite
-            that has no playgroup to join (410).
+        InviteNoLongerValidError: unknown, or a site-level invite, or (for a non-member)
+            revoked, expired or used up (410).
     """
     if await identity_services.get_me(session, user_id) is None:
         raise AuthenticationError
     player_id = await player_id_for_user(session, user_id)
-    invite = await lock_invite(session, token)
-    if invite.playgroup_id is None:
+    token_hash = hash_invite_token(token)
+    seen = await repository.get_invite_by_hash(session, token_hash)
+    if seen is None or seen.playgroup_id is None:
         raise InviteNoLongerValidError
-    playgroup_id = invite.playgroup_id
+    playgroup_id = seen.playgroup_id
     existing = await repository.get_active_membership(session, playgroup_id, player_id)
     if existing is not None:
         return JoinResult(already_member=True, playgroup=info_of(existing))
+    invite = await lock_invite(session, token)
     try:
         async with session.begin_nested():
             await consume_invite(session, invite.id, player_id=player_id)

@@ -58,6 +58,51 @@ _STRING_TOKEN: Final = re.compile(r'"(?:[^"\\]|\\.)*"', re.DOTALL)
 _WHITESPACE: Final = re.compile(r"[ \t\r\n]*")
 
 
+_PARSE_INT_LIMIT: Final = 4000  # below Python's default 4300-digit int(str) limit
+
+
+class HugeInteger(int):
+    """An integer token too long to convert with ``int(str)`` (the interpreter's digit limit).
+
+    The limit is global state and is left alone. The value stands in as the nearest unsafe integer
+    of the same sign (2**53 or -2**53), which every rule here and the reducer treat the same as
+    the real number: any integer beyond the safe range is rejected. ``token`` keeps the text.
+    """
+
+    token: str
+
+    def __new__(cls, token: str) -> HugeInteger:
+        self = super().__new__(cls, -(SAFE_MAX + 1) if token.startswith("-") else SAFE_MAX + 1)
+        self.token = token
+        return self
+
+
+def _parse_int(token: str) -> int:
+    return HugeInteger(token) if len(token) > _PARSE_INT_LIMIT else int(token)
+
+
+def _outside_safe_range(digits_text: str) -> bool:
+    """Whether an integer's decimal text (optional ``-``, no leading zeros) is beyond 2**53-1.
+
+    Decided from the text, so no ``int()`` call on a possibly huge string.
+    """
+    digits = digits_text.lstrip("-")
+    return len(digits) > len(str(SAFE_MAX)) or (
+        len(digits) == len(str(SAFE_MAX)) and digits > str(SAFE_MAX)
+    )
+
+
+def strip_huge_integers(value: Any) -> Any:
+    """Copy of a parsed value with each ``HugeInteger`` replaced by a plain ``int``."""
+    if isinstance(value, HugeInteger):
+        return int(value)
+    if isinstance(value, list):
+        return [strip_huge_integers(item) for item in value]
+    if isinstance(value, dict):
+        return {key: strip_huge_integers(item) for key, item in value.items()}
+    return value
+
+
 @dataclass(frozen=True)
 class ValidationResult:
     """Outcome of validating one vector file: its messages and, when it parsed, its value."""
@@ -190,7 +235,7 @@ def _number_token_messages(numbers: Iterable[tuple[str, str]]) -> list[str]:
                 )
         elif fractional:
             found.append(f"{path} must be an integer (found the number token {token})")
-        elif abs(int(token)) > SAFE_MAX:
+        elif _outside_safe_range(token):
             found.append(f"{path} must be an integer in the safe range (found {token})")
     return found
 
@@ -440,7 +485,7 @@ def _value_problem(kind: str, value: object) -> str | None:
                 return None
         return "must be decimal text of a non-integer number"
     if kind == "integer":
-        if text is not None and _INTEGER_TEXT.fullmatch(text) and abs(int(text)) > SAFE_MAX:
+        if text is not None and _INTEGER_TEXT.fullmatch(text) and _outside_safe_range(text):
             return None
         return "must be decimal text of an integer outside the safe range"
     if kind == "lone_surrogate":
@@ -451,7 +496,12 @@ def _value_problem(kind: str, value: object) -> str | None:
         ):
             return None
         return "must be the 4-digit hex code of a surrogate code unit (d800 to dfff)"
-    if text is not None and _POSITIVE_INTEGER_TEXT.fullmatch(text) and int(text) <= 10000:
+    if (
+        text is not None
+        and _POSITIVE_INTEGER_TEXT.fullmatch(text)
+        and len(text) <= 5
+        and int(text) <= 10000
+    ):
         return None
     return "must be decimal text of an integer from 1 to 10000"
 
@@ -466,7 +516,7 @@ def validate_vector_text(file: str, text: str) -> ValidationResult:
     order, each as ``<file>: <path> <message>``.
     """
     try:
-        parsed = json.loads(text, parse_constant=_reject_constant)
+        parsed = json.loads(text, parse_constant=_reject_constant, parse_int=_parse_int)
     except (ValueError, RecursionError) as error:
         return ValidationResult((f"{file}: invalid JSON: {error}",), None)
     if not isinstance(parsed, dict):

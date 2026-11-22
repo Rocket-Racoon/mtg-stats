@@ -18,7 +18,11 @@ from app.games.core import (
     canonical_json,
     initial_state,
 )
-from app.games.tests.vector_validator import ValidationResult, validate_vector_text
+from app.games.tests.vector_validator import (
+    ValidationResult,
+    strip_huge_integers,
+    validate_vector_text,
+)
 
 
 class VectorError(Exception):
@@ -155,7 +159,10 @@ def run_vector_file(path: Path) -> None:
     result = validate_file(path)
     if not result.ok or result.value is None:
         raise VectorError("\n".join(result.messages))
-    if result.value["kind"] == "canonical_json":
-        _run_canonical(path.name, result.value)
+    # An over-long integer token is carried as a HugeInteger (see vector_validator); the reducer
+    # sees a plain out-of-range int, so it answers with its own code.
+    value = strip_huge_integers(result.value)
+    if value["kind"] == "canonical_json":
+        _run_canonical(path.name, value)
     else:
-        _run_reducer(path.name, result.value)
+        _run_reducer(path.name, value)

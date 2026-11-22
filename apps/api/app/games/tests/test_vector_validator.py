@@ -516,3 +516,35 @@ def test_runner_reports_a_state_mismatch_with_both_texts(tmp_path: Path) -> None
     path = write(tmp_path, reducer(events=[], expect={"state": {"a": 1}}))
     with pytest.raises(VectorError, match=r"final state differs\nexpected: .*\nactual: "):
         run_vector_file(path)
+
+
+GAME = "018f0000-0000-7000-8000-000000000001"
+
+
+def test_over_long_integer_tokens_never_hit_the_interpreter_digit_limit(tmp_path: Path) -> None:
+    big = "9" * 5000
+    event = (
+        '{"event_id": "00000000-0000-4000-8000-000000000001", '
+        '"type": "turn_passed", "payload": {"seat": ' + big + '}, "actor": {"kind": "player", '
+        '"player_id": "018f0000-0000-7000-8000-0000000000a1"}, '
+        '"on_behalf_of_seat": null, "v": 1}'
+    )
+    text = (
+        raw(f"[{event}]")
+        .replace('"game_id": "g"', '"game_id": "' + GAME + '"')
+        .replace(
+            '"expect": {"state": {}}',
+            '"expect": {"error": {"index": 0, "code": "invalid_payload"}}',
+        )
+    )
+    assert msgs(text) == []
+    path = tmp_path / "case-file.json"
+    path.write_text(text, encoding="utf-8")
+    run_vector_file(path)  # the reducer rejects the out-of-range integer with its own code
+    negative = text.replace(big, "-" + big)
+    path.write_text(negative, encoding="utf-8")
+    run_vector_file(path)
+    outside = msgs(text.replace('"settings": {}', '"settings": {"starting_life": ' + big + "}"))
+    assert outside == [
+        f"{F}: settings.starting_life must be an integer in the safe range (found {big})"
+    ]

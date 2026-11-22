@@ -47,6 +47,7 @@ from tests.games_rebuild_support import (
     SECRETS,
     append_steps,
     event_rows,
+    fold,
     independent_state,
     lobby_steps,
     read_game,
@@ -645,6 +646,9 @@ async def test_a_committed_game_with_2000_events_is_rebuilt_in_under_500_ms(
             assert result.written
             assert result.event_count == 2000
     await assert_snapshot_is_the_replay(rig, game_id)
+    async with rig.b() as session:
+        full = fold(game_id, await wire_events(session, game_id))
+    assert full.last_seq == 2000  # the reducer accepts every event of the log
     with capsys.disabled():
         print(f"\ncommitted rebuild of 2000 events (s): {[round(t, 4) for t in timings]}")  # noqa: T201
     assert min(timings) < LIMIT_SECONDS, f"timings: {timings}"

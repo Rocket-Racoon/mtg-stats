@@ -35,12 +35,15 @@ from app.games.services import (
     rebuild_state,
 )
 from tests.games_rebuild_support import (
-    NINE_HANDLER_TYPES,
+    IMPLEMENTED_TYPES,
     SECRETS,
+    Step,
     append_steps,
+    elimination_steps,
     event_rows,
     fold,
     independent_state,
+    lobby_steps,
     read_game,
     real_steps,
     set_snapshot,
@@ -74,14 +77,15 @@ class Ctx:
         return fold(self.game_id, self.wire[:k]).to_json_value()
 
 
-async def real_game(session: AsyncSession) -> Ctx:
+async def real_game(session: AsyncSession, steps: list[Step] | None = None) -> Ctx:
     """A game whose log came from ``games.append_event`` and whose snapshot is healthy."""
+    steps = real_steps() if steps is None else steps
     game_id = await make_game(session)
-    await append_steps(session, game_id, real_steps())
+    await append_steps(session, game_id, steps)
     wire = await wire_events(session, game_id)
     state, count = await independent_state(session, game_id)
     row = await read_game(session, game_id)
-    assert row.last_seq == count == len(real_steps())
+    assert row.last_seq == count == len(steps)
     assert state_bytes(row.state) == state_bytes(state.to_json_value())  # healthy to begin with
     return Ctx(game_id, copy.deepcopy(row.state), count, wire)
 
@@ -195,18 +199,105 @@ async def test_a_damaged_snapshot_is_replaced_by_the_replay_of_the_log_and_the_m
     assert "Injected Name" not in logged
 
 
-async def test_the_replayed_game_went_through_every_handler_implemented_so_far(
+async def test_the_replayed_games_went_through_every_handler_the_reducer_implements(
     app_schema: AsyncSession,
 ) -> None:
-    ctx = await real_game(app_schema)
-    assert {e["type"] for e in ctx.wire} >= NINE_HANDLER_TYPES
-    state = ctx.state
+    played = await real_game(app_schema)
+    eliminated = await real_game(app_schema, elimination_steps())
+    types = {e["type"] for e in [*played.wire, *eliminated.wire]}
+    assert types >= IMPLEMENTED_TYPES
+    assert len(IMPLEMENTED_TYPES) == 12  # nine of S-6.1.6 and the three of S-6.1.3
+    state = played.state
     assert state["phase"] == "active"
     assert state["settings"]["starting_life"] == 30
     assert state["first_seat"] == 3
     assert [s["seat"] for s in state["seats"]] == [1, 2, 3, 4]  # seat 5 joined and left
-    assert state["turn"] == 9
-    assert state["last_seq"] == ctx.count
+    assert state["last_seq"] == played.count
+    by_seat = {s["seat"]: s for s in state["seats"]}
+    assert by_seat[3]["elimination_reason"] == "life"  # life_changed took seat 3 to 0
+    assert by_seat[2]["elimination_reason"] == "concession"
+    assert by_seat[1]["eliminated_at_seq"] is None
+    assert by_seat[1]["life"] == 23
+
+
+async def test_the_elimination_game_reaches_one_seat_left_and_then_a_full_draw(
+    app_schema: AsyncSession,
+) -> None:
+    ctx = await real_game(app_schema, elimination_steps())
+    last_but_one = ctx.prefix(ctx.count - 2)  # one seat left, before its life change
+    alive = [s["seat"] for s in last_but_one["seats"] if s["eliminated_at_seq"] is None]
+    assert alive == [1]
+    assert last_but_one["no_winner"] is False
+    seats = {s["seat"]: s for s in ctx.state["seats"]}
+    assert seats[2]["elimination_reason"] == "life"
+    assert seats[2]["eliminated_by"] == 1
+    assert seats[4]["elimination_reason"] == "concession"
+    assert seats[3]["elimination_reason"] == "declared"
+    assert seats[3]["elimination_cause"] == "mill"
+    assert seats[1]["elimination_reason"] == "concession"
+    assert ctx.state["no_winner"] is True  # the last seat conceded
+
+
+def _wipe_elimination(state: dict[str, Any]) -> None:
+    for seat in state["seats"]:
+        for key in (
+            "elimination_reason",
+            "eliminated_by",
+            "eliminated_at_seq",
+            "eliminated_round",
+            "elimination_cause",
+        ):
+            seat[key] = None
+
+
+def _revive_seat_2(state: dict[str, Any]) -> None:
+    seat = next(s for s in state["seats"] if s["seat"] == 2)
+    seat.update(
+        elimination_reason=None, eliminated_by=None, eliminated_at_seq=None, eliminated_round=None
+    )
+    seat["life"] = 30
+
+
+ELIMINATION_DAMAGES: dict[str, Damage] = {
+    "eliminated_seat_shown_alive": _edit(_revive_seat_2),
+    "elimination_fields_wiped": _edit(_wipe_elimination),
+    "no_winner_flipped": _set("no_winner", False),
+    "cause_and_eliminator_swapped": _edit(
+        lambda s: s["seats"][2].update(elimination_cause="combo", eliminated_by=4)
+    ),
+    "stale_prefix_before_the_eliminations": lambda ctx: (ctx.prefix(len(lobby_steps()) + 2), 13),
+    "stale_prefix_one_seat_left": lambda ctx: (ctx.prefix(ctx.count - 1), ctx.count - 1),
+}
+
+
+@pytest.mark.parametrize("damage", ELIMINATION_DAMAGES.values(), ids=ELIMINATION_DAMAGES.keys())
+async def test_a_damaged_snapshot_of_a_game_with_eliminations_is_rebuilt_from_the_log(
+    app_schema: AsyncSession, caplog: pytest.LogCaptureFixture, damage: Damage
+) -> None:
+    ctx = await real_game(app_schema, elimination_steps())
+    damaged, column = damage(ctx)
+    assert state_bytes(damaged) != state_bytes(ctx.state)
+    await set_snapshot(app_schema, ctx.game_id, damaged, column)
+    with caplog.at_level(logging.DEBUG):
+        result = await rebuild_state(app_schema, ctx.game_id, now=NOW)
+    row = await read_game(app_schema, ctx.game_id)
+    assert result.written
+    assert state_bytes(row.state) == state_bytes(ctx.prefix(ctx.count))
+    assert state_bytes(row.state) == state_bytes(ctx.state)
+    assert row.last_seq == ctx.count
+    assert len(app_records(caplog, MISMATCH)) == 1
+    for secret in SECRETS:
+        assert secret not in everything_logged(caplog), secret
+
+
+async def test_a_healthy_game_with_eliminations_is_a_match(
+    app_schema: AsyncSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    ctx = await real_game(app_schema, elimination_steps())
+    with caplog.at_level(logging.DEBUG):
+        result = await rebuild_state(app_schema, ctx.game_id)
+    assert not result.changed
+    assert app_records(caplog, MISMATCH) == []
 
 
 async def test_a_healthy_snapshot_is_left_alone_and_logged_as_a_match(
@@ -486,6 +577,9 @@ async def test_a_game_with_2000_events_is_rebuilt_in_under_500_ms(
     await app_schema.flush()
     expected = state_bytes(fold(game_id, envelopes).to_json_value())
     assert {e["type"] for e in envelopes} >= {"turn_passed", "life_changed", "seat_moved"}
+    full = fold(game_id, envelopes)  # fails the test if the reducer rejects any event
+    assert full.last_seq == EVENTS
+    assert all(seat.eliminated_at_seq is None for seat in full.seats)
 
     await set_snapshot(app_schema, game_id, DAMAGED, 0)
     await rebuild_state(app_schema, game_id)  # warm-up: imports, statement cache, first plan

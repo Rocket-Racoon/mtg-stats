@@ -15,6 +15,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.games.core.handlers import HANDLERS
 from app.games.services import (
     Appended,
     GameState,
@@ -49,19 +50,8 @@ SECRETS = (
     "Commander Seedname Three",
 )
 
-NINE_HANDLER_TYPES = frozenset(
-    {
-        "game_created",
-        "settings_changed",
-        "seat_joined",
-        "seat_left",
-        "seat_moved",
-        "deck_assigned",
-        "commanders_set",
-        "game_started",
-        "turn_passed",
-    }
-)
+IMPLEMENTED_TYPES = frozenset(HANDLERS)
+"""The event types the reducer really handles (the rest of the registry are no-ops)."""
 
 Step = tuple[str, dict[str, Any]]
 
@@ -120,6 +110,32 @@ def play_steps() -> list[Step]:
         ("turn_passed", {}),
         ("turn_passed", {}),
         ("seat_moved", {"from": 1, "to": 4, "correction": True}),
+    ]
+
+
+def elimination_steps() -> list[Step]:
+    """A game played down to one seat left, then the last seat concedes (a full draw).
+
+    Starting life is 30. Seat 2 is taken out by seat 1's ``life_changed`` (with a source), seat 4
+    concedes, ``turn_passed`` skips the eliminated seats, the host declares seat 3 out with a
+    cause, one seat (1) is left, and finally it concedes, which sets ``no_winner``.
+    """
+    return [
+        *lobby_steps(),
+        ("game_started", {"first_seat": 1, "started_at": STARTED_AT}),
+        ("turn_passed", {}),
+        ("life_changed", {"seat": 3, "delta": -12, "source_seat": 1}),
+        ("life_changed", {"seat": 2, "delta": -45, "source_seat": 1}),
+        ("turn_passed", {}),
+        ("turn_passed", {}),
+        ("player_conceded", {"seat": 4}),
+        ("turn_passed", {}),
+        ("life_changed", {"seat": 3, "delta": 5}),
+        ("player_eliminated", {"seat": 3, "cause": "mill"}),
+        ("turn_passed", {}),
+        ("turn_passed", {}),
+        ("life_changed", {"seat": 1, "delta": -2}),
+        ("player_conceded", {"seat": 1}),
     ]
 
 
@@ -295,6 +311,7 @@ def shaped_log(game_id: UUID, total: int) -> list[dict[str, Any]]:
         ("game_started", {"first_seat": 2, "started_at": "2026-11-21T12:00:00.000Z"}),
     ]
     step = 0
+    changes = 0
     while len(specs) < total:
         step += 1
         if step % 25 == 0:
@@ -302,7 +319,10 @@ def shaped_log(game_id: UUID, total: int) -> list[dict[str, Any]]:
                 ("seat_moved", {"from": 1 + step % 6, "to": 1 + (step + 2) % 6, "correction": True})
             )
         elif step % 3 == 0:
-            specs.append(("life_changed", {"seat": 1 + step % 6, "delta": -(step % 5) - 1}))
+            # Each seat loses 3 once, then gains 3 back: life stays between 37 and 40 (never 0).
+            delta = -3 if changes % 12 < 6 else 3
+            specs.append(("life_changed", {"seat": 1 + changes % 6, "delta": delta}))
+            changes += 1
         else:
             specs.append(("turn_passed", {}))
     return [

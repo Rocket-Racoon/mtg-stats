@@ -1,0 +1,138 @@
+{
+  "format": 1,
+  "kind": "reducer",
+  "name": "reject-commander-damage-commander-1-after-the-partners-were-replaced",
+  "description": "Commander indexes follow the last commanders given in the lobby (4.6, 4.4.8): seat 2 was given partners, then one commander with commanders_set, so commander 1 of seat 2 is unknown_commander.",
+  "game_id": "018f0000-0000-7000-8000-000000000001",
+  "settings": {
+    "starting_life": 40,
+    "commander_damage_threshold": 21,
+    "poison_threshold": 10,
+    "trust_mode": "casual"
+  },
+  "events": [
+    {
+      "event_id": "00000000-0000-4000-8000-000000000001",
+      "type": "seat_joined",
+      "payload": {
+        "seat": 1,
+        "player_id": "018f0000-0000-7000-8000-0000000000b1",
+        "name": "Seat 1"
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000002",
+      "type": "seat_joined",
+      "payload": {
+        "seat": 2,
+        "player_id": "018f0000-0000-7000-8000-0000000000b2",
+        "name": "Seat 2"
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000003",
+      "type": "seat_joined",
+      "payload": {
+        "seat": 3,
+        "player_id": "018f0000-0000-7000-8000-0000000000b3",
+        "name": "Seat 3"
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000004",
+      "type": "commanders_set",
+      "payload": {
+        "seat": 2,
+        "commanders": [
+          {
+            "card_id": "018f0000-0000-7000-8000-0000000000c2",
+            "name": "Partner A"
+          },
+          {
+            "card_id": "018f0000-0000-7000-8000-0000000000e2",
+            "name": "Partner B"
+          }
+        ]
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000005",
+      "type": "commanders_set",
+      "payload": {
+        "seat": 2,
+        "commanders": [
+          {
+            "card_id": null,
+            "name": "Solo"
+          }
+        ]
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000006",
+      "type": "game_started",
+      "payload": {
+        "first_seat": 1,
+        "started_at": "2026-11-21T12:00:00.000Z"
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000007",
+      "type": "commander_damage",
+      "payload": {
+        "source_seat": 2,
+        "commander": 1,
+        "target_seat": 3,
+        "amount": 1
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    }
+  ],
+  "expect": {
+    "error": {
+      "index": 6,
+      "code": "unknown_commander"
+    }
+  }
+}

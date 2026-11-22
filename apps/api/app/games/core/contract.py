@@ -7,6 +7,8 @@ Pure: no clock, randomness or I/O.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Annotated, Any, Final, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
@@ -203,6 +205,7 @@ class GameState(_Frozen):
     seats: Annotated[list[Seat], Field(max_length=8)]
     order: list[SeatId]
     active_seat: SeatId | None
+    first_seat: SeatId | None
     turn: NonNegativeInt
     round: NonNegativeInt
     monarch: SeatId | None
@@ -221,6 +224,13 @@ class GameState(_Frozen):
         """Return the state as plain JSON values, ready for ``canonical_json``."""
         # warnings=False: initial_state stores unvalidated settings (section 3.5).
         return self.model_dump(mode="json", warnings=False)
+
+
+@dataclass(frozen=True)
+class ReducerError:
+    """A rejected event; the caller keeps the previous state."""
+
+    code: ReducerErrorCode
 
 
 class Actor(_Frozen):
@@ -267,3 +277,7 @@ class EventEnvelope(_Frozen):
             if data[key] is None:
                 del data[key]
         return data
+
+
+Handler = Callable[[GameState, EventEnvelope, int], GameState | ReducerError]
+"""A handler gets the state, the validated envelope and the seq to record; returns the new state."""

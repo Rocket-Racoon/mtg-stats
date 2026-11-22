@@ -50,6 +50,7 @@ def initial_state(game_id: str, settings: Settings | Mapping[str, Any] | None = 
         seats=[],
         order=[],
         active_seat=None,
+        first_seat=None,
         turn=0,
         round=0,
         monarch=None,

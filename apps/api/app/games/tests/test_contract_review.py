@@ -11,12 +11,12 @@ import re
 import pytest
 
 from app.games.core import (
+    ApplyError,
     ApplyOk,
     apply,
-    canonical_json,
     initial_state,
 )
-from app.games.core.contract import SUPPORTED_VERSIONS
+from app.games.core.contract import DEFAULT_SETTINGS, SUPPORTED_VERSIONS
 from app.games.tests.repo_files import contract_text
 
 GAME_ID = "018f0000-0000-7000-8000-000000000001"
@@ -113,7 +113,7 @@ def test_versioning_rules_are_stated(contract: str) -> None:
     )
 
 
-def test_not_yet_enforced_rules_are_stated_and_really_not_enforced(contract: str) -> None:
+def test_not_yet_enforced_rules_are_stated_and_the_rest_really_not_enforced(contract: str) -> None:
     text = section(contract, "### 4.3 Specified but not yet enforced")
     for phrase in (
         "valid **only as the event at `seq` 1**",
@@ -136,14 +136,18 @@ def test_not_yet_enforced_rules_are_stated_and_really_not_enforced(contract: str
         }
 
     state = initial_state(GAME_ID)
-    first = apply(state, make("game_created", {"settings": {}}))
+    settings = {**DEFAULT_SETTINGS, "starting_life": 30}
+    first = apply(state, make("game_created", {"settings": settings}))
     assert isinstance(first, ApplyOk)
-    again = apply(first.state, make("game_created", {"settings": {"starting_life": 0}}, seq=2))
-    assert isinstance(again, ApplyOk)  # not enforced yet: no invalid_phase
-    assert canonical_json(again.state.settings.model_dump()) == canonical_json(
-        state.settings.model_dump()
-    )
-    assert isinstance(apply(state, make("turn_passed", {})), ApplyOk)
+    assert first.state.settings.model_dump() == settings
+    again = apply(first.state, make("game_created", {"settings": settings}, seq=2))
+    assert isinstance(again, ApplyError)  # S-6.1.6 enforces seq 1 only (4.4.2)
+    assert again.error.code == "invalid_phase"
+    bad = apply(state, make("game_created", {"settings": {**settings, "starting_life": 0}}))
+    assert isinstance(bad, ApplyError)
+    assert bad.error.code == "invalid_setting"
+    assert initial_state(GAME_ID, {"starting_life": 0}).settings.starting_life == 0
+    assert isinstance(apply(state, make("settings_changed", {})), ApplyOk)
     reverted = apply(state, make("event_reverted", {"target_seq": 1}))
     assert isinstance(reverted, ApplyOk)
     assert reverted.state.reverted == []

@@ -1,13 +1,14 @@
 """The reducer entry point ``apply(state, event)`` (CONTRACT.md section 6).
 
 Pure: no clock, randomness or I/O. ``ts`` is never read; time and chance arrive in payloads.
-Every handler is a no-op that only advances ``last_seq`` until the story that introduces it
+The lobby, seat and turn handlers (S-6.1.6, section 4.4) are in ``handlers.py``. Every other
+handler is a no-op that only advances ``last_seq`` until the story that introduces it
 (section 4, "Introduced by") fills it in.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, Final
 
@@ -24,15 +25,11 @@ from app.games.core.contract import (
     SUPPORTED_VERSIONS,
     EventEnvelope,
     GameState,
+    Handler,
+    ReducerError,
     ReducerErrorCode,
 )
-
-
-@dataclass(frozen=True)
-class ReducerError:
-    """A rejected event; the caller keeps the previous state."""
-
-    code: ReducerErrorCode
+from app.games.core.handlers import HANDLERS
 
 
 @dataclass(frozen=True)
@@ -73,16 +70,13 @@ class ReplayError:
 
 ReplayResult = ReplayOk | ReplayError
 
-Handler = Callable[[GameState, EventEnvelope, int], GameState | ReducerError]
-"""A handler gets the state, the validated envelope and the seq to record; returns the new state."""
-
 
 def _noop(state: GameState, event: EventEnvelope, seq: int) -> GameState:
     return state.model_copy(update={"last_seq": seq})
 
 
-REGISTRY: Final[Mapping[str, Handler]] = dict.fromkeys(EVENT_TYPES, _noop)
-"""One handler per registered type (section 4)."""
+REGISTRY: Final[Mapping[str, Handler]] = {**dict.fromkeys(EVENT_TYPES, _noop), **HANDLERS}
+"""One handler per registered type (section 4); the nine of S-6.1.6 live in ``handlers.py``."""
 
 
 def _reject(code: ReducerErrorCode) -> ApplyError:

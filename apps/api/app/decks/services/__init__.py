@@ -1,6 +1,7 @@
 """Public interface of the ``decks`` domain; other code imports only from here."""
 
 from app.decks.services.deck_sites import (
+    ArchidektUrlError,
     DeckFetched,
     DeckFetchFailed,
     DeckFetchFailure,
@@ -8,7 +9,10 @@ from app.decks.services.deck_sites import (
     DeckSiteClient,
     DeckSiteHostError,
     SiteConfig,
+    archidekt_deck_url,
     default_sites,
+    fetch_archidekt_deck,
+    parse_archidekt_url,
 )
 from app.decks.services.text_parser import (
     Board,
@@ -19,6 +23,7 @@ from app.decks.services.text_parser import (
 )
 
 __all__ = [
+    "ArchidektUrlError",
     "Board",
     "DeckFetchFailed",
     "DeckFetchFailure",
@@ -30,6 +35,9 @@ __all__ = [
     "ParsedLine",
     "SiteConfig",
     "UnparsedLine",
+    "archidekt_deck_url",
     "default_sites",
+    "fetch_archidekt_deck",
+    "parse_archidekt_url",
     "parse_decklist",
 ]

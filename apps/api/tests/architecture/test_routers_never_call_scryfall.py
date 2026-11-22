@@ -3,7 +3,8 @@
 User requests read the local database; imports run in jobs. Every module that is named
 ``router.py`` or is a router module (``is_router_module``: it imports ``fastapi.APIRouter``) must
 not reach ``app.cards.scryfall_client`` / ``ScryfallClient`` or
-``app.decks.services.deck_sites`` / ``DeckSiteClient``.
+``app.decks.services.deck_sites`` / ``DeckSiteClient``, or call a per-site fetcher such as
+``fetch_archidekt_deck`` (by name, so the facade import is caught too).
 
 Detected, through ``imported_modules`` of ``test_domain_imports`` (relative imports resolved,
 literal ``importlib.import_module`` and ``__import__`` calls included, ``TYPE_CHECKING`` and
@@ -29,7 +30,13 @@ from tests.architecture.test_domain_imports import APP_ROOT, imported_modules, i
 # Outbound clients no router may reach (S-3.1.2 Scryfall, S-4.2.1 deck sites): the module that
 # holds each one, and the names that identify it (a re-export or an attribute access of them).
 CLIENT_MODULES = ("app.cards.scryfall_client", "app.decks.services.deck_sites")
-CLIENT_NAMES = frozenset({"ScryfallClient", "scryfall_client", "DeckSiteClient", "deck_sites"})
+# Also every per-site fetcher (S-4.3.1 ``fetch_archidekt_deck``): it makes the outbound call, and is
+# exported from the ``app.decks.services`` facade, so the module rule alone would miss it. The next
+# per-site story (a new deck site's fetcher) must add its fetcher's name here. The pure helpers
+# (``parse_archidekt_url``, ``archidekt_deck_url``, ``ArchidektUrlError``) stay allowed in routers.
+CLIENT_NAMES = frozenset(
+    {"ScryfallClient", "scryfall_client", "DeckSiteClient", "deck_sites", "fetch_archidekt_deck"}
+)
 
 
 def _named_uses(tree: ast.AST) -> list[tuple[int, str]]:
@@ -173,6 +180,34 @@ def test_router_importing_the_deck_site_client_in_any_form_is_reported(tmp_path:
         },
     )
     assert _flagged(root) == {"a/router.py", "b/router.py", "c/router.py", "d/router.py"}
+
+
+def test_router_reaching_the_archidekt_fetcher_in_any_form_is_reported(tmp_path: Path) -> None:
+    root = _write(
+        tmp_path,
+        {
+            "decks/services/deck_sites/archidekt.py": "",
+            "a/router.py": "from app.decks.services import fetch_archidekt_deck\n",
+            "b/router.py": (
+                "from app.decks.services.deck_sites.archidekt import fetch_archidekt_deck\n"
+            ),
+            "c/router.py": "from app.decks import services\nr = services.fetch_archidekt_deck\n",
+        },
+    )
+    assert _flagged(root) == {"a/router.py", "b/router.py", "c/router.py"}
+
+
+def test_router_may_use_the_pure_archidekt_helpers(tmp_path: Path) -> None:
+    root = _write(
+        tmp_path,
+        {
+            "a/router.py": "from app.decks.services import parse_archidekt_url\n",
+            "b/router.py": "from app.decks.services import archidekt_deck_url\n",
+            "c/router.py": "from app.decks.services import ArchidektUrlError\n",
+            "d/router.py": "from app.decks import services\nx = services.parse_archidekt_url(1)\n",
+        },
+    )
+    assert router_violations(root) == []
 
 
 def test_non_router_module_may_import_the_client(tmp_path: Path) -> None:

@@ -232,7 +232,7 @@ Each row is a need from the backlog that would otherwise require an upward call.
 - **Errors** (S-1.4.5): every error (422, 401, 403, 404, 409, 429, 500) returns
   `{"error": {"code": "<snake_case>", "message": "<text>", "details": <object|null>, "request_id": "<id>"}}`.
   - `code` is stable (`forbidden`, `section_hidden`, `game_closed` …), and clients switch on it, never on `message`.
-  - `invite_no_longer_valid` (410) is returned for a revoked, expired, used-up or unknown invite (S-2.1.2). Invite routes are `POST /invites`, `GET /invites`, `POST /invites/{id}/revoke` and the public `POST /invites/preview` (the token is in the body, never in a URL), owned by `playgroups`. `POST /auth/register` is served by the registration workflow.
+  - `invite_no_longer_valid` (410) is returned for a revoked, expired, used-up or unknown invite (S-2.1.2). Invite routes are owned by `playgroups`. Site-level invites, which join no playgroup, use `POST /invites` (site admin only), `GET /invites` and `POST /invites/{id}/revoke`. Playgroup invites (S-2.4.2) use `POST /playgroups/{id}/invites`, `GET /playgroups/{id}/invites` and `POST /playgroups/{id}/invites/{invite_id}/revoke`, for the playgroup's owner or an admin. The public `POST /invites/preview` serves both kinds (the token is in the body, never in a URL) and shows the playgroup's name for a playgroup invite. A signed-in user joins with `POST /invites/join`: an active member of the playgroup gets `already_member: true` whatever the invite's state, and anyone else needs a valid invite. `POST /auth/register` is served by the registration workflow, which also creates the membership when the invite belongs to a playgroup.
   - Validation errors go in `details`.
   - **`DomainError.persist_changes`**: normally a raised error rolls the request's session back. A subclass that sets `persist_changes = True` makes `get_session` commit what was flushed, then re-raise, so a rejected request can keep its side effect (for example revoking a token family on reuse). Raise such an error only from a request whose only writes are that intended side effect, and never inside a composite workflow, because the commit would also persist the workflow's other writes.
   - `request_id` also appears in the logs and the response headers. An unknown `/api/...` path returns this JSON 404 rather than the web app.
@@ -260,6 +260,15 @@ Each row is a need from the backlog that would otherwise require an upward call.
   - `games.delete_playgroup_data`, during playgroup deletion (S-2.6.3).
 
   Each writes an audit row. No other code may update or delete `game_events`.
+- **How the append works** (S-6.3.1): `games.append_event` locks the game row with `SELECT … FOR NO KEY UPDATE`, assigns `last_seq + 1`, runs the Python reducer, and writes the event and the new state in the caller's transaction. It never commits.
+  - The server sets `seq`, `ts` and `actor`. Whatever the client sent in those fields is ignored.
+  - A resent `event_id` returns the stored event and writes nothing.
+  - While the lock is held, the caller does no network I/O (no Redis, no socket sends). It commits promptly and publishes through `core.db.after_commit`.
+  - Lock order: take any other explicit row lock (players, memberships) before the game row, and none while holding it.
+- **How append-only is enforced**:
+  - A database trigger rejects every `UPDATE` and `DELETE` on `game_events`. The two audited operations opt in for their own transaction only, with `set_config('app.game_events_audited_mutation', 'on', true)`. The setting guards against accidents; it is not a security boundary.
+  - An architecture test (`tests/architecture/test_game_events_append_only.py`) allows only `games/models.py`, `games/repository.py` and `games/services/events.py` to name the table or its model. Every other reader goes through `games.services`.
+  - The foreign keys from `game_events` to `games` and from `games` to `playgroups` do not cascade, so playgroup deletion (S-2.6.3) deletes the events first, then the games, then the playgroup.
 - **Messages**:
   - Client to server: `auth`, `submit`, `sync`.
   - Server to client: `welcome`, `ack`, `reject`, `event`, `auth_expired`, `error`.

@@ -305,7 +305,7 @@ def test_seat_model_round_trips_through_the_state() -> None:
 def test_services_interface_exposes_the_core() -> None:
     assert services.apply is apply
     assert services.canonical_json is canonical_json
-    assert set(services.__all__) == set(core.__all__)
+    assert set(core.__all__) <= set(services.__all__)  # S-6.3.1 adds the event-log functions
 
 
 def test_version_outside_the_safe_range_is_invalid_event_not_unsupported() -> None:

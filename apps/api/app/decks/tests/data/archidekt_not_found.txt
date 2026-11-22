@@ -1,0 +1,5 @@
+# Archidekt GET https://archidekt.com/api/decks/1000000/ and /999999999/ (recorded 2026-11-21).
+# Both: status 404, Content-Type: application/json, 27 bytes. Id 1000000 is an old deck that is deleted or private
+# (the two cannot be told apart from outside); 999999999 never existed. The bodies are identical.
+# Lines starting with '# ' are comments; the loader in the tests strips them. The rest is the body.
+{"error":"Deck not found."}

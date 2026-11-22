@@ -1,7 +1,8 @@
 """Public interface of the ``games`` domain; other code imports only from here.
 
 This is the pure game core (S-6.1.1): the reducer, the contract models and canonical JSON, and
-the event log (S-6.3.1): :func:`append_event` and the read functions.
+the event log (S-6.3.1): :func:`append_event` and the read functions, and
+:func:`rebuild_state` (S-6.3.8), which repairs the snapshot from the log.
 """
 
 import app.playgroups.services  # noqa: F401  (``games.models`` has a foreign key to ``playgroups``)
@@ -45,6 +46,13 @@ from app.games.services.events import (
     get_snapshot,
     read_events_since,
 )
+from app.games.services.rebuild import (
+    EventRejectedError,
+    LogGapError,
+    RebuildError,
+    Rebuilt,
+    rebuild_state,
+)
 
 __all__ = [
     "EVENT_TYPES",
@@ -59,9 +67,13 @@ __all__ = [
     "CanonicalJsonError",
     "Commander",
     "EventEnvelope",
+    "EventRejectedError",
     "GameLogCorruptError",
     "GameState",
     "InvalidActorError",
+    "LogGapError",
+    "RebuildError",
+    "Rebuilt",
     "ReducerError",
     "Rejected",
     "ReplayError",
@@ -81,6 +93,7 @@ __all__ = [
     "initial_state",
     "loads_wire",
     "read_events_since",
+    "rebuild_state",
     "reduce",
     "replay",
 ]

@@ -267,6 +267,14 @@ Each row is a need from the backlog that would otherwise require an upward call.
   - A resent `event_id` returns the stored event and writes nothing.
   - While the lock is held, the caller does no network I/O (no Redis, no socket sends). It commits promptly and publishes through `core.db.after_commit`.
   - Lock order: take any other explicit row lock (players, memberships) before the game row, and none while holding it.
+- **How the rebuild works** (S-6.3.8): `games.rebuild_state(session, game_id, *, dry_run)` repairs `games.state` from the log. It takes the same lock as `append_event`, so no event can slip in between.
+  - It replays the whole log from `initial_state(game_id)` and never parses the stored snapshot, so a damaged or old-shape snapshot is repaired like any other.
+  - It writes only `games.state`, `last_seq` and `updated_at`, and only when they differ. It never touches `game_events` and never commits.
+  - `LogGapError` (the seqs are not `1..n`) and `EventRejectedError` (the reducer rejects a stored event) write nothing.
+  - A mismatch is logged as `games.state_rebuild_mismatch` (WARNING; ERROR when the snapshot or `last_seq` is ahead of the log). It never logs a state, a payload or a raw value of the damaged snapshot.
+  - CLI: `python -m app.cli rebuild-state --game-id <uuid> [--dry-run]`. Exit codes: 0 ok, 1 error, 2 usage, 3 a dry run found a mismatch.
+  - The log must hold every input to the state: a game is created with `game_created` as seq 1, in the same transaction as its row. Without it the settings are rebuilt from the defaults.
+  - A change of the state shape means rebuilding the existing snapshots.
 - **How append-only is enforced**:
   - A database trigger rejects every `UPDATE` and `DELETE` on `game_events`. The two audited operations opt in for their own transaction only, with `set_config('app.game_events_audited_mutation', 'on', true)`. The setting guards against accidents; it is not a security boundary.
   - An architecture test (`tests/architecture/test_game_events_append_only.py`) allows only `games/models.py`, `games/repository.py` and `games/services/events.py` to name the table or its model. Every other reader goes through `games.services`.

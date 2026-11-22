@@ -26,6 +26,8 @@ export interface Elimination {
  */
 function handOff(after: GameState, holder: number | null, applied: ReadonlySet<number>) {
   if (holder === null || !applied.has(holder)) return holder;
+  // Nobody stands: checked first, so the answer never depends on what `order` holds (4.5.2 step 4).
+  if (after.seats.every((s) => s.eliminated_at_seq !== null)) return null;
   const active = after.seats.find(
     (s) => s.seat === after.active_seat && s.eliminated_at_seq === null,
   );

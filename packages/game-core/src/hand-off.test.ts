@@ -131,6 +131,12 @@ describe('the hand-off: who receives the monarch and the initiative', () => {
     expect(holders(eliminate(withActive(last, 3), 9, [out(3)]))).toEqual([null, null]);
   });
 
+  it('with nobody left standing the answer is null even if order names a seat that is not at the table', () => {
+    // Not reachable by events; the rule must not depend on what `order` holds (4.5.2 step 4).
+    const two = withOrder(withHolders(activeGame(2), 2, 1), [1, 2, 7]);
+    expect(holders(eliminate(two, 9, [out(1), out(2)]))).toEqual([null, null]);
+  });
+
   it('a holder that is the only survivor when another seat goes keeps it (no draw)', () => {
     const s = eliminated(withHolders(game(), 3, null), 1, 2);
     expect(holders(eliminate(s, 9, [out(4)]))).toEqual([3, null]);

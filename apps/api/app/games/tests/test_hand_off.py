@@ -149,6 +149,12 @@ def test_with_nobody_left_standing_both_become_null() -> None:
     assert _holders(eliminate(_with_active(last, 3), 9, [_out(3)])) == [None, None]
 
 
+def test_with_nobody_left_the_answer_is_null_even_if_order_names_a_seat_not_at_the_table() -> None:
+    # Not reachable by events; the rule must not depend on what ``order`` holds (4.5.2 step 4).
+    two = _with_order(_with_holders(active_game([1, 2], 1, 1), 2, 1), [1, 2, 7])
+    assert _holders(eliminate(two, 9, [_out(1), _out(2)])) == [None, None]
+
+
 def test_a_holder_that_is_the_only_survivor_keeps_it_when_another_seat_goes() -> None:
     state = _eliminated(_with_holders(_game(), 3, None), 1, 2)
     assert _holders(eliminate(state, 9, [_out(4)])) == [3, None]

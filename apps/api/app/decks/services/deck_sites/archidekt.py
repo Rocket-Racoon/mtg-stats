@@ -97,7 +97,43 @@ def _checked_id(deck_id: int) -> int:
     return deck_id
 
 
+MAX_JSON_DEPTH: Final = 64
+"""Deepest ``[``/``{`` nesting accepted in a deck body; a real deck is nested a handful of levels.
+
+Checked by a flat scan before parsing so the outcome never depends on the interpreter's recursion
+limit, which differs between platforms."""
+
+_QUOTE, _BACKSLASH = ord('"'), ord("\\")
+_OPENERS, _CLOSERS = frozenset(b"[{"), frozenset(b"]}")
+
+
+def _nested_too_deep(body: bytes) -> bool:
+    """Whether ``body`` nests brackets deeper than ``MAX_JSON_DEPTH`` (strings are skipped)."""
+    depth = 0
+    in_string = False
+    escaped = False
+    for byte in body:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif byte == _BACKSLASH:
+                escaped = True
+            elif byte == _QUOTE:
+                in_string = False
+        elif byte == _QUOTE:
+            in_string = True
+        elif byte in _OPENERS:
+            depth += 1
+            if depth > MAX_JSON_DEPTH:
+                return True
+        elif byte in _CLOSERS:
+            depth -= 1
+    return False
+
+
 def _classify(body: bytes, deck_id: int) -> _Body:
+    if _nested_too_deep(body):
+        return _Body.UNKNOWN
     try:
         data = json.loads(body)
     except (ValueError, RecursionError):  # ValueError includes UnicodeDecodeError

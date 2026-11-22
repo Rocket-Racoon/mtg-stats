@@ -22,6 +22,7 @@ from app.decks.services import (
     fetch_archidekt_deck,
     parse_archidekt_url,
 )
+from app.decks.services.deck_sites.archidekt import MAX_JSON_DEPTH, _nested_too_deep
 from app.decks.services.deck_sites.cache import cache_key
 
 DATA = Path(__file__).parent / "data"
@@ -342,17 +343,40 @@ async def test_client_cache_body_hook_can_veto_caching() -> None:
     assert again.from_cache
 
 
-async def test_deeply_nested_json_is_returned_uncached_and_does_not_raise() -> None:
-    body = b'{"id": 5, "cards": ' + b"[" * 5000 + b"]" * 5000 + b"}"
+def _nested_deck(levels: int) -> bytes:
+    """A deck body for id 5 whose total bracket nesting is ``levels``."""
+    inner = levels - 1  # the outer object is level 1, ``cards`` itself is the first list
+    return b'{"id": 5, "cards": ' + b"[" * inner + b"]" * inner + b"}"
 
+
+async def _fetch_body(body: bytes) -> DeckFetched | DeckFetchFailed:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=body, headers={"Content-Type": "application/json"})
 
     async with _client(handler) as client:
-        result = await fetch_archidekt_deck(client, 5)
+        return await fetch_archidekt_deck(client, 5)
+
+
+async def test_body_nested_exactly_at_the_depth_limit_is_a_deck_and_cached() -> None:
+    result = await _fetch_body(_nested_deck(MAX_JSON_DEPTH))
+    assert isinstance(result, DeckFetched)
+    assert await _cached(5) is not None
+
+
+@pytest.mark.parametrize("levels", [MAX_JSON_DEPTH + 1, 100_000])
+async def test_body_nested_beyond_the_depth_limit_is_returned_uncached(levels: int) -> None:
+    body = _nested_deck(levels)
+    result = await _fetch_body(body)
     assert isinstance(result, DeckFetched)
     assert result.body == body
     assert await _cached(5) is None
+
+
+def test_brackets_inside_strings_and_escapes_do_not_count_towards_depth() -> None:
+    text = '{"id": 5, "cards": [], "name": "' + "[" * 500 + '\\" ' + "{" * 500 + '"}'
+    assert not _nested_too_deep(text.encode())
+    assert _nested_too_deep(b"[" * (MAX_JSON_DEPTH + 1))
+    assert not _nested_too_deep(b"[]" * 1000)
 
 
 @pytest.mark.parametrize("found", ["5", True, 5.0, None])

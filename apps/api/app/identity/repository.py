@@ -170,3 +170,15 @@ async def lock_site_admin_change_rows(session: AsyncSession, user_id: UUID) -> l
         .execution_options(populate_existing=True)
     )
     return list(result.scalars())
+
+
+async def get_guests_of_playgroup(session: AsyncSession, playgroup_id: UUID) -> list[Player]:
+    """Every guest whose home is this playgroup and who is not merged into an account."""
+    result = await session.execute(
+        select(Player).where(
+            Player.home_playgroup_id == playgroup_id,
+            Player.is_guest,
+            Player.merged_into_id.is_(None),
+        )
+    )
+    return list(result.scalars())

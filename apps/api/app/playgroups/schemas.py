@@ -15,6 +15,7 @@ from pydantic import (
 )
 
 from app.core.paging import Page
+from app.identity import services as identity_services
 from app.playgroups.models import (
     PLAYGROUP_DESCRIPTION_MAX_LENGTH,
     PLAYGROUP_NAME_MAX_LENGTH,
@@ -62,6 +63,23 @@ PlaygroupDescription = Annotated[
     str,
     StringConstraints(max_length=PLAYGROUP_DESCRIPTION_MAX_LENGTH),
     AfterValidator(_reject_description_controls),
+]
+
+
+def _reject_empty_key(value: str) -> str:
+    """Reject a name with nothing to compare (only marks or format characters)."""
+    if not identity_services.display_name_key(value):
+        raise ValueError("must contain a visible character")
+    return value
+
+
+GuestName = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True, min_length=1, max_length=identity_services.DISPLAY_NAME_MAX_LENGTH
+    ),
+    AfterValidator(_reject_control_characters),
+    AfterValidator(_reject_empty_key),
 ]
 
 
@@ -201,6 +219,32 @@ class TransferOwnership(BaseModel):
     model_config = ConfigDict(strict=True)
 
     player_id: UUID = Field(strict=False, description="The active member who becomes the owner.")
+
+
+class GuestCreate(BaseModel):
+    """Body of the guest add (``POST``) and rename (``PATCH``) routes."""
+
+    model_config = ConfigDict(strict=True)
+
+    display_name: GuestName = Field(
+        description="1 to 32 characters (surrounding spaces are trimmed); unique in the "
+        "playgroup, ignoring case and accents."
+    )
+
+
+class GuestRename(GuestCreate):
+    """Body of ``PATCH /playgroups/{id}/guests/{player_id}``."""
+
+
+class GuestOut(BaseModel):
+    """A guest player of a playgroup."""
+
+    id: UUID = Field(description="The guest's player id.")
+    playgroup_id: UUID
+    display_name: str
+    avatar_color: str
+    created_by: UUID | None = Field(description="The player who added the guest.")
+    created_at: datetime
 
 
 class CommonPlaygroupOut(BaseModel):

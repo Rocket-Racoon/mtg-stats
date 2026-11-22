@@ -194,12 +194,26 @@ async def _rebuild_state(args: argparse.Namespace, factory: SessionFactory, out:
             f"(keys: {keys}); dry run, nothing written.",
             file=out,
         )
-        return EXIT_MISMATCH
-    print(
-        f"Game {result.game_id}: snapshot rebuilt from {result.event_count} events (keys: {keys}).",
-        file=out,
-    )
-    return 0
+    else:
+        print(
+            f"Game {result.game_id}: snapshot rebuilt from {result.event_count} events "
+            f"(keys: {keys}).",
+            file=out,
+        )
+    if result.log_behind_snapshot:
+        print(
+            "WARNING: the snapshot or last_seq was ahead of the log "
+            f"(log has {result.event_count} events, games.last_seq was {result.old_last_seq}): "
+            "events may have been lost after the last stored seq.",
+            file=out,
+        )
+    if not result.settings_from_log:
+        print(
+            "Note: this game's log does not start with game_created; "
+            "settings were rebuilt from the defaults.",
+            file=out,
+        )
+    return EXIT_MISMATCH if dry_run else 0
 
 
 async def run(
@@ -210,7 +224,8 @@ async def run(
     stdout: TextIO | None = None,
     stderr: TextIO | None = None,
 ) -> int:
-    """Run one CLI command and return the exit code (0 ok, 1 error, 2 usage)."""
+    """Run one CLI command and return the exit code (0 ok, 1 error, 2 usage, 3 a
+    ``rebuild-state --dry-run`` that found a mismatch)."""
     out = stdout if stdout is not None else sys.stdout
     err = stderr if stderr is not None else sys.stderr
     ask: Prompt = prompt if prompt is not None else getpass.getpass

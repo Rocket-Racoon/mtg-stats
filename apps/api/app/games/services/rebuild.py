@@ -38,7 +38,7 @@ from app.games.core import (
     initial_state,
     replay,
 )
-from app.games.services.events import _to_stored
+from app.games.services.events import read_events_since
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +85,11 @@ class Rebuilt:
     the replayed state. ``old_last_seq`` is the ``games.last_seq`` column before the rebuild.
     ``differing_keys`` are the top-level state keys whose stored value was not the replayed one
     (sorted; empty when only the ``games.last_seq`` column differed).
+    ``settings_from_log`` is false when the log is empty or does not start with ``game_created``:
+    the settings then are the contract defaults, not anything the log says.
+    ``log_behind_snapshot`` is true when the old column or the old snapshot's integer ``last_seq``
+    is greater than the event count: events may have been lost after the last stored seq, and
+    their seqs may already have been acknowledged to clients.
     """
 
     game_id: UUID
@@ -95,6 +100,24 @@ class Rebuilt:
     new_last_seq: int
     differing_keys: tuple[str, ...]
     state: GameState
+    settings_from_log: bool
+    log_behind_snapshot: bool
+
+
+def _int_or_none(value: Any) -> int | None:
+    """``value`` if it is an ``int`` (not a ``bool``), else ``None``."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _logged_last_seq(snapshot: Any) -> str:
+    """The snapshot's ``last_seq`` for the log: an integer, else only the name of its type."""
+    if not isinstance(snapshot, dict):
+        return type(snapshot).__name__
+    if "last_seq" not in snapshot:
+        return "missing"
+    value = snapshot["last_seq"]
+    number = _int_or_none(value)
+    return str(number) if number is not None else type(value).__name__
 
 
 def _canon(value: Any) -> str | None:
@@ -145,20 +168,28 @@ async def rebuild_state(
     ``games.last_seq`` and, when they differ and this is not a ``dry_run``, write the replay.
 
     The stored snapshot is never parsed, so a snapshot of the wrong shape, with missing or extra
-    keys, or of another game is repaired like any other. A mismatch is logged at WARNING as
+    keys, or of another game is repaired like any other. A mismatch is logged as
     ``games.state_rebuild_mismatch`` (game id, ``last_seq`` before and after, the differing
-    top-level key names and a short hash of each state; never a state or a payload). A snapshot
-    that already matches is logged at INFO as ``games.state_rebuild_match`` and nothing is written.
-    ``game_events`` is only read, never changed.
+    top-level key names, a short hash of each state and the two flags of :class:`Rebuilt`; never a
+    state, a payload or a raw value of the damaged snapshot) at WARNING, or at ERROR when the log
+    is behind the snapshot. A snapshot that already matches is logged at INFO as
+    ``games.state_rebuild_match`` and nothing is written. ``game_events`` is only read.
 
-    **Rules for the caller.** This function never commits; the row lock lasts until the
-    transaction ends, so commit (or roll back, for a dry run) promptly and do no network I/O in
-    between. On any exception nothing was written and the caller rolls back.
+    **Rules for the caller** (those of :func:`append_event`, which takes the same lock).
+
+    - This function never commits. The game row stays locked (``FOR NO KEY UPDATE``) until the
+      caller's transaction ends: commit promptly (roll back for a dry run) and do no network I/O
+      in between.
+    - Lock order: take any other explicit row lock first and none while holding the game row.
+    - The game row is loaded with ``populate_existing``, which overwrites pending changes to it:
+      the caller must have no unflushed changes to the game row.
+    - On any exception nothing was written, and the caller rolls back.
 
     Raises:
         NotFoundError: there is no game ``game_id``.
         LogGapError: the log has a hole in its seqs (an event was lost).
         EventRejectedError: the reducer rejects a stored event, so no state exists.
+        RebuildError: the replay ended at a ``last_seq`` other than the event count (a bug).
         ValueError: ``now`` is a naive datetime.
     """
     if now is not None and (now.tzinfo is None or now.utcoffset() is None):
@@ -166,16 +197,16 @@ async def rebuild_state(
     game = await repository.lock_game(session, game_id)
     if game is None:
         raise NotFoundError("Game not found.")
-    rows = await repository.read_since(session, game_id, 0)
-    for index, row in enumerate(rows, start=1):
-        if row.seq != index:
-            raise LogGapError(game_id, index, row.seq)
-    events = [_to_stored(row).to_wire() for row in rows]
+    stored = await read_events_since(session, game_id, 0)
+    for index, event in enumerate(stored, start=1):
+        if event.seq != index:
+            raise LogGapError(game_id, index, event.seq)
+    events = [event.to_wire() for event in stored]
     outcome = replay(initial_state(str(game_id)), events)
     if isinstance(outcome, ReplayError):
         raise EventRejectedError(game_id, outcome.index + 1, outcome.error.code)
     state = outcome.state
-    count = len(rows)
+    count = len(stored)
     if state.last_seq != count:  # every handler sets last_seq; a bug if it does not
         raise RebuildError(game_id, f"replay ended at last_seq {state.last_seq} for {count} events")
 
@@ -183,27 +214,37 @@ async def rebuild_state(
     keys = _differing_keys(game.state, value)
     old_last_seq = game.last_seq
     changed = bool(keys) or old_last_seq != count
+    settings_from_log = bool(stored) and stored[0].type == "game_created"
+    snapshot_seq = (
+        _int_or_none(game.state.get("last_seq")) if isinstance(game.state, dict) else None
+    )
+    behind = old_last_seq > count or (snapshot_seq is not None and snapshot_seq > count)
     if not changed:
         logger.info(
-            "games.state_rebuild_match game=%s last_seq=%s events=%s",
+            "games.state_rebuild_match game=%s last_seq=%s events=%s settings_from_log=%s",
             game_id,
             count,
             count,
+            settings_from_log,
             extra={"game_id": str(game_id)},
         )
     else:
-        logger.warning(
+        logger.log(
+            logging.ERROR if behind else logging.WARNING,
             "games.state_rebuild_mismatch game=%s old_last_seq=%s snapshot_last_seq=%s "
-            "new_last_seq=%s events=%s differing_keys=%s old_hash=%s new_hash=%s written=%s",
+            "new_last_seq=%s events=%s differing_keys=%s old_hash=%s new_hash=%s written=%s "
+            "settings_from_log=%s log_behind_snapshot=%s",
             game_id,
             old_last_seq,
-            game.state.get("last_seq") if isinstance(game.state, dict) else None,
+            _logged_last_seq(game.state),
             count,
             count,
             _log_keys(keys),
             _fingerprint(game.state),
             _fingerprint(value),
             not dry_run,
+            settings_from_log,
+            behind,
             extra={"game_id": str(game_id)},
         )
         if not dry_run:
@@ -220,4 +261,6 @@ async def rebuild_state(
         new_last_seq=count,
         differing_keys=keys,
         state=state,
+        settings_from_log=settings_from_log,
+        log_behind_snapshot=behind,
     )

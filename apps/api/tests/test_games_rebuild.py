@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import NotFoundError
+from app.core.ids import uuid7
 from app.games import repository
 from app.games.models import Game, GameEvent
 from app.games.services import (
@@ -326,3 +327,119 @@ async def test_a_factory_game_with_a_stale_snapshot_rebuilds(app_schema: AsyncSe
     result = await rebuild_state(app_schema, game.id)
     assert result.changed
     assert result.new_last_seq == 0
+
+
+def _mismatch_record(caplog: pytest.LogCaptureFixture) -> logging.LogRecord:
+    return next(r for r in caplog.records if "games.state_rebuild_mismatch" in r.getMessage())
+
+
+async def test_a_normal_game_reports_that_its_settings_come_from_the_log(
+    app_schema: AsyncSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    game_id = await _game_with_log(app_schema)
+    await _damage(app_schema, game_id, {"x": 1})
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        result = await rebuild_state(app_schema, game_id)
+    assert result.settings_from_log
+    assert not result.log_behind_snapshot
+    message = _mismatch_record(caplog).getMessage()
+    assert "settings_from_log=True" in message
+    assert "log_behind_snapshot=False" in message
+
+
+async def test_a_log_without_game_created_is_rebuilt_from_default_settings_and_says_so(
+    app_schema: AsyncSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    group = await create(app_schema, PlaygroupFactory)
+    game_id = uuid7()
+    placeholder = initial_state(str(game_id), {"starting_life": 30}).to_json_value()
+    await create(app_schema, GameFactory, id=game_id, playgroup_id=group.id, state=placeholder)
+    joined = await append_event(
+        app_schema,
+        game_id,
+        submission(game_id, "seat_joined", {"seat": 1, "player_id": "p1", "name": "Ada"}),
+        actor=player_actor(),
+    )
+    assert isinstance(joined, Appended)
+    assert joined.state.seats[0].life == 30  # the incremental snapshot used the placeholder
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        result = await rebuild_state(app_schema, game_id, dry_run=True)
+    assert not result.settings_from_log
+    assert result.changed
+    assert {"seats", "settings"} <= set(result.differing_keys)
+    assert result.state.seats[0].life == 40
+    assert "settings_from_log=False" in _mismatch_record(caplog).getMessage()
+
+
+async def test_a_game_with_no_events_does_not_get_its_settings_from_the_log(
+    app_schema: AsyncSession,
+) -> None:
+    game_id = await make_game(app_schema)
+    assert not (await rebuild_state(app_schema, game_id, dry_run=True)).settings_from_log
+
+
+async def test_a_last_seq_column_ahead_of_the_log_is_logged_at_error(
+    app_schema: AsyncSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    game_id = await _game_with_log(app_schema)
+    game = await _game(app_schema, game_id)
+    game.last_seq = 9
+    await app_schema.flush()
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        result = await rebuild_state(app_schema, game_id)
+    assert result.log_behind_snapshot
+    assert result.written  # the repair is kept
+    record = _mismatch_record(caplog)
+    assert record.levelno == logging.ERROR
+    assert "log_behind_snapshot=True" in record.getMessage()
+
+
+async def test_a_snapshot_last_seq_ahead_of_the_log_is_logged_at_error(
+    app_schema: AsyncSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    game_id = await _game_with_log(app_schema)
+    state = copy.deepcopy((await _game(app_schema, game_id)).state)
+    state["last_seq"] = 8
+    await _damage(app_schema, game_id, state)
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        result = await rebuild_state(app_schema, game_id)
+    assert result.log_behind_snapshot
+    assert result.old_last_seq == 3  # only the snapshot was ahead
+    record = _mismatch_record(caplog)
+    assert record.levelno == logging.ERROR
+    assert "snapshot_last_seq=8" in record.getMessage()
+
+
+async def test_a_snapshot_behind_the_log_is_only_a_warning(
+    app_schema: AsyncSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    game_id = await _game_with_log(app_schema)
+    state = copy.deepcopy((await _game(app_schema, game_id)).state)
+    state["last_seq"] = 1
+    await _damage(app_schema, game_id, state)
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        result = await rebuild_state(app_schema, game_id)
+    assert not result.log_behind_snapshot
+    assert _mismatch_record(caplog).levelno == logging.WARNING
+
+
+@pytest.mark.parametrize(
+    "junk",
+    ["Zebulon Quixote", {"name": "Zebulon Quixote", "deep": [{"x": "Zebulon Quixote"}]}, True],
+    ids=["string", "nested_object", "bool"],
+)
+async def test_a_raw_snapshot_last_seq_is_never_logged(
+    app_schema: AsyncSession, caplog: pytest.LogCaptureFixture, junk: Any
+) -> None:
+    game_id = await _game_with_log(app_schema)
+    state = copy.deepcopy((await _game(app_schema, game_id)).state)
+    state["last_seq"] = junk
+    await _damage(app_schema, game_id, state)
+    with caplog.at_level(logging.DEBUG):
+        result = await rebuild_state(app_schema, game_id)
+    assert result.changed
+    logged = "\n".join(r.getMessage() for r in caplog.records)
+    assert "Zebulon" not in logged
+    assert "deep" not in logged
+    assert "snapshot_last_seq=" + type(junk).__name__ in logged
+    assert not result.log_behind_snapshot

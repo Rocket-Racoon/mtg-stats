@@ -132,3 +132,30 @@ async def test_a_missing_or_malformed_game_id_is_a_usage_error(
 ) -> None:
     outcome = await invoke(session, argv)
     assert outcome.code == 2
+
+
+async def test_a_log_without_game_created_prints_the_defaults_note(session: AppSession) -> None:
+    game_id = await _stale_game(session)
+    envelopes = lobby_and_turns(game_id, 9)[1:]  # no game_created: drop it, renumber below
+    other = await make_game(session)
+    for seq, envelope in enumerate(envelopes, start=1):
+        envelope.update(seq=seq, game_id=str(other))
+    await insert_log(session, other, envelopes[:4])  # four seat_joined events
+    await session.commit()
+    outcome = await invoke(session, ["rebuild-state", "--game-id", str(other)])
+    assert outcome.code == 0, outcome.err
+    assert "does not start with game_created" in outcome.out
+    assert "settings were rebuilt from the defaults" in outcome.out
+
+
+async def test_a_snapshot_ahead_of_the_log_prints_a_warning(session: AppSession) -> None:
+    game_id = await _stale_game(session)
+    await invoke(session, ["rebuild-state", "--game-id", str(game_id)])
+    game = await repository.get_game(session, game_id)
+    assert game is not None
+    game.last_seq = 40
+    await session.commit()
+    outcome = await invoke(session, ["rebuild-state", "--game-id", str(game_id)])
+    assert outcome.code == 0
+    assert "WARNING: the snapshot or last_seq was ahead of the log" in outcome.out
+    assert "does not start with game_created" not in outcome.out

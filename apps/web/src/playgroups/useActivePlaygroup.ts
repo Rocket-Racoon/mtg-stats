@@ -78,8 +78,10 @@ export function useActivePlaygroup(): ActivePlaygroup {
     active,
     setActive,
     error: checkFailed ? check.error : list.error,
+    // Re-run whatever failed: the list, and the membership check when it is in play.
     retry: () => {
-      void list.refetch();
+      if (list.isError || !needsCheck) void list.refetch();
+      if (needsCheck && check.isError) void check.refetch();
     },
     hasMore: list.hasNextPage,
     loadingMore: list.isFetchingNextPage,

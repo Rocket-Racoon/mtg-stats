@@ -126,7 +126,9 @@ export function PlaygroupHomePage() {
   const data = playgroup.data;
   const role = data.role;
   const roster = groupRoster(players.data?.pages.flatMap((page) => page.items) ?? []);
-  const rosterReady = players.isSuccess && !players.hasNextPage;
+  // Ready on the data that is present, not on `isSuccess`: a failed background refetch sets the
+  // status to error but keeps the data, which must stay on screen.
+  const rosterReady = players.data !== undefined && !players.hasNextPage;
 
   return (
     <section aria-labelledby="page-title">

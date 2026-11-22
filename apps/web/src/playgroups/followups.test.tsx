@@ -110,3 +110,45 @@ describe('a failed background refetch', () => {
     expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
   });
 });
+
+describe('retry after a failed membership check', () => {
+  it('re-runs the check, so the remembered group becomes active once the server recovers', async () => {
+    let broken = true;
+    stubWorld({
+      groups: GROUPS,
+      players: PLAYERS,
+      pageSize: 1,
+      handler: (call) =>
+        broken && call.path === '/api/v1/playgroups/c'
+          ? failure(403, 'forbidden', 'Nope.')
+          : undefined,
+    });
+    useActivePlaygroupStore.setState({ activeId: 'c' });
+    const user = userEvent.setup();
+    mountApp('/games');
+    await screen.findByText('Could not load your playgroups.');
+    broken = false;
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByRole('combobox')).toHaveTextContent('Cargo');
+    expect(useActivePlaygroupStore.getState().activeId).toBe('c');
+  });
+});
+
+describe('a failed refetch of the roster', () => {
+  it('keeps the people on screen', async () => {
+    let fail = false;
+    stubWorld({
+      groups: GROUPS,
+      players: PLAYERS,
+      handler: (call) =>
+        fail && call.path.endsWith('/players') ? failure(403, 'forbidden') : undefined,
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    mountApp('/playgroups/a', queryClient);
+    await screen.findByText('Pat');
+    fail = true;
+    await queryClient.refetchQueries();
+    expect(screen.getByText('Pat')).toBeInTheDocument();
+    expect(screen.queryByText('Loading people…')).not.toBeInTheDocument();
+  });
+});

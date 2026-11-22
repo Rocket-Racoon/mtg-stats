@@ -28,11 +28,15 @@ export const S_6_1_3_TYPES = [
   'player_eliminated',
 ] as const satisfies readonly EventType[];
 
+/** The event type whose handler S-6.1.4 specifies (CONTRACT.md 4.6). */
+export const S_6_1_4_TYPES = ['commander_damage'] as const satisfies readonly EventType[];
+
 /** The types whose handlers are still no-ops. Shrinks as later stories land. */
 export const NO_OP_TYPES: readonly EventType[] = EVENT_TYPES.filter(
   (t) =>
     !(S_6_1_6_TYPES as readonly string[]).includes(t) &&
-    !(S_6_1_3_TYPES as readonly string[]).includes(t),
+    !(S_6_1_3_TYPES as readonly string[]).includes(t) &&
+    !(S_6_1_4_TYPES as readonly string[]).includes(t),
 );
 
 /** A type whose handler is a no-op in every phase, used to carry envelope tests. */

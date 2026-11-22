@@ -1,0 +1,134 @@
+{
+  "format": 1,
+  "kind": "reducer",
+  "name": "reject-commander-damage-commander-index-of-the-target-not-the-source",
+  "description": "The index is checked against the source seat (4.6): seat 3 has partners and seat 1 has one commander, so 1:1 does not exist even though the target has two.",
+  "game_id": "018f0000-0000-7000-8000-000000000001",
+  "settings": {
+    "starting_life": 40,
+    "commander_damage_threshold": 21,
+    "poison_threshold": 10,
+    "trust_mode": "casual"
+  },
+  "events": [
+    {
+      "event_id": "00000000-0000-4000-8000-000000000001",
+      "type": "seat_joined",
+      "payload": {
+        "seat": 1,
+        "player_id": "018f0000-0000-7000-8000-0000000000b1",
+        "name": "Seat 1"
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000002",
+      "type": "seat_joined",
+      "payload": {
+        "seat": 2,
+        "player_id": "018f0000-0000-7000-8000-0000000000b2",
+        "name": "Seat 2"
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000003",
+      "type": "seat_joined",
+      "payload": {
+        "seat": 3,
+        "player_id": "018f0000-0000-7000-8000-0000000000b3",
+        "name": "Seat 3"
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000004",
+      "type": "seat_joined",
+      "payload": {
+        "seat": 4,
+        "player_id": "018f0000-0000-7000-8000-0000000000b4",
+        "name": "Seat 4"
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000005",
+      "type": "commanders_set",
+      "payload": {
+        "seat": 3,
+        "commanders": [
+          {
+            "card_id": "018f0000-0000-7000-8000-0000000000c3",
+            "name": "Partner A"
+          },
+          {
+            "card_id": "018f0000-0000-7000-8000-0000000000e3",
+            "name": "Partner B"
+          }
+        ]
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000006",
+      "type": "game_started",
+      "payload": {
+        "first_seat": 1,
+        "started_at": "2026-11-21T12:00:00.000Z"
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000007",
+      "type": "commander_damage",
+      "payload": {
+        "source_seat": 1,
+        "commander": 1,
+        "target_seat": 3,
+        "amount": 1
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    }
+  ],
+  "expect": {
+    "error": {
+      "index": 6,
+      "code": "unknown_commander"
+    }
+  }
+}

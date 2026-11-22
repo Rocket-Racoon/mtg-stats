@@ -2,7 +2,7 @@
   "format": 1,
   "kind": "reducer",
   "name": "accept-all-registered-event-types",
-  "description": "Every registered event type (4) is accepted in one legal log: game_created at seq 1, a lobby with five seats (one leaves, two swap), a deck and commanders, the start, a turn, then life_changed, player_conceded and player_eliminated with real payloads (4.5), and the 17 types whose handlers are still no-ops with an empty payload (they only advance last_seq). Update this vector when a handler story gives one of those types real behaviour.",
+  "description": "Every registered event type (4) is accepted in one legal log: game_created at seq 1, a lobby with five seats (one leaves, two swap), a deck and commanders, the start, a turn, then life_changed, player_conceded and player_eliminated with real payloads (4.5), a commander_damage of 4 from the partner commander 2:1 to seat 1 (4.6), and the 16 types whose handlers are still no-ops with an empty payload (they only advance last_seq). Update this vector when a handler story gives one of those types real behaviour.",
   "game_id": "018f0000-0000-7000-8000-000000000001",
   "settings": {
     "starting_life": 30,
@@ -252,7 +252,12 @@
     {
       "event_id": "00000000-0000-4000-8000-000000000017",
       "type": "commander_damage",
-      "payload": {},
+      "payload": {
+        "source_seat": 2,
+        "commander": 1,
+        "target_seat": 1,
+        "amount": 4
+      },
       "actor": {
         "kind": "player",
         "player_id": "018f0000-0000-7000-8000-0000000000a1"
@@ -467,7 +472,7 @@
               "name": "Atraxa, Praetors’ Voice"
             }
           ],
-          "life": 27,
+          "life": 23,
           "poison": 0,
           "energy": 0,
           "experience": 0,
@@ -556,7 +561,11 @@
       "round": 1,
       "monarch": null,
       "initiative": null,
-      "commander_damage": {},
+      "commander_damage": {
+        "1": {
+          "2:1": 4
+        }
+      },
       "no_winner": false,
       "winner_seat": null,
       "win_condition": null,

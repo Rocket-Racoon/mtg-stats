@@ -1,7 +1,7 @@
 """games_event_log
 
 Revision ID: 92321b9b300c
-Revises: c64d7bbc3614
+Revises: 37f07339b8e2
 Create Date: 2026-11-22 01:48:45.520449+00:00
 """
 
@@ -15,7 +15,7 @@ from sqlalchemy.dialects import postgresql
 import app.core.db
 
 revision: str = "92321b9b300c"
-down_revision: str | None = "c64d7bbc3614"
+down_revision: str | None = "37f07339b8e2"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

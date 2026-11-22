@@ -1,0 +1,230 @@
+{
+  "format": 1,
+  "kind": "canonical_json",
+  "name": "canonical-json-rejections",
+  "description": "Values that cannot be written: fractions, NaN, infinity, integers outside +-(2^53-1) (decimal text), lone surrogates, and nesting beyond 64 ancestors. Fractions are never integral floats (JavaScript cannot tell them from integers).",
+  "cases": [
+    {
+      "name": "fraction 0.5",
+      "invalid": {
+        "kind": "float",
+        "value": "0.5"
+      },
+      "error": "non_integer"
+    },
+    {
+      "name": "fraction -0.25",
+      "invalid": {
+        "kind": "float",
+        "value": "-0.25"
+      },
+      "error": "non_integer"
+    },
+    {
+      "name": "fraction 0.1",
+      "invalid": {
+        "kind": "float",
+        "value": "0.1"
+      },
+      "error": "non_integer"
+    },
+    {
+      "name": "fraction 123456789.123",
+      "invalid": {
+        "kind": "float",
+        "value": "123456789.123"
+      },
+      "error": "non_integer"
+    },
+    {
+      "name": "tiny fraction 1e-7",
+      "invalid": {
+        "kind": "float",
+        "value": "1e-7"
+      },
+      "error": "non_integer"
+    },
+    {
+      "name": "smallest subnormal 5e-324",
+      "invalid": {
+        "kind": "float",
+        "value": "5e-324"
+      },
+      "error": "non_integer"
+    },
+    {
+      "name": "fraction 4503599627370495.5",
+      "invalid": {
+        "kind": "float",
+        "value": "4503599627370495.5"
+      },
+      "error": "non_integer"
+    },
+    {
+      "name": "2^53 is out of range",
+      "invalid": {
+        "kind": "integer",
+        "value": "9007199254740992"
+      },
+      "error": "integer_out_of_range"
+    },
+    {
+      "name": "2^53 + 1 is out of range",
+      "invalid": {
+        "kind": "integer",
+        "value": "9007199254740993"
+      },
+      "error": "integer_out_of_range"
+    },
+    {
+      "name": "-(2^53) is out of range",
+      "invalid": {
+        "kind": "integer",
+        "value": "-9007199254740992"
+      },
+      "error": "integer_out_of_range"
+    },
+    {
+      "name": "-(2^53 + 1) is out of range",
+      "invalid": {
+        "kind": "integer",
+        "value": "-9007199254740993"
+      },
+      "error": "integer_out_of_range"
+    },
+    {
+      "name": "10^20 is out of range",
+      "invalid": {
+        "kind": "integer",
+        "value": "100000000000000000000"
+      },
+      "error": "integer_out_of_range"
+    },
+    {
+      "name": "10^21 is out of range",
+      "invalid": {
+        "kind": "integer",
+        "value": "1000000000000000000000"
+      },
+      "error": "integer_out_of_range"
+    },
+    {
+      "name": "2^63 is out of range",
+      "invalid": {
+        "kind": "integer",
+        "value": "9223372036854775808"
+      },
+      "error": "integer_out_of_range"
+    },
+    {
+      "name": "2^64 is out of range",
+      "invalid": {
+        "kind": "integer",
+        "value": "18446744073709551616"
+      },
+      "error": "integer_out_of_range"
+    },
+    {
+      "name": "-(2^63) is out of range",
+      "invalid": {
+        "kind": "integer",
+        "value": "-9223372036854775808"
+      },
+      "error": "integer_out_of_range"
+    },
+    {
+      "name": "lone high surrogate d800",
+      "invalid": {
+        "kind": "lone_surrogate",
+        "value": "d800"
+      },
+      "error": "lone_surrogate"
+    },
+    {
+      "name": "lone high surrogate dbff",
+      "invalid": {
+        "kind": "lone_surrogate",
+        "value": "dbff"
+      },
+      "error": "lone_surrogate"
+    },
+    {
+      "name": "lone high surrogate d83d (half an emoji)",
+      "invalid": {
+        "kind": "lone_surrogate",
+        "value": "d83d"
+      },
+      "error": "lone_surrogate"
+    },
+    {
+      "name": "lone low surrogate dc00",
+      "invalid": {
+        "kind": "lone_surrogate",
+        "value": "dc00"
+      },
+      "error": "lone_surrogate"
+    },
+    {
+      "name": "lone low surrogate de00",
+      "invalid": {
+        "kind": "lone_surrogate",
+        "value": "de00"
+      },
+      "error": "lone_surrogate"
+    },
+    {
+      "name": "lone low surrogate dfff",
+      "invalid": {
+        "kind": "lone_surrogate",
+        "value": "dfff"
+      },
+      "error": "lone_surrogate"
+    },
+    {
+      "name": "NaN",
+      "invalid": {
+        "kind": "nan"
+      },
+      "error": "non_integer"
+    },
+    {
+      "name": "Infinity",
+      "invalid": {
+        "kind": "infinity"
+      },
+      "error": "non_integer"
+    },
+    {
+      "name": "100 nested arrays",
+      "invalid": {
+        "kind": "deep_array",
+        "value": "100"
+      },
+      "error": "unsupported_value"
+    },
+    {
+      "name": "100 nested objects",
+      "invalid": {
+        "kind": "deep_object",
+        "value": "100"
+      },
+      "error": "unsupported_value"
+    },
+    {
+      "name": "1000 nested arrays",
+      "invalid": {
+        "kind": "deep_array",
+        "value": "1000"
+      },
+      "error": "unsupported_value"
+    },
+    {
+      "name": "1000 nested objects",
+      "invalid": {
+        "kind": "deep_object",
+        "value": "1000"
+      },
+      "error": "unsupported_value"
+    }
+  ]
+}

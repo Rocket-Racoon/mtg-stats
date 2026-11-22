@@ -1,0 +1,45 @@
+{
+  "format": 1,
+  "kind": "reducer",
+  "name": "reject-out-of-order-repeat",
+  "description": "A repeated seq is out_of_order, at the index of the second event.",
+  "game_id": "018f0000-0000-7000-8000-000000000001",
+  "settings": {
+    "starting_life": 40,
+    "commander_damage_threshold": 21,
+    "poison_threshold": 10,
+    "trust_mode": "casual"
+  },
+  "events": [
+    {
+      "event_id": "00000000-0000-4000-8000-000000000001",
+      "type": "turn_passed",
+      "payload": {},
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1,
+      "seq": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000002",
+      "type": "turn_passed",
+      "payload": {},
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1,
+      "seq": 1
+    }
+  ],
+  "expect": {
+    "error": {
+      "index": 1,
+      "code": "out_of_order"
+    }
+  }
+}

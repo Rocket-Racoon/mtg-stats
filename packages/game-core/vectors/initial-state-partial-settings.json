@@ -1,0 +1,42 @@
+{
+  "format": 1,
+  "kind": "reducer",
+  "name": "initial-state-partial-settings",
+  "description": "initialState(game_id, settings) accepts partial settings (3.5): missing keys take their defaults. Note: 8.1 says a vector's settings has all four; this vector exercises the partial form on purpose.",
+  "game_id": "018f0000-0000-7000-8000-000000000001",
+  "settings": {
+    "starting_life": 20
+  },
+  "events": [],
+  "expect": {
+    "state": {
+      "v": 1,
+      "game_id": "018f0000-0000-7000-8000-000000000001",
+      "phase": "lobby",
+      "resume_phase": null,
+      "settings": {
+        "starting_life": 20,
+        "commander_damage_threshold": 21,
+        "poison_threshold": 10,
+        "trust_mode": "casual"
+      },
+      "control_mode": "own_seat",
+      "seats": [],
+      "order": [],
+      "active_seat": null,
+      "turn": 0,
+      "round": 0,
+      "monarch": null,
+      "initiative": null,
+      "commander_damage": {},
+      "no_winner": false,
+      "winner_seat": null,
+      "win_condition": null,
+      "win_condition_note": "",
+      "started_at": null,
+      "voided": [],
+      "reverted": [],
+      "last_seq": 0
+    }
+  }
+}

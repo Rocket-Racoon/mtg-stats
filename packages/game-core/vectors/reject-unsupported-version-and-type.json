@@ -1,0 +1,24 @@
+{
+  "format": 1,
+  "kind": "reducer",
+  "name": "reject-unsupported-version-and-type",
+  "description": "Both the version and the type are bad: the version check comes first, so the code is unsupported_version.",
+  "game_id": "018f0000-0000-7000-8000-000000000001",
+  "settings": {
+    "starting_life": 40,
+    "commander_damage_threshold": 21,
+    "poison_threshold": 10,
+    "trust_mode": "casual"
+  },
+  "events": [
+    {
+      "event_id": "00000000-0000-4000-8000-000000000001",
+      "type": "no_such_event",
+      "payload": {},
+      "actor": { "kind": "system", "player_id": null },
+      "on_behalf_of_seat": null,
+      "v": 0
+    }
+  ],
+  "expect": { "error": { "index": 0, "code": "unsupported_version" } }
+}

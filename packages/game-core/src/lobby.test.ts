@@ -357,7 +357,28 @@ describe('seat_moved (4.4.6)', () => {
     });
   });
 
-  it.each(['ending', 'finished', 'abandoned'] as const)(
+  describe('in an ending game (review screen)', () => {
+    const ending = () => inPhase(activeGame(4, 3), 'ending');
+
+    it('is invalid_phase without correction: true', () => {
+      expect(codeOf(ending(), moved(4, 2))).toBe('invalid_phase');
+      expect(codeOf(ending(), moved(4, 2, false))).toBe('invalid_phase');
+      expect(codeOf(ending(), moved(4, 2, null))).toBe('invalid_phase');
+    });
+
+    it('swaps the order with correction: true and changes nothing else', () => {
+      const game = ending();
+      const next = after(game, moved(4, 2, true));
+      expect(next).toEqual({ ...game, order: [1, 4, 3, 2], last_seq: game.last_seq + 1 });
+      expect(next.active_seat).toBe(3);
+    });
+
+    it('is unknown_seat for a seat that is not at the table', () => {
+      expect(codeOf(ending(), moved(5, 1, true))).toBe('unknown_seat');
+    });
+  });
+
+  it.each(['finished', 'abandoned'] as const)(
     'is invalid_phase in %s, even with correction: true',
     (phase) => {
       expect(codeOf(inPhase(activeGame(4), phase), moved(1, 2, true))).toBe('invalid_phase');
@@ -397,10 +418,10 @@ describe('deck_assigned and commanders_set (4.4.7, 4.4.8)', () => {
     });
   });
 
-  it('commanders_set replaces the commanders and leaves the deck', () => {
+  it('commanders_set replaces the commanders and clears the deck', () => {
     const next = run(seated(3), deck(), set());
     expect(next.seats[1]).toMatchObject({
-      deck_version_id: 'dv1',
+      deck_version_id: null,
       commanders: [COMMANDER, PARTNER],
       commander_cast: [0, 0],
     });
@@ -613,9 +634,28 @@ describe('turn_passed (4.4.10)', () => {
     const e = make('turn_passed');
     expect(codeOf(lobbyState(), e)).toBe('invalid_phase');
     expect(codeOf(seated(3), e)).toBe('invalid_phase');
-    for (const phase of ['ending', 'finished', 'abandoned'] as const) {
+    for (const phase of ['finished', 'abandoned'] as const) {
       expect(codeOf(inPhase(activeGame(3), phase), e)).toBe('invalid_phase');
     }
+  });
+
+  it('is allowed in ending, with the same effect as in active', () => {
+    const game = inPhase(activeGame(3), 'ending');
+    const next = pass(game);
+    expect(next).toEqual({
+      ...game,
+      active_seat: 2,
+      turn: 2,
+      round: 1,
+      last_seq: game.last_seq + 1,
+    });
+    const wrapped = pass(pass(next));
+    expect([wrapped.active_seat, wrapped.turn, wrapped.round]).toEqual([1, 4, 2]);
+  });
+
+  it('does not rely on an active_seat check: a hand-built null active seat does not throw', () => {
+    const broken = { ...activeGame(3), active_seat: null };
+    expect(() => apply(broken, make('turn_passed'))).not.toThrow();
   });
 
   it('ignores unknown payload keys', () => {
@@ -654,7 +694,7 @@ describe('turn_passed (4.4.10)', () => {
       [8, natural, 3, [4], 3, 1, 1, 1, 2, 1],
       [9, natural, 1, [1], 2, 2, 1, 3, 3, 1],
       [10, natural, 1, [1], 4, 4, 1, 2, 5, 2],
-      [11, natural, 1, [1], 1, 1, 1, 2, 2, 2],
+      [11, natural, 1, [1], 1, 1, 1, 2, 2, 1],
       [12, natural, 3, [3], 2, 4, 1, 4, 5, 2],
       [13, natural, 4, [4], 3, 4, 1, 1, 5, 2],
       [14, [3, 2, 1, 4], 1, [], 4, 2, 1, 3, 3, 1],
@@ -687,6 +727,19 @@ describe('turn_passed (4.4.10)', () => {
       const next = pass(game(natural, 1, [1, 2, 3], 4));
       expect([next.active_seat, next.round]).toEqual([4, 2]);
       expect(pass(next).round).toBe(3);
+    });
+
+    it('row 11 then row 10: F out on its own turn, the round goes up when play passes its place', () => {
+      const one = pass(game(natural, 1, [1], 1));
+      expect([one.active_seat, one.round]).toEqual([2, 1]);
+      const two = pass(pass(pass(one)));
+      expect([two.active_seat, two.turn, two.round]).toEqual([2, 5, 2]);
+    });
+
+    it('is allowed in ending with eliminated seats', () => {
+      const ending = inPhase(game(natural, 1, [4], 3, 3), 'ending');
+      const next = pass(ending);
+      expect([next.active_seat, next.turn, next.round]).toEqual([1, 4, 2]);
     });
 
     it('is invalid_phase when every seat is eliminated', () => {

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   activeGame,
   codeOf,
+  GAME_ID,
   joined,
   lobbyState,
   make,
@@ -15,6 +16,7 @@ import {
   withEliminated,
 } from './lobby.test.helpers';
 import { apply } from './reducer';
+import { initialState } from './state';
 import { EVENT_TYPES, REDUCER_ERROR_CODES, SETTING_DEFAULTS } from './types';
 import type { EventEnvelope, GameState, Phase } from './types';
 
@@ -143,12 +145,65 @@ describe('criterion 2: seat_moved as a mid-game correction', () => {
     expect(codeOf(game(), moved(4, 2, correction))).toBe('invalid_phase');
   });
 
-  it.each(['ending', 'finished', 'abandoned'] as const)(
+  it.each(['finished', 'abandoned'] as const)(
     'is invalid_phase in a %s game even with correction true',
     (phase) => {
       expect(codeOf(inPhase(game(), phase), moved(4, 2, true))).toBe('invalid_phase');
     },
   );
+
+  describe('in the ending phase (the review screen, 4.4.6)', () => {
+    const ending = () => inPhase(game(), 'ending');
+
+    it('with correction true swaps the seats, keeps seat 3 active and leaves turn and round alone', () => {
+      const before = ending();
+      expect(step(before, moved(4, 2, true))).toEqual({
+        ...before,
+        order: [1, 4, 3, 2],
+        last_seq: before.last_seq + 1,
+      });
+    });
+
+    it('keeps the active seat when the active seat is one of the two that swap', () => {
+      const after = step(ending(), moved(3, 1, true));
+      expect(after.order).toEqual([3, 2, 1, 4]);
+      expect([after.phase, after.active_seat, after.turn, after.round]).toEqual([
+        'ending',
+        3,
+        1,
+        1,
+      ]);
+    });
+
+    it.each([
+      ['without a correction key', undefined],
+      ['with correction false', false],
+      ['with correction null', null],
+    ])('is invalid_phase %s', (_label, correction) => {
+      expect(codeOf(ending(), moved(4, 2, correction))).toBe('invalid_phase');
+    });
+
+    it('a correction that is not a boolean is invalid_payload, before the phase check', () => {
+      expect(codeOf(ending(), make('seat_moved', { from: 4, to: 2, correction: 'true' }))).toBe(
+        'invalid_payload',
+      );
+    });
+
+    it('a seat that is not at the table is unknown_seat', () => {
+      expect(codeOf(ending(), moved(4, 5, true))).toBe('unknown_seat');
+    });
+
+    it('later turn_passed events follow the new order', () => {
+      let s = step(ending(), moved(4, 2, true));
+      const seen: number[] = [];
+      for (let i = 0; i < 4; i++) {
+        s = step(s, ev('turn_passed'));
+        seen.push(s.active_seat as number);
+      }
+      expect(seen).toEqual([2, 1, 4, 3]);
+      expect([s.phase, s.turn, s.round]).toEqual(['ending', 5, 2]);
+    });
+  });
 
   it.each([['1'], [1], [0], ['true'], [[]]])(
     'a correction that is not a boolean (%j) is invalid_payload',
@@ -367,8 +422,8 @@ describe('criterion 6: turn_passed skips eliminated seats (hand-built states)', 
   const natural = [1, 2, 3, 4];
 
   // The criterion's literal example: seat 3 active, 4 seats, seat 4 eliminated. Seat 1 is next in
-  // every case. The round goes up iff seat 1 is the round head: the first player F, or the next
-  // surviving seat after F when F is out (for F = 4 that is seat 1).
+  // every case (seat 4 is skipped). The pass walks the places of seats 4 and 1, so the round goes
+  // up iff the first player's place is one of those two: first player 1 or 4.
   it.each([
     [1, 3],
     [2, 2],
@@ -383,7 +438,89 @@ describe('criterion 6: turn_passed skips eliminated seats (hand-built states)', 
     },
   );
 
-  // [label, order, first player, eliminated, active, next seat, round goes up]
+  // The 19 rows of the worked-examples table of CONTRACT.md 4.4.10, copied here.
+  // [row, order, first player, eliminated, active, next seat, [turn, round] before, [turn, round] after]
+  type Row = [
+    number,
+    number[],
+    number,
+    number[],
+    number,
+    number,
+    [number, number],
+    [number, number],
+  ];
+  const ROWS: Row[] = [
+    [1, [1, 2, 3, 4], 1, [], 1, 2, [1, 1], [2, 1]],
+    [2, [1, 2, 3, 4], 1, [], 4, 1, [4, 1], [5, 2]],
+    [3, [1, 2, 3, 4], 3, [], 3, 4, [1, 1], [2, 1]],
+    [4, [1, 2, 3, 4], 3, [], 4, 1, [2, 1], [3, 1]],
+    [5, [1, 2, 3, 4], 3, [], 2, 3, [4, 1], [5, 2]],
+    [6, [1, 2, 3, 4], 3, [], 2, 3, [12, 3], [13, 4]],
+    [7, [1, 2, 3, 4], 1, [4], 3, 1, [3, 1], [4, 2]],
+    [8, [1, 2, 3, 4], 3, [4], 3, 1, [1, 1], [2, 1]],
+    [9, [1, 2, 3, 4], 1, [1], 2, 3, [2, 1], [3, 1]],
+    [10, [1, 2, 3, 4], 1, [1], 4, 2, [4, 1], [5, 2]],
+    [11, [1, 2, 3, 4], 1, [1], 1, 2, [1, 1], [2, 1]],
+    [12, [1, 2, 3, 4], 3, [3], 2, 4, [4, 1], [5, 2]],
+    [13, [1, 2, 3, 4], 4, [4], 3, 1, [4, 1], [5, 2]],
+    [14, [3, 2, 1, 4], 1, [], 4, 3, [2, 1], [3, 1]],
+    [15, [1, 2, 3, 4], 1, [2, 3, 4], 1, 1, [1, 1], [2, 2]],
+    [16, [1, 2, 3, 4], 1, [1, 2, 3], 4, 4, [4, 3], [5, 4]],
+    [17, [3, 2, 1, 4], 1, [], 2, 1, [2, 1], [3, 2]],
+    [18, [1, 3, 2, 4], 1, [], 3, 2, [3, 1], [4, 1]],
+    [19, [4, 2, 3, 1], 1, [], 3, 1, [3, 1], [4, 2]],
+  ];
+
+  it('lists rows 1 to 19', () => {
+    expect(ROWS.map((r) => r[0])).toEqual(Array.from({ length: 19 }, (_, i) => i + 1));
+  });
+
+  describe.each(['active', 'ending'] as const)(
+    'every row of the table in the %s phase',
+    (phase) => {
+      it.each(ROWS)(
+        'row %i',
+        (_row, order, first, dead, active, next, [turn, round], [turnAfter, roundAfter]) => {
+          const before = inPhase(game(order, first, dead, active, turn, round), phase);
+          const after = pass(before);
+          expect([after.active_seat, after.turn, after.round]).toEqual([
+            next,
+            turnAfter,
+            roundAfter,
+          ]);
+          // nothing else moves
+          expect(after).toEqual({
+            ...before,
+            active_seat: next,
+            turn: turnAfter,
+            round: roundAfter,
+            last_seq: before.last_seq + 1,
+          });
+        },
+      );
+    },
+  );
+
+  // Rows 17 to 19 are the state right after a correction, built here the way the contract tells it.
+  // [row, passes before the correction, from, to, next seat, [turn, round] after the pass]
+  it.each([
+    [17, 1, 1, 3, 1, [3, 2]],
+    [18, 2, 3, 2, 2, [4, 1]],
+    [19, 2, 1, 4, 1, [4, 2]],
+  ] as [number, number, number, number, number, [number, number]][])(
+    'row %i reached through events: first player 1, passes, a correction, then the pass',
+    (_row, passes, from, to, next, [turn, round]) => {
+      let s = activeGame(4, 1);
+      for (let i = 0; i < passes; i++) s = pass(s);
+      s = pass(step(s, moved(from, to, true)));
+      expect([s.active_seat, s.turn, s.round]).toEqual([next, turn, round]);
+    },
+  );
+
+  // [label, order, first player, eliminated, active, next seat, the round goes up]. Every case is
+  // worked out with the 4.4.10 walk: the places after the active seat up to and including the next
+  // seat; the round goes up iff the first player's place is among them.
   const cases: [string, number[], number, number[], number, number, boolean][] = [
     [
       'first player out between turns, next survivor is the round head',
@@ -394,7 +531,15 @@ describe('criterion 6: turn_passed skips eliminated seats (hand-built states)', 
       3,
       true,
     ],
-    ['first player out on its own turn: the next pass starts a round', natural, 2, [2], 2, 3, true],
+    [
+      'first player out on its own turn: the next pass does not start a round',
+      natural,
+      2,
+      [2],
+      2,
+      3,
+      false,
+    ],
     ['first player out, play not yet at the next survivor', natural, 2, [2], 4, 1, false],
     [
       'first player 1 out, wrapping from the last seat to the next survivor',
@@ -489,6 +634,23 @@ describe('criterion 6: turn_passed skips eliminated seats (hand-built states)', 
     expect(after.last_seq).toBe(before.last_seq + 1);
   });
 
+  it('a first player eliminated on its own turn: the round does not go up on the next pass, and goes up when play passes its place again', () => {
+    // F = 2 out on its own turn (row 11's shape); order [1,2,3,4].
+    let s = game(natural, 2, [2], 2, 5, 2);
+    const seen: [number, number, number][] = [];
+    for (let i = 0; i < 4; i++) {
+      s = pass(s);
+      seen.push([s.active_seat as number, s.turn, s.round]);
+    }
+    // 3 and 4 finish round 2; passing 4 -> 1 stays in round 2; 1 -> 3 walks the place of 2: round 3.
+    expect(seen).toEqual([
+      [3, 6, 2],
+      [4, 7, 2],
+      [1, 8, 2],
+      [3, 9, 3],
+    ]);
+  });
+
   it('a lone survivor passes to itself and gains a round every time', () => {
     let s = game(natural, 1, [1, 2, 4], 3);
     for (let i = 1; i <= 3; i++) {
@@ -508,8 +670,16 @@ describe('criterion 6: turn_passed skips eliminated seats (hand-built states)', 
     expect([s.turn, s.round]).toEqual([7, 3]);
   });
 
-  it('is invalid_phase when every seat is eliminated', () => {
-    expect(codeOf(game(natural, 1, [1, 2, 3, 4], 1), ev('turn_passed'))).toBe('invalid_phase');
+  it('is invalid_phase when every seat is eliminated, in active and in ending', () => {
+    const dead = game(natural, 1, [1, 2, 3, 4], 1);
+    expect(codeOf(dead, ev('turn_passed'))).toBe('invalid_phase');
+    expect(codeOf(inPhase(dead, 'ending'), ev('turn_passed'))).toBe('invalid_phase');
+  });
+
+  it.each(['lobby', 'finished', 'abandoned'] as const)('is invalid_phase in a %s game', (phase) => {
+    expect(codeOf(inPhase(game(natural, 1, [], 1), phase), ev('turn_passed'))).toBe(
+      'invalid_phase',
+    );
   });
 
   it('does not change the state it is given', () => {
@@ -517,6 +687,52 @@ describe('criterion 6: turn_passed skips eliminated seats (hand-built states)', 
     const copy = structuredClone(before);
     pass(before);
     expect(before).toEqual(copy);
+  });
+
+  // An independent oracle written from the words of 4.4.10 (not from the reducer): the walk covers
+  // the places of `order` after the active seat, up to and including the first seat that is not
+  // eliminated (the active seat itself comes last); the round goes up iff the place of the first
+  // player is among them.
+  const oracle = (order: number[], first: number, dead: Set<number>, active: number) => {
+    const at = order.indexOf(active);
+    const walked: number[] = [];
+    for (let k = 1; k <= order.length; k++) {
+      const seat = order[(at + k) % order.length]!;
+      walked.push(seat);
+      if (!dead.has(seat)) return { next: seat, roundUp: walked.includes(first) };
+    }
+    throw new Error('every seat is eliminated');
+  };
+
+  const permutations = (items: number[]): number[][] =>
+    items.length <= 1
+      ? [items]
+      : items.flatMap((x, i) =>
+          permutations([...items.slice(0, i), ...items.slice(i + 1)]).map((rest) => [x, ...rest]),
+        );
+
+  it('agrees with the oracle for every order, first player, eliminated set and active seat of 4 seats', () => {
+    let checked = 0;
+    for (const order of permutations([1, 2, 3, 4])) {
+      for (const first of [1, 2, 3, 4]) {
+        for (let mask = 0; mask < 15; mask++) {
+          const dead = [1, 2, 3, 4].filter((seat) => (mask >> (seat - 1)) & 1);
+          for (const active of [1, 2, 3, 4]) {
+            const { next, roundUp } = oracle(order, first, new Set(dead), active);
+            const after = pass(game(order, first, dead, active));
+            const got = [after.active_seat, after.turn, after.round];
+            const want = [next, 8, roundUp ? 3 : 2];
+            if (got.join() !== want.join()) {
+              throw new Error(
+                `order ${order} F ${first} out ${dead} active ${active}: got ${got}, want ${want}`,
+              );
+            }
+            checked += 1;
+          }
+        }
+      }
+    }
+    expect(checked).toBe(24 * 4 * 15 * 4);
   });
 });
 
@@ -563,20 +779,35 @@ describe('contract 4.4 and the code agree on the nine handlers', () => {
   const stateIn = (phase: Phase): GameState =>
     phase === 'lobby' ? seated(3) : inPhase(activeGame(3), phase);
 
+  // `phase` is `a` or `b` [with `correction: true`]: one clause per mention in the table cell.
+  const clausesOf = (text: string): { phases: string[]; gated: boolean }[] =>
+    [...text.matchAll(/`phase` is ((?:`[a-z]+`(?: or )?)+)( with `correction: true`)?/g)].map(
+      (m) => ({
+        phases: [...m[1]!.matchAll(/`([a-z]+)`/g)].map((x) => x[1]!),
+        gated: m[2] !== undefined,
+      }),
+    );
+
+  it('the table says ending follows active for seat_moved (with a correction) and turn_passed', () => {
+    expect(clausesOf(allowed.get('seat_moved') ?? '')).toEqual([
+      { phases: ['lobby'], gated: false },
+      { phases: ['active', 'ending'], gated: true },
+    ]);
+    expect(clausesOf(allowed.get('turn_passed') ?? '')).toEqual([
+      { phases: ['active', 'ending'], gated: false },
+    ]);
+  });
+
   it.each(HANDLERS.filter((h) => h !== 'game_created'))(
     '%s is accepted in exactly the phases the table allows',
     (handler) => {
-      const text = allowed.get(handler) ?? '';
-      const named = [...text.matchAll(/`phase` is `([a-z]+)`/g)].map((m) => m[1]);
-      expect(named.length).toBeGreaterThan(0);
-      const needsCorrection = text.includes('`correction: true`');
+      const clauses = clausesOf(allowed.get(handler) ?? '');
+      expect(clauses.length).toBeGreaterThan(0);
       for (const phase of PHASES) {
         for (const correction of [true, false]) {
-          const listed = named.includes(phase);
-          const expected =
-            listed && (!needsCorrection || phase !== 'active' || correction)
-              ? 'ok'
-              : 'invalid_phase';
+          const expected = clauses.some((c) => c.phases.includes(phase) && (!c.gated || correction))
+            ? 'ok'
+            : 'invalid_phase';
           expect(
             codeOf(stateIn(phase), validEvent[handler]!(correction)),
             `${handler} in ${phase} with correction ${correction}`,
@@ -700,9 +931,137 @@ describe('contract 4.4 and the code agree on the nine handlers', () => {
     },
   );
 
+  it('the 19 worked examples of 4.4.10 are the rows pinned by the criterion 6 tests', () => {
+    const section = between(/\n#### 4\.4\.10 /, /\n#{2,4} /);
+    const rows = [...section.matchAll(/^\| (\d+) +\| (.+) \|$/gm)].map((m) =>
+      m[2]!.split('|').map((c) => c.trim()),
+    );
+    expect(rows).toHaveLength(19);
+    const seats = (cell: string) => (cell === 'none' ? [] : cell.split(',').map((x) => Number(x)));
+    const pair = (cell: string) => cell.split(',').map((x) => Number(x));
+    const parsed = rows.map((c, i) => ({
+      row: i + 1,
+      order: JSON.parse(c[0]!.replaceAll('`', '')) as number[],
+      first: Number(c[1]),
+      dead: seats(c[2]!),
+      active: parseInt(c[3]!, 10),
+      next: Number(c[4]),
+      walked: c[5]!.split(',').map((x) => Number(x)),
+      firstWalked: c[6],
+      before: pair(c[7]!),
+      after: pair(c[8]!),
+    }));
+    // The walk column is the 4.4.10 definition, and "F walked" is the round rule itself.
+    for (const r of parsed) {
+      expect(r.firstWalked === 'yes', `row ${r.row}`).toBe(r.walked.includes(r.first));
+      expect(r.after[1]! - r.before[1]!, `row ${r.row}`).toBe(r.firstWalked === 'yes' ? 1 : 0);
+      expect(r.after[0]! - r.before[0]!, `row ${r.row}`).toBe(1);
+      expect(r.walked.at(-1), `row ${r.row}`).toBe(r.next);
+    }
+    // Every row is reducer-checked through the same table in the criterion 6 block.
+    const probed = parsed.map((r) => {
+      const state: GameState = {
+        ...withEliminated(activeGame(4, r.first), ...r.dead),
+        order: r.order,
+        active_seat: r.active,
+        turn: r.before[0]!,
+        round: r.before[1]!,
+      };
+      const next = run(state, ev('turn_passed'));
+      return [next.active_seat, next.turn, next.round];
+    });
+    expect(probed).toEqual(parsed.map((r) => [r.next, r.after[0], r.after[1]]));
+  });
+
+  it('the old round head is gone from 4.4.10 and the walk rule is stated', () => {
+    const section = between(/\n#### 4\.4\.10 /, /\n#{2,4} /);
+    expect(section).not.toMatch(/round head/i);
+    expect(section).toContain('**Positions walked**');
+  });
+
   it('first_seat is a documented state key, null in an empty lobby', () => {
     expect(contract).toMatch(/^\| `first_seat` +\| integer or null /m);
     expect(lobbyState().first_seat).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+describe('deck and commanders (4.4.7, 4.4.8)', () => {
+  const deck = (seat: number, id: string) =>
+    ev('deck_assigned', {
+      seat,
+      deck_version_id: id,
+      commanders: [{ card_id: 'c1', name: 'Atraxa' }],
+    });
+  const commanders = (seat: number) =>
+    ev('commanders_set', {
+      seat,
+      commanders: [
+        { card_id: 'c2', name: 'Tymna' },
+        { card_id: null, name: 'Thrasios' },
+      ],
+    });
+
+  it('commanders_set sets the seat deck_version_id to null and replaces the commanders', () => {
+    const s = run(seated(2), deck(1, 'd1'), commanders(1));
+    const seat1 = s.seats[0]!;
+    expect(seat1.deck_version_id).toBeNull();
+    expect(seat1.commanders).toEqual([
+      { card_id: 'c2', name: 'Tymna' },
+      { card_id: null, name: 'Thrasios' },
+    ]);
+    expect(seat1.commander_cast).toEqual([0, 0]);
+  });
+
+  it('commanders_set leaves the other seats and their decks alone', () => {
+    const s = run(seated(2), deck(2, 'd2'), commanders(1));
+    expect(s.seats[1]!.deck_version_id).toBe('d2');
+    expect(s.seats[1]!.commanders).toEqual([{ card_id: 'c1', name: 'Atraxa' }]);
+  });
+
+  it('commanders_set on a seat with no deck keeps deck_version_id null', () => {
+    expect(run(seated(2), commanders(2)).seats[1]!.deck_version_id).toBeNull();
+  });
+
+  it('deck_assigned after commanders_set sets the deck again', () => {
+    const s = run(seated(2), deck(1, 'd1'), commanders(1), deck(1, 'd2'));
+    expect(s.seats[0]!.deck_version_id).toBe('d2');
+    expect(s.seats[0]!.commanders).toEqual([{ card_id: 'c1', name: 'Atraxa' }]);
+    expect(s.seats[0]!.commander_cast).toEqual([0]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+describe('settings that were never validated (3.5, 4.4.1, 4.4.3)', () => {
+  // The initial settings are a placeholder that is not validated: no handler may throw on them.
+  const bad = (settings: Record<string, unknown>) => initialState(GAME_ID, settings as never);
+
+  it('settings_changed {} keeps an unvalidated trust_mode as it is', () => {
+    const s = step(bad({ trust_mode: 'STRICT' }), ev('settings_changed', {}));
+    expect(s.settings.trust_mode).toBe('STRICT');
+    expect(s.last_seq).toBe(1);
+  });
+
+  it('settings_changed validates and replaces only the key it carries', () => {
+    const s = step(bad({ trust_mode: 'STRICT' }), ev('settings_changed', { starting_life: 30 }));
+    expect([s.settings.trust_mode, s.settings.starting_life]).toEqual(['STRICT', 30]);
+  });
+
+  it('a bad key in the event is still invalid_setting even when the untouched ones are bad too', () => {
+    expect(
+      codeOf(bad({ trust_mode: 'STRICT' }), ev('settings_changed', { starting_life: 0 })),
+    ).toBe('invalid_setting');
+  });
+
+  it('seat_joined copies an unvalidated starting_life into the new seat life', () => {
+    const s = step(bad({ starting_life: '40' }), joined(1));
+    expect(s.seats[0]!.life).toBe('40');
+  });
+
+  it('game_started sets every seat life to the unvalidated starting_life', () => {
+    const s = run(bad({ starting_life: '40' }), joined(1), joined(2), started(1));
+    expect(s.seats.map((x) => x.life)).toEqual(['40', '40']);
+    expect(s.phase).toBe('active');
   });
 });
 
@@ -747,6 +1106,32 @@ describe('vector coverage of the nine handlers (8.4.1)', () => {
     ]) {
       expect(seen.has(code), code).toBe(true);
     }
+  });
+
+  it('a vector named accept-<type>-* or reject-<type>-* for one of the nine types has an event of that type (8.6)', () => {
+    const named = readdirSync(dir)
+      .filter((f) => /^(accept|reject)-.*\.json$/.test(f))
+      .map((f) => ({
+        file: f,
+        v: JSON.parse(readFileSync(new URL(f, dir), 'utf8')) as {
+          kind: string;
+          events?: { type: string }[];
+        },
+      }))
+      .filter((x) => x.v.kind === 'reducer');
+    const wrong: string[] = [];
+    for (const { file, v } of named) {
+      for (const type of S_6_1_6_TYPES) {
+        const prefix = type.replaceAll('_', '-');
+        if (
+          (file.startsWith(`accept-${prefix}-`) || file.startsWith(`reject-${prefix}-`)) &&
+          !(v.events ?? []).some((e) => e.type === type)
+        ) {
+          wrong.push(`${file} has no ${type} event`);
+        }
+      }
+    }
+    expect(wrong).toEqual([]);
   });
 
   it('the types that are still no-ops are exactly the 20 that are not S-6.1.6 types', () => {

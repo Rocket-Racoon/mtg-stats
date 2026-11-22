@@ -14,6 +14,7 @@ below; until then they rest on these unit tests (and their TypeScript twin).
 
 from __future__ import annotations
 
+import itertools
 import json
 import re
 from typing import Any
@@ -26,6 +27,7 @@ from app.games.core import (
     ApplyError,
     GameState,
     apply,
+    initial_state,
 )
 from app.games.core.contract import DEFAULT_SETTINGS as CONTRACT_DEFAULTS
 from app.games.tests.lobby_helpers import (
@@ -179,11 +181,55 @@ def test_seat_moved_without_a_true_correction_is_invalid_phase_in_an_active_game
     assert reject_code(play(4, 3), moved(4, 2, correction)) == "invalid_phase"
 
 
-@pytest.mark.parametrize("phase", ["ending", "finished", "abandoned"])
-def test_seat_moved_is_invalid_phase_after_the_active_phase_even_with_a_correction(
+@pytest.mark.parametrize("phase", ["finished", "abandoned"])
+def test_seat_moved_is_invalid_phase_after_the_ending_phase_even_with_a_correction(
     phase: str,
 ) -> None:
     assert reject_code(in_phase(play(4, 3), phase), moved(4, 2, True)) == "invalid_phase"
+
+
+def test_correction_in_the_ending_phase_swaps_and_changes_nothing_but_order_and_last_seq() -> None:
+    before = in_phase(play(4, 3), "ending")
+    after = accept(before, moved(4, 2, True))
+    assert after == before.model_copy(
+        update={"order": [1, 4, 3, 2], "last_seq": before.last_seq + 1}
+    )
+    assert (after.phase, after.active_seat, after.turn, after.round) == ("ending", 3, 1, 1)
+
+
+def test_correction_in_the_ending_phase_keeps_the_active_seat_when_it_is_swapped() -> None:
+    after = accept(in_phase(play(4, 3), "ending"), moved(3, 1, True))
+    assert after.order == [3, 2, 1, 4]
+    assert (after.phase, after.active_seat, after.turn, after.round) == ("ending", 3, 1, 1)
+
+
+@pytest.mark.parametrize("correction", [UNSET, False, None])
+def test_seat_moved_without_a_true_correction_is_invalid_phase_in_the_ending_phase(
+    correction: Any,
+) -> None:
+    state = in_phase(play(4, 3), "ending")
+    assert reject_code(state, moved(4, 2, correction)) == "invalid_phase"
+
+
+def test_a_non_boolean_correction_in_the_ending_phase_is_invalid_payload_before_the_phase() -> None:
+    state = in_phase(play(4, 3), "ending")
+    assert reject_code(state, ev("seat_moved", {"from": 4, "to": 2, "correction": "true"})) == (
+        "invalid_payload"
+    )
+
+
+def test_seat_moved_in_the_ending_phase_with_a_seat_not_at_the_table_is_unknown_seat() -> None:
+    assert reject_code(in_phase(play(4, 3), "ending"), moved(4, 5, True)) == "unknown_seat"
+
+
+def test_turn_passed_after_a_correction_in_the_ending_phase_follows_the_new_order() -> None:
+    state = accept(in_phase(play(4, 3), "ending"), moved(4, 2, True))
+    seen = []
+    for _ in range(4):
+        state = accept(state, ev("turn_passed"))
+        seen.append(state.active_seat)
+    assert seen == [2, 1, 4, 3]
+    assert (state.phase, state.turn, state.round) == ("ending", 5, 2)
 
 
 @pytest.mark.parametrize("correction", ["1", 1, 0, "true", []])
@@ -366,6 +412,8 @@ def _game(order: list[int], first: int, dead: tuple[int, ...], active: int) -> G
 NATURAL = [1, 2, 3, 4]
 
 
+# The criterion's literal example: seat 3 active, seat 4 out, seat 1 is next. The pass walks the
+# places of seats 4 and 1, so the round goes up iff the first player's place is one of them.
 @pytest.mark.parametrize(("first", "round_after"), [(1, 3), (2, 2), (3, 2), (4, 3)])
 def test_seat_3_active_seat_4_out_seat_1_is_next_and_the_round_follows_the_first_player(
     first: int, round_after: int
@@ -375,17 +423,85 @@ def test_seat_3_active_seat_4_out_seat_1_is_next_and_the_round_follows_the_first
     assert after.first_seat == first
 
 
-# (label, order, first player, eliminated, active, next seat, the round goes up)
+# The 19 rows of the worked-examples table of CONTRACT.md 4.4.10, copied here:
+# (row, order, first, eliminated, active, next, (turn, round) before, (turn, round) after)
+_Row = tuple[int, list[int], int, tuple[int, ...], int, int, tuple[int, int], tuple[int, int]]
+_ROWS: list[_Row] = [
+    (1, [1, 2, 3, 4], 1, (), 1, 2, (1, 1), (2, 1)),
+    (2, [1, 2, 3, 4], 1, (), 4, 1, (4, 1), (5, 2)),
+    (3, [1, 2, 3, 4], 3, (), 3, 4, (1, 1), (2, 1)),
+    (4, [1, 2, 3, 4], 3, (), 4, 1, (2, 1), (3, 1)),
+    (5, [1, 2, 3, 4], 3, (), 2, 3, (4, 1), (5, 2)),
+    (6, [1, 2, 3, 4], 3, (), 2, 3, (12, 3), (13, 4)),
+    (7, [1, 2, 3, 4], 1, (4,), 3, 1, (3, 1), (4, 2)),
+    (8, [1, 2, 3, 4], 3, (4,), 3, 1, (1, 1), (2, 1)),
+    (9, [1, 2, 3, 4], 1, (1,), 2, 3, (2, 1), (3, 1)),
+    (10, [1, 2, 3, 4], 1, (1,), 4, 2, (4, 1), (5, 2)),
+    (11, [1, 2, 3, 4], 1, (1,), 1, 2, (1, 1), (2, 1)),
+    (12, [1, 2, 3, 4], 3, (3,), 2, 4, (4, 1), (5, 2)),
+    (13, [1, 2, 3, 4], 4, (4,), 3, 1, (4, 1), (5, 2)),
+    (14, [3, 2, 1, 4], 1, (), 4, 3, (2, 1), (3, 1)),
+    (15, [1, 2, 3, 4], 1, (2, 3, 4), 1, 1, (1, 1), (2, 2)),
+    (16, [1, 2, 3, 4], 1, (1, 2, 3), 4, 4, (4, 3), (5, 4)),
+    (17, [3, 2, 1, 4], 1, (), 2, 1, (2, 1), (3, 2)),
+    (18, [1, 3, 2, 4], 1, (), 3, 2, (3, 1), (4, 1)),
+    (19, [4, 2, 3, 1], 1, (), 3, 1, (3, 1), (4, 2)),
+]
+
+
+def test_the_table_has_rows_1_to_19() -> None:
+    assert [r[0] for r in _ROWS] == list(range(1, 20))
+
+
+@pytest.mark.parametrize("phase", ["active", "ending"])
+@pytest.mark.parametrize("row", _ROWS, ids=[f"row{r[0]}" for r in _ROWS])
+def test_every_row_of_the_turn_passed_table_in_the_active_and_the_ending_phase(
+    row: _Row, phase: str
+) -> None:
+    _n, order, first, dead, active, expected_next, (turn, rnd), (turn_after, round_after) = row
+    base = active_game(order, first, active, turn=turn, round_=rnd, out=dead)
+    before = in_phase(base, phase) if phase != "active" else base
+    after = accept(before, ev("turn_passed"))
+    assert (after.active_seat, after.turn, after.round) == (expected_next, turn_after, round_after)
+    assert after == before.model_copy(
+        update={
+            "active_seat": expected_next,
+            "turn": turn_after,
+            "round": round_after,
+            "last_seq": before.last_seq + 1,
+        }
+    )
+
+
+# (passes before the correction, from, to, next seat, (turn, round) after the pass)
+@pytest.mark.parametrize(
+    ("passes", "src", "dst", "expected_next", "after"),
+    [(1, 1, 3, 1, (3, 2)), (2, 3, 2, 2, (4, 1)), (2, 1, 4, 1, (4, 2))],
+    ids=["row17", "row18", "row19"],
+)
+def test_rows_17_to_19_reached_through_events_a_correction_then_the_pass(
+    passes: int, src: int, dst: int, expected_next: int, after: tuple[int, int]
+) -> None:
+    state = play(4, 1)
+    for _ in range(passes):
+        state = accept(state, ev("turn_passed"))
+    state = accept(accept(state, moved(src, dst, True)), ev("turn_passed"))
+    assert (state.active_seat, state.turn, state.round) == (expected_next, *after)
+
+
+# (label, order, first player, eliminated, active, next seat, the round goes up). Every case is
+# worked out with the 4.4.10 walk: the places after the active seat up to and including the next
+# seat; the round goes up iff the first player's place is among them.
 _CASES: list[tuple[str, list[int], int, tuple[int, ...], int, int, bool]] = [
     ("first player out between turns, next survivor is the head", NATURAL, 2, (2,), 1, 3, True),
     (
-        "first player out on its own turn: the next pass starts a round",
+        "first player out on its own turn: the next pass does not start a round",
         NATURAL,
         2,
         (2,),
         2,
         3,
-        True,
+        False,
     ),
     ("first player out, play not yet at the next survivor", NATURAL, 2, (2,), 4, 1, False),
     ("first player 1 out, wrapping from the last seat", NATURAL, 1, (1,), 4, 2, True),
@@ -420,6 +536,61 @@ def test_turn_passed_skips_eliminated_seats_and_counts_the_round(
     assert after.order == order
     assert after.seats == before.seats
     assert after.last_seq == before.last_seq + 1
+
+
+def test_a_first_player_eliminated_on_its_own_turn_passes_a_round_only_at_its_place_again() -> None:
+    # F = 2 out on its own turn (row 11's shape), order [1,2,3,4].
+    state = _game(NATURAL, 2, (2,), 2)
+    state = state.model_copy(update={"turn": 5, "round": 2})
+    seen = []
+    for _ in range(4):
+        state = accept(state, ev("turn_passed"))
+        seen.append((state.active_seat, state.turn, state.round))
+    # 3 and 4 finish round 2; 4 -> 1 stays in round 2; 1 -> 3 walks the place of 2: round 3.
+    assert seen == [(3, 6, 2), (4, 7, 2), (1, 8, 2), (3, 9, 3)]
+
+
+@pytest.mark.parametrize("phase", ["lobby", "finished", "abandoned"])
+def test_turn_passed_is_invalid_phase_outside_active_and_ending(phase: str) -> None:
+    assert reject_code(in_phase(_game(NATURAL, 1, (), 1), phase), ev("turn_passed")) == (
+        "invalid_phase"
+    )
+
+
+def test_turn_passed_is_invalid_phase_in_the_ending_phase_when_every_seat_is_eliminated() -> None:
+    dead = in_phase(_game(NATURAL, 1, (1, 2, 3, 4), 1), "ending")
+    assert reject_code(dead, ev("turn_passed")) == "invalid_phase"
+
+
+def _oracle(order: list[int], first: int, dead: set[int], active: int) -> tuple[int, bool]:
+    """4.4.10 written from its words, independent of the reducer: the walk covers the places of
+    ``order`` after the active seat up to and including the first seat that is not eliminated
+    (the active seat itself comes last); the round goes up iff the place of ``first`` is walked."""
+    at = order.index(active)
+    walked: list[int] = []
+    for k in range(1, len(order) + 1):
+        seat = order[(at + k) % len(order)]
+        walked.append(seat)
+        if seat not in dead:
+            return seat, first in walked
+    raise AssertionError("every seat is eliminated")
+
+
+def test_turn_passed_agrees_with_the_oracle_for_every_possible_4_seat_state() -> None:
+    """Every order, first player, set of eliminated seats (not all) and active seat."""
+    checked = 0
+    for order in itertools.permutations([1, 2, 3, 4]):
+        for first in (1, 2, 3, 4):
+            for mask in range(15):
+                dead = tuple(seat for seat in (1, 2, 3, 4) if (mask >> (seat - 1)) & 1)
+                for active in (1, 2, 3, 4):
+                    expected_next, round_up = _oracle(list(order), first, set(dead), active)
+                    after = accept(_game(list(order), first, dead, active), ev("turn_passed"))
+                    got = (after.active_seat, after.turn, after.round)
+                    want = (expected_next, 8, 3 if round_up else 2)
+                    assert got == want, (order, first, dead, active)
+                    checked += 1
+    assert checked == 24 * 4 * 15 * 4
 
 
 def test_a_lone_survivor_passes_to_itself_and_gains_a_round_every_time() -> None:
@@ -493,18 +664,76 @@ def test_the_allowed_when_table_lists_exactly_the_nine_handlers() -> None:
     assert sorted(ALLOWED) == sorted(HANDLERS)
 
 
+def _clauses(text: str) -> list[tuple[list[str], bool]]:
+    """One (phases, needs `correction: true`) pair per ``phase`` is ... mention of a table cell."""
+    pattern = r"`phase` is ((?:`[a-z]+`(?: or )?)+)( with `correction: true`)?"
+    return [
+        (re.findall(r"`([a-z]+)`", found.group(1)), found.group(2) is not None)
+        for found in re.finditer(pattern, text)
+    ]
+
+
+def test_the_table_says_ending_follows_active_for_seat_moved_and_turn_passed() -> None:
+    assert _clauses(ALLOWED["seat_moved"]) == [(["lobby"], False), (["active", "ending"], True)]
+    assert _clauses(ALLOWED["turn_passed"]) == [(["active", "ending"], False)]
+
+
 @pytest.mark.parametrize("handler", [h for h in HANDLERS if h != "game_created"])
 def test_a_handler_is_accepted_in_exactly_the_phases_the_table_allows(handler: str) -> None:
-    text = ALLOWED[handler]
-    named = re.findall(r"`phase` is `([a-z]+)`", text)
-    assert named
-    needs_correction = "`correction: true`" in text
+    clauses = _clauses(ALLOWED[handler])
+    assert clauses
     for phase in PHASES:
         for correction in (True, False):
-            listed = phase in named
-            ok = listed and (not needs_correction or phase != "active" or correction)
+            ok = any(phase in phases and (not gated or correction) for phases, gated in clauses)
             code = code_of(_state_in(phase), VALID_EVENT[handler](correction))
             assert code == ("ok" if ok else "invalid_phase"), (handler, phase, correction)
+
+
+def test_the_19_worked_examples_of_4_4_10_are_the_rows_pinned_by_the_criterion_6_tests() -> None:
+    section = _between(r"\n#### 4\.4\.10 ", r"\n#{2,4} ")
+    rows = [
+        [cell.strip() for cell in found.group(2).split("|")]
+        for found in re.finditer(r"^\| (\d+) +\| (.+) \|$", section, flags=re.MULTILINE)
+    ]
+    assert len(rows) == 19
+
+    def numbers(cell: str) -> list[int]:
+        return [] if cell == "none" else [int(x) for x in cell.split(",")]
+
+    parsed = []
+    for i, c in enumerate(rows, start=1):
+        order, first, dead, active, nxt = (
+            json.loads(c[0].replace("`", "")),
+            int(c[1]),
+            c[2],
+            c[3],
+            c[4],
+        )
+        walked, first_walked, before, after = numbers(c[5]), c[6], numbers(c[7]), numbers(c[8])
+        # The walk column is the 4.4.10 definition, and "F walked" is the round rule itself.
+        assert (first_walked == "yes") == (first in walked), i
+        assert after[1] - before[1] == (1 if first_walked == "yes" else 0), i
+        assert after[0] - before[0] == 1, i
+        assert walked[-1] == int(nxt), i
+        parsed.append(
+            (
+                i,
+                order,
+                first,
+                tuple(numbers(dead)),
+                int(active.split()[0]),
+                int(nxt),
+                tuple(before),
+                tuple(after),
+            )
+        )
+    assert parsed == [tuple(r) for r in _ROWS]
+
+
+def test_the_old_round_head_is_gone_from_4_4_10_and_the_walk_rule_is_stated() -> None:
+    section = _between(r"\n#### 4\.4\.10 ", r"\n#{2,4} ")
+    assert "round head" not in section.lower()
+    assert "**Positions walked**" in section
 
 
 def test_game_created_is_accepted_exactly_when_last_seq_is_0_in_any_phase() -> None:
@@ -619,6 +848,101 @@ def test_first_seat_is_a_documented_state_key_null_in_an_empty_lobby() -> None:
     assert lobby().first_seat is None
 
 
+# --- deck and commanders (4.4.7, 4.4.8) -----------------------------------------------------------
+
+
+def _deck(seat: int, deck_id: str) -> dict[str, Any]:
+    return ev(
+        "deck_assigned",
+        {
+            "seat": seat,
+            "deck_version_id": deck_id,
+            "commanders": [{"card_id": "c1", "name": "Atraxa"}],
+        },
+    )
+
+
+def _commanders(seat: int) -> dict[str, Any]:
+    return ev(
+        "commanders_set",
+        {
+            "seat": seat,
+            "commanders": [
+                {"card_id": "c2", "name": "Tymna"},
+                {"card_id": None, "name": "Thrasios"},
+            ],
+        },
+    )
+
+
+def _apply_all(state: GameState, *events: dict[str, Any]) -> GameState:
+    for event in events:
+        state = accept(state, event)
+    return state
+
+
+def test_commanders_set_sets_the_seat_deck_version_id_to_null_and_replaces_the_commanders() -> None:
+    seat = _apply_all(lobby_of(1, 2), _deck(1, "d1"), _commanders(1)).seats[0]
+    assert seat.deck_version_id is None
+    assert [(c.card_id, c.name) for c in seat.commanders] == [("c2", "Tymna"), (None, "Thrasios")]
+    assert seat.commander_cast == [0, 0]
+
+
+def test_commanders_set_leaves_the_other_seats_and_their_decks_alone() -> None:
+    seats = _apply_all(lobby_of(1, 2), _deck(2, "d2"), _commanders(1)).seats
+    assert seats[1].deck_version_id == "d2"
+    assert [(c.card_id, c.name) for c in seats[1].commanders] == [("c1", "Atraxa")]
+
+
+def test_commanders_set_on_a_seat_with_no_deck_keeps_deck_version_id_null() -> None:
+    assert _apply_all(lobby_of(1, 2), _commanders(2)).seats[1].deck_version_id is None
+
+
+def test_deck_assigned_after_commanders_set_sets_the_deck_again() -> None:
+    seat = _apply_all(lobby_of(1, 2), _deck(1, "d1"), _commanders(1), _deck(1, "d2")).seats[0]
+    assert seat.deck_version_id == "d2"
+    assert [(c.card_id, c.name) for c in seat.commanders] == [("c1", "Atraxa")]
+    assert seat.commander_cast == [0]
+
+
+# --- settings that were never validated (3.5, 4.4.1, 4.4.3) ---------------------------------------
+# The initial settings are a placeholder that is not validated: no handler may raise on them.
+
+
+def _bad_settings(**settings: Any) -> GameState:
+    return initial_state(lobby().game_id, settings)
+
+
+def test_settings_changed_with_no_key_keeps_an_unvalidated_trust_mode_as_it_is() -> None:
+    state = accept(_bad_settings(trust_mode="STRICT"), settings_changed())
+    trust_mode: Any = state.settings.trust_mode  # unvalidated, on purpose
+    assert trust_mode == "STRICT"
+    assert state.last_seq == 1
+
+
+def test_settings_changed_validates_and_replaces_only_the_key_it_carries() -> None:
+    state = accept(_bad_settings(trust_mode="STRICT"), settings_changed(starting_life=30))
+    assert (state.settings.trust_mode, state.settings.starting_life) == ("STRICT", 30)
+
+
+def test_a_bad_key_in_the_event_is_invalid_setting_even_when_untouched_settings_are_bad() -> None:
+    state = _bad_settings(trust_mode="STRICT")
+    assert reject_code(state, settings_changed(starting_life=0)) == "invalid_setting"
+
+
+def test_seat_joined_copies_an_unvalidated_starting_life_into_the_new_seat() -> None:
+    state = accept(_bad_settings(starting_life="40"), joined(1))
+    life: Any = state.seats[0].life  # unvalidated, on purpose
+    assert life == "40"
+
+
+def test_game_started_sets_every_seat_life_to_the_unvalidated_starting_life() -> None:
+    state = _apply_all(_bad_settings(starting_life="40"), joined(1), joined(2), started(1))
+    lives: list[Any] = [s.life for s in state.seats]  # unvalidated, on purpose
+    assert lives == ["40", "40"]
+    assert state.phase == "active"
+
+
 # --- vector coverage of the nine handlers (8.4.1) -------------------------------------------------
 
 
@@ -659,6 +983,22 @@ def test_every_handler_rejection_code_appears_in_at_least_one_reject_vector() ->
         "not_enough_players",
     ):
         assert code in seen, code
+
+
+def test_a_vector_named_for_one_of_the_nine_types_has_an_event_of_that_type() -> None:
+    """Naming rule of 8.6: ``accept-<type>-*`` and ``reject-<type>-*`` (underscores as hyphens)."""
+    require(VECTORS_DIR)
+    wrong: list[str] = []
+    for path in sorted(VECTORS_DIR.glob("*.json")):
+        vector = json.loads(path.read_text(encoding="utf-8"))
+        if vector.get("kind") != "reducer" or not path.name.startswith(("accept-", "reject-")):
+            continue
+        for event_type in S_6_1_6_TYPES:
+            prefix = event_type.replace("_", "-")
+            named = path.name.startswith((f"accept-{prefix}-", f"reject-{prefix}-"))
+            if named and not any(e["type"] == event_type for e in vector["events"]):
+                wrong.append(f"{path.name} has no {event_type} event")
+    assert wrong == []
 
 
 def test_the_still_noop_types_are_the_20_that_are_not_s_6_1_6_types() -> None:

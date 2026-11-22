@@ -10,7 +10,7 @@ Words in capitals (MUST, MUST NOT, MAY) are normative.
 
 - All JSON is UTF-8. Every number in an envelope, a payload or the state is an **integer** in the range -(2^53 - 1) to 2^53 - 1. There are no floats and no money.
 - Keys are `snake_case`. Enumerated values are lowercase `snake_case` strings.
-- **Seat ids** are integers 1 to 8. A seat id is stable for the life of the game: reordering seats changes `order`, never a seat id. In a lobby that has never reordered, seat id equals turn position.
+- **Seat ids** are integers 1 to 8. A seat id is stable for the life of the game: reordering seats changes `order`, never a seat id. A seat id is not a turn position: the turn order is `order`, and `seat_joined` appends to it (4.4.4), so seats that join as 5, 2, 7 play in that order.
 - **Ids** (`game_id`, `player_id`, `deck_version_id`, `card_id`) are opaque non-empty strings. The reducers never parse them. Only `event_id` has a checked format.
 - **Absent versus null.** In the _state_, every key is always present and "no value" is `null`. In an _envelope_, `seq` and `ts` are **absent** (never `null`) until the server assigns them. In an event _payload_, a key marked optional (`name?`) may be absent or `null`, and both mean "not given"; a reducer MUST NOT distinguish them. The serializer never invents or drops keys.
 - Timestamps are strings `YYYY-MM-DDTHH:MM:SS.mmmZ` (UTC, exactly 3 fractional digits). A reducer MUST NOT parse, compare or do arithmetic on them (section 7).
@@ -61,31 +61,31 @@ The state is a JSON object. Every key below is always present.
 
 ### 3.1 Top level
 
-| Key                  | Type                          | Meaning                                                                                                                                                                                                                                                                                           |
-| -------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `v`                  | integer                       | Schema version of the state shape: the current version, 1 (see 1.1).                                                                                                                                                                                                                              |
-| `game_id`            | string                        | The game.                                                                                                                                                                                                                                                                                         |
-| `phase`              | string                        | `lobby`, `active`, `ending`, `finished` or `abandoned`.                                                                                                                                                                                                                                           |
-| `resume_phase`       | string or null                | The phase `game_resumed` returns to (`lobby`, `active` or `ending`). Non-null only while `phase` is `abandoned`.                                                                                                                                                                                  |
-| `settings`           | object                        | See 3.2.                                                                                                                                                                                                                                                                                          |
-| `control_mode`       | string                        | `own_seat` (the default) or `host_all` (S-6.8.2).                                                                                                                                                                                                                                                 |
-| `seats`              | array of seat objects         | Sorted by ascending `seat`. At most 8. See 3.3.                                                                                                                                                                                                                                                   |
-| `order`              | array of integers             | Seat ids in turn order. A permutation of the ids in `seats`.                                                                                                                                                                                                                                      |
-| `active_seat`        | integer or null               | Seat whose turn it is. `null` outside `active` and `ending`.                                                                                                                                                                                                                                      |
-| `first_seat`         | integer or null               | The seat that took the first turn: the `first_seat` of `game_started`, `null` before it. It never changes afterwards, whatever `seat_moved` does to `order`. It anchors the rounds (4.4.10).                                                                                                      |
-| `turn`               | integer                       | Individual turn counter. 0 before `game_started`.                                                                                                                                                                                                                                                 |
-| `round`              | integer                       | The game's "turn count" for results and stats (D4). 0 before `game_started`.                                                                                                                                                                                                                      |
-| `monarch`            | integer or null               | Seat id of the monarch.                                                                                                                                                                                                                                                                           |
-| `initiative`         | integer or null               | Seat id holding the initiative.                                                                                                                                                                                                                                                                   |
-| `commander_damage`   | object of objects of integers | `commander_damage[target seat id as a decimal string][source_key]`. `source_key` is `"<source seat id>:<commander index>"`, for example `"1:0"`. A target key and a source key are created by the first damage that reaches them and are never removed, even when a tally returns to 0 (S-6.1.4). |
-| `no_winner`          | boolean                       | `true` only for a full draw (S-6.1.3, S-6.7.1).                                                                                                                                                                                                                                                   |
-| `winner_seat`        | integer or null               | The provisional or final winner. `null` while none, and when `no_winner` is `true`.                                                                                                                                                                                                               |
-| `win_condition`      | string or null                | A D5 code (section 3.4) or `null`.                                                                                                                                                                                                                                                                |
-| `win_condition_note` | string                        | Free text, required by S-6.7 when `win_condition` is `other`. `""` when none.                                                                                                                                                                                                                     |
-| `started_at`         | string or null                | The `started_at` carried in the `game_started` payload, otherwise `null`.                                                                                                                                                                                                                         |
-| `voided`             | array of integers             | Seqs skipped when state was rebuilt after a revert because they became invalid (S-6.6.1). Ascending, no duplicates. `[]` until S-6.6.1.                                                                                                                                                           |
-| `reverted`           | array of integers             | Seqs of the events currently excluded by an effective `event_reverted` (S-6.6.1, see 6.5): an event whose revert was itself reverted is not in it. Includes the seq of an `event_reverted` event that was itself reverted. Ascending, no duplicates. `[]` initially.                              |
-| `last_seq`           | integer                       | `seq` of the last applied event. 0 before any event.                                                                                                                                                                                                                                              |
+| Key                  | Type                          | Meaning                                                                                                                                                                                                                                                                                                                         |
+| -------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `v`                  | integer                       | Schema version of the state shape: the current version, 1 (see 1.1).                                                                                                                                                                                                                                                            |
+| `game_id`            | string                        | The game.                                                                                                                                                                                                                                                                                                                       |
+| `phase`              | string                        | `lobby`, `active`, `ending`, `finished` or `abandoned`.                                                                                                                                                                                                                                                                         |
+| `resume_phase`       | string or null                | The phase `game_resumed` returns to (`lobby`, `active` or `ending`). Non-null only while `phase` is `abandoned`.                                                                                                                                                                                                                |
+| `settings`           | object                        | See 3.2.                                                                                                                                                                                                                                                                                                                        |
+| `control_mode`       | string                        | `own_seat` (the default) or `host_all` (S-6.8.2).                                                                                                                                                                                                                                                                               |
+| `seats`              | array of seat objects         | Sorted by ascending `seat`. At most 8. See 3.3.                                                                                                                                                                                                                                                                                 |
+| `order`              | array of integers             | Seat ids in turn order. A permutation of the ids in `seats`. Index 0 is not the first player: a seat's **turn position** is 1 + its cyclic offset from `first_seat` in `order` (with order `[1,2,3,4]` and `first_seat` 3, seat 3 is position 1 and seat 2 is position 4). Stats read the final `order` this way (D9, S-6.7.4). |
+| `active_seat`        | integer or null               | Seat whose turn it is. `null` outside `active` and `ending`.                                                                                                                                                                                                                                                                    |
+| `first_seat`         | integer or null               | The seat that took the first turn: the `first_seat` of `game_started`, `null` before it. It never changes afterwards, whatever `seat_moved` does to `order`. It anchors the rounds (4.4.10).                                                                                                                                    |
+| `turn`               | integer                       | Individual turn counter. 0 before `game_started`.                                                                                                                                                                                                                                                                               |
+| `round`              | integer                       | The game's "turn count" for results and stats (D4). 0 before `game_started`.                                                                                                                                                                                                                                                    |
+| `monarch`            | integer or null               | Seat id of the monarch.                                                                                                                                                                                                                                                                                                         |
+| `initiative`         | integer or null               | Seat id holding the initiative.                                                                                                                                                                                                                                                                                                 |
+| `commander_damage`   | object of objects of integers | `commander_damage[target seat id as a decimal string][source_key]`. `source_key` is `"<source seat id>:<commander index>"`, for example `"1:0"`. A target key and a source key are created by the first damage that reaches them and are never removed, even when a tally returns to 0 (S-6.1.4).                               |
+| `no_winner`          | boolean                       | `true` only for a full draw (S-6.1.3, S-6.7.1).                                                                                                                                                                                                                                                                                 |
+| `winner_seat`        | integer or null               | The provisional or final winner. `null` while none, and when `no_winner` is `true`.                                                                                                                                                                                                                                             |
+| `win_condition`      | string or null                | A D5 code (section 3.4) or `null`.                                                                                                                                                                                                                                                                                              |
+| `win_condition_note` | string                        | Free text, required by S-6.7 when `win_condition` is `other`. `""` when none.                                                                                                                                                                                                                                                   |
+| `started_at`         | string or null                | The `started_at` carried in the `game_started` payload, otherwise `null`.                                                                                                                                                                                                                                                       |
+| `voided`             | array of integers             | Seqs skipped when state was rebuilt after a revert because they became invalid (S-6.6.1). Ascending, no duplicates. `[]` until S-6.6.1.                                                                                                                                                                                         |
+| `reverted`           | array of integers             | Seqs of the events currently excluded by an effective `event_reverted` (S-6.6.1, see 6.5): an event whose revert was itself reverted is not in it. Includes the seq of an `event_reverted` event that was itself reverted. Ascending, no duplicates. `[]` initially.                                                            |
+| `last_seq`           | integer                       | `seq` of the last applied event. 0 before any event.                                                                                                                                                                                                                                                                            |
 
 ### 3.2 `settings`
 
@@ -209,6 +209,7 @@ These rules are part of the contract so that the later stories implement them wi
 
 - **`game_created` and the settings.** `game_created` is valid **only as the event at `seq` 1**, that is when `state.last_seq` is 0. It **replaces `settings` entirely** with `payload.settings` (all four keys, validated: a bad value is `invalid_setting`). S-6.2.1 says a game's log begins with `game_created`; the settings given to `initialState` are only a placeholder for it (3.5). A `game_created` at any later seq is rejected with `invalid_phase`: no new code is added, `out_of_order` is reserved for a bad `seq`, and `invalid_phase` already means "this event is not allowed at this point of the game". A first event that is not `game_created` is accepted (vectors rely on it). Owner: S-6.1.6. **Enforced** by S-6.1.6 (4.4.2).
 - **`started_at`.** The server is authoritative: when it accepts `game_started` it **overwrites** a client-sent `started_at` with its own time before the event is stored and broadcast. Clients may send a placeholder. Owner: S-6.2.6 / S-6.3.3.
+- **`first_seat` for "Random".** When the host picks a random first player, the **server** chooses the seat with a secure RNG and writes it into the payload's `first_seat` before the event is stored and broadcast (S-6.2.6). The reducer only ever sees a seat id. Owner: S-6.2.6.
 - **`game_closed`.** See 4.2 and 6.2. Owner: S-6.2.8, S-6.2.9, S-6.7.3.
 - **Reverts.** See 6.5. Owner: S-6.6.1.
 - **Settings ranges.** See 3.2. Owner: S-6.1.6. **Enforced** by S-6.1.6 (4.4.2 and 4.4.3).
@@ -229,19 +230,21 @@ These nine handlers replace the no-ops. Everything else in section 4 is still a 
 
 `game_created` and `settings_changed` have no seat references. A rejected event changes nothing (6.1).
 
-| Handler            | Allowed when                                                       |
-| ------------------ | ------------------------------------------------------------------ |
-| `game_created`     | `state.last_seq` is 0 (the event is the first of the log)          |
-| `settings_changed` | `phase` is `lobby`                                                 |
-| `seat_joined`      | `phase` is `lobby`                                                 |
-| `seat_left`        | `phase` is `lobby`                                                 |
-| `seat_moved`       | `phase` is `lobby`, or `phase` is `active` with `correction: true` |
-| `deck_assigned`    | `phase` is `lobby`                                                 |
-| `commanders_set`   | `phase` is `lobby`                                                 |
-| `game_started`     | `phase` is `lobby`                                                 |
-| `turn_passed`      | `phase` is `active`                                                |
+| Handler            | Allowed when                                                                   |
+| ------------------ | ------------------------------------------------------------------------------ |
+| `game_created`     | `state.last_seq` is 0 (the event is the first of the log)                      |
+| `settings_changed` | `phase` is `lobby`                                                             |
+| `seat_joined`      | `phase` is `lobby`                                                             |
+| `seat_left`        | `phase` is `lobby`                                                             |
+| `seat_moved`       | `phase` is `lobby`, or `phase` is `active` or `ending` with `correction: true` |
+| `deck_assigned`    | `phase` is `lobby`                                                             |
+| `commanders_set`   | `phase` is `lobby`                                                             |
+| `game_started`     | `phase` is `lobby`                                                             |
+| `turn_passed`      | `phase` is `active` or `ending`                                                |
 
-In every other phase (`ending`, `finished`, `abandoned`, and `lobby` or `active` where the table says otherwise) the event is `invalid_phase`. `game_closed` is not produced by these handlers (6.2).
+In every other phase (`finished`, `abandoned`, and `lobby`, `active` or `ending` where the table says otherwise) the event is `invalid_phase`. `game_closed` is not produced by these handlers (6.2).
+
+**`ending` follows `active`.** S-6.7.1 says events are still accepted while in `ending`, so the two handlers that are allowed in `active` are allowed in `ending` under the same conditions. No event reaches `ending` before S-6.7.1, which owns that phase and may narrow this; until then the rule is pinned with hand-built states.
 
 **Values.**
 
@@ -265,7 +268,7 @@ State change: `settings` becomes exactly the four values of the payload. Nothing
 
 #### 4.4.3 `settings_changed`
 
-Payload: any of `starting_life`, `commander_damage_threshold`, `poison_threshold`, `trust_mode`. Every key is optional and the event carries a **partial** change. `{}` is valid and changes nothing but `last_seq`. A key that is present with the value `null` is **not** "not given" here: it is `invalid_setting`.
+Payload: any of `starting_life`, `commander_damage_threshold`, `poison_threshold`, `trust_mode`. Every key may be absent and the event carries a **partial** change. `{}` is valid and changes nothing but `last_seq`. These keys are not optional keys in the sense of section 1: `null` is a value here, not "not given", so a key that is present with the value `null` is `invalid_setting`.
 
 1. `phase` is not `lobby`: `invalid_phase`. This comes before the value check: a bad value after `game_started` is `invalid_phase`.
 2. A present setting breaks "Settings values" in 4.4.1: `invalid_setting`. One bad key rejects the whole event, and no key is applied.
@@ -298,10 +301,10 @@ State change: the seat is removed from `seats` and its id from `order`. The othe
 Payload: `from`, `to` (seat ids) and `correction?` (a boolean, or absent or `null`, which both mean `false`; any other type is `invalid_payload`).
 
 1. Payload shape: `invalid_payload`.
-2. Phase: in `lobby` the event is allowed whether `correction` is `true` or not. In `active` it is allowed only when `correction` is `true`; without it, `invalid_phase`. In every other phase, `invalid_phase`.
+2. Phase: in `lobby` the event is allowed whether `correction` is `true` or not. In `active` and in `ending` it is allowed only when `correction` is `true`; without it, `invalid_phase`. In every other phase, `invalid_phase`. (`ending` is the review screen, where the host can still fix a wrong seat order before the results are saved, D9.)
 3. `from`, then `to`, not at the table: `unknown_seat`.
 
-State change: the positions of the seat ids `from` and `to` **in `order` are exchanged**. `seats` is unchanged: seat ids, players, life and every other field stay with their seat id. `from` equal to `to` is a valid no-op (`last_seq` only). `active_seat`, `turn`, `round`, `monarch`, `initiative` and `commander_damage` never change, so after a correction in an `active` game **the same seat id (and so the same player) stays active**, even if it is `from` or `to`, and the counters stay. Later `turn_passed` events (4.4.10) read the new `order`. Example: order `[1,2,3,4]` with `seat_moved {from: 4, to: 2}` gives `[1,4,3,2]`, and with `{from: 1, to: 2}` gives `[2,1,3,4]`.
+State change: the positions of the seat ids `from` and `to` **in `order` are exchanged**. `seats` is unchanged: seat ids, players, life and every other field stay with their seat id. `from` equal to `to` is a valid no-op (`last_seq` only). `active_seat`, `turn`, `round`, `monarch`, `initiative` and `commander_damage` never change, so after a correction in an `active` or `ending` game **the same seat id (and so the same player) stays active**, even if it is `from` or `to`, and the counters stay. Later `turn_passed` events (4.4.10) read the new `order`. Example: order `[1,2,3,4]` with `seat_moved {from: 4, to: 2}` gives `[1,4,3,2]`, and with `{from: 1, to: 2}` gives `[2,1,3,4]`.
 
 #### 4.4.7 `deck_assigned`
 
@@ -317,7 +320,7 @@ State change, on that seat only: `deck_version_id` is set, `commanders` is **rep
 
 Payload: `seat`, `commanders` (4.4.1). Checks 1 to 3 are those of `deck_assigned`.
 
-State change, on that seat only: `commanders` is **replaced** by the payload's array and `commander_cast` becomes 0s of the same length. `deck_version_id` is **left as it is**.
+State change, on that seat only: `commanders` is **replaced** by the payload's array and `commander_cast` becomes 0s of the same length. `deck_version_id` becomes **`null`**: `commanders_set` is the event for a seat that plays without a deck (S-6.2.4), so a seat never shows a deck together with commanders that were not that deck's. To change a seat back to a deck, send `deck_assigned`.
 
 #### 4.4.9 `game_started`
 
@@ -336,46 +339,49 @@ State change: `phase` `active`; `active_seat` `first_seat`; `turn` 1; `round` 1;
 
 Payload: `{}` (keys are ignored). An **eliminated** seat is one whose `eliminated_at_seq` is not `null` (3.3).
 
-1. `phase` is not `active`: `invalid_phase`.
+1. `phase` is not `active` or `ending`: `invalid_phase`.
 2. Every seat is eliminated: `invalid_phase`.
 
 Let `order` be the state's `order`, `a` the active seat and `F` the state's `first_seat` (3.1). Then:
 
 - **Next seat** `n`: scan `order` cyclically **after** the position of `a` (the positions after it to the end, then from the start up to and including `a` itself) and take the first seat that is not eliminated. `a` is scanned last, so when `a` is the only seat left, `n = a`. `a` may itself be eliminated (it was eliminated during its own turn); it is then simply never chosen.
-- **Round head** `b`: `F` if `F` is not eliminated; otherwise the first seat that is not eliminated when scanning `order` cyclically **after** the position of `F` (the positions after it to the end, then from the start up to `F` itself, which is skipped because it is eliminated). It is the "first player" of the round: the seat that took the first turn, or, if that seat is out, the next surviving seat after it.
-- **State change**: `active_seat` becomes `n`, `turn` goes up by 1, and `round` goes up by 1 **if and only if `n` equals `b`**. `first_seat` never changes.
+- **Positions walked**: the positions of `order` from the one after `a`, cyclically, up to **and including** the position of `n`. They are the eliminated seats the pass skips, then `n`. When `n = a`, the walk covers every position of `order`.
+- **State change**: `active_seat` becomes `n`, `turn` goes up by 1, and `round` goes up by 1 **if and only if the position of `F` is one of the positions walked**, whether `F` is eliminated or not. `first_seat` never changes.
+
+This is the story's rule: the round goes up when play returns to the first player, or, when the first player is out, when play passes their place and reaches the next surviving seat after them.
 
 The rule is evaluated on the state and the `order` **as they are when `turn_passed` is applied**. Nothing is remembered about who has already played in the current round, so the counter can only follow the order as it stands. In detail:
 
 - **`F` not at the head of `order`:** round 1 is a full round. With order `[1,2,3,4]` and `F` 3 the turns of round 1 are 3, 4, 1, 2, and round 2 starts at 3.
-- **`F` eliminated on its own turn or between turns:** `b` is the next survivor after `F`. If `F` is the active seat and is eliminated on its turn, the next pass has `n = b` and the round goes up.
-- **One seat left:** `n = b = a` (whether `F` is that seat or has been eliminated), so **every** `turn_passed` goes up a round. This follows the rule literally; the stories do not say what a round is with one seat left, and the game is normally ended by then (S-6.7.1). Open point.
-- **`seat_moved` correction** (4.4.6) changes `order` and nothing else, not `F`, `a`, `turn` or `round`. A seat can then act twice in a round (a seat that has already played is moved after `a`) or not at all (a seat that has not played is moved before `a`), and the counter does not compensate: `round` goes up exactly when play next reaches `b`. Examples 17 to 19 below.
+- **`F` eliminated between turns:** the round goes up when play passes the place of `F`, so the next surviving seat after `F` starts each round (rows 9, 10, 12 and 13).
+- **`F` eliminated on its own turn:** `F` is then `a`, and the walk starts **after** it, so the next pass does **not** go up a round: the other seats still have their turn of the current round (row 11). The round goes up when play next passes the place of `F` (row 10).
+- **One seat left:** `n = a` and the walk covers every position, so **every** `turn_passed` goes up a round. This follows the rule literally; the stories do not say what a round is with one seat left, and the game is normally in `ending` by then (S-6.7.1). Open point for S-6.7.1.
+- **`seat_moved` correction** (4.4.6) changes `order` and nothing else, not `F`, `a`, `turn` or `round`. A seat can then act twice in a round (a seat that has already played is moved after `a`) or not at all (a seat that has not played is moved before `a`), and the counter does not compensate: `round` goes up exactly when play next reaches or passes the place of `F`. Examples 17 to 19 below.
 - The seat ids of seats do not matter for this rule, only positions in `order` and the ids `F` and `a`.
 
-Worked examples (every seat is alive unless it is listed as eliminated; `turn` and `round` are those of the state before and after the pass). Rows 1 to 16 pass with no correction; rows 17 to 19 are the state right after a `seat_moved` correction.
+Worked examples (every seat is alive unless it is listed as eliminated; "seats walked" lists the seat ids at the positions walked; `turn` and `round` are those of the state before and after the pass). Rows 1 to 16 pass with no correction; rows 17 to 19 are the state right after a `seat_moved` correction.
 
-| #   | `order`     | `F` | eliminated | active `a`                 | `n` | `b` | before | after |
-| --- | ----------- | --- | ---------- | -------------------------- | --- | --- | ------ | ----- |
-| 1   | `[1,2,3,4]` | 1   | none       | 1                          | 2   | 1   | 1, 1   | 2, 1  |
-| 2   | `[1,2,3,4]` | 1   | none       | 4                          | 1   | 1   | 4, 1   | 5, 2  |
-| 3   | `[1,2,3,4]` | 3   | none       | 3 (the first turn)         | 4   | 3   | 1, 1   | 2, 1  |
-| 4   | `[1,2,3,4]` | 3   | none       | 4                          | 1   | 3   | 2, 1   | 3, 1  |
-| 5   | `[1,2,3,4]` | 3   | none       | 2 (last turn of round 1)   | 3   | 3   | 4, 1   | 5, 2  |
-| 6   | `[1,2,3,4]` | 3   | none       | 2 (round 3, turn 12)       | 3   | 3   | 12, 3  | 13, 4 |
-| 7   | `[1,2,3,4]` | 1   | 4          | 3                          | 1   | 1   | 3, 1   | 4, 2  |
-| 8   | `[1,2,3,4]` | 3   | 4          | 3                          | 1   | 3   | 1, 1   | 2, 1  |
-| 9   | `[1,2,3,4]` | 1   | 1          | 2 (`F` out between turns)  | 3   | 2   | 2, 1   | 3, 1  |
-| 10  | `[1,2,3,4]` | 1   | 1          | 4                          | 2   | 2   | 4, 1   | 5, 2  |
-| 11  | `[1,2,3,4]` | 1   | 1          | 1 (`F` out on its turn)    | 2   | 2   | 1, 1   | 2, 2  |
-| 12  | `[1,2,3,4]` | 3   | 3          | 2                          | 4   | 4   | 4, 1   | 5, 2  |
-| 13  | `[1,2,3,4]` | 4   | 4          | 3 (`b` found by wrapping)  | 1   | 1   | 4, 1   | 5, 2  |
-| 14  | `[3,2,1,4]` | 1   | none       | 4                          | 3   | 1   | 2, 1   | 3, 1  |
-| 15  | `[1,2,3,4]` | 1   | 2, 3, 4    | 1 (one seat left)          | 1   | 1   | 1, 1   | 2, 2  |
-| 16  | `[1,2,3,4]` | 1   | 1, 2, 3    | 4 (one seat left, `F` out) | 4   | 4   | 4, 3   | 5, 4  |
-| 17  | `[3,2,1,4]` | 1   | none       | 2                          | 1   | 1   | 2, 1   | 3, 2  |
-| 18  | `[1,3,2,4]` | 1   | none       | 3                          | 2   | 1   | 3, 1   | 4, 1  |
-| 19  | `[4,2,3,1]` | 1   | none       | 3                          | 1   | 1   | 3, 1   | 4, 2  |
+| #   | `order`     | `F` | eliminated | active `a`                 | `n` | seats walked | `F` walked | before | after |
+| --- | ----------- | --- | ---------- | -------------------------- | --- | ------------ | ---------- | ------ | ----- |
+| 1   | `[1,2,3,4]` | 1   | none       | 1                          | 2   | 2            | no         | 1, 1   | 2, 1  |
+| 2   | `[1,2,3,4]` | 1   | none       | 4                          | 1   | 1            | yes        | 4, 1   | 5, 2  |
+| 3   | `[1,2,3,4]` | 3   | none       | 3 (the first turn)         | 4   | 4            | no         | 1, 1   | 2, 1  |
+| 4   | `[1,2,3,4]` | 3   | none       | 4                          | 1   | 1            | no         | 2, 1   | 3, 1  |
+| 5   | `[1,2,3,4]` | 3   | none       | 2 (last turn of round 1)   | 3   | 3            | yes        | 4, 1   | 5, 2  |
+| 6   | `[1,2,3,4]` | 3   | none       | 2 (round 3, turn 12)       | 3   | 3            | yes        | 12, 3  | 13, 4 |
+| 7   | `[1,2,3,4]` | 1   | 4          | 3                          | 1   | 4, 1         | yes        | 3, 1   | 4, 2  |
+| 8   | `[1,2,3,4]` | 3   | 4          | 3                          | 1   | 4, 1         | no         | 1, 1   | 2, 1  |
+| 9   | `[1,2,3,4]` | 1   | 1          | 2 (`F` out between turns)  | 3   | 3            | no         | 2, 1   | 3, 1  |
+| 10  | `[1,2,3,4]` | 1   | 1          | 4                          | 2   | 1, 2         | yes        | 4, 1   | 5, 2  |
+| 11  | `[1,2,3,4]` | 1   | 1          | 1 (`F` out on its turn)    | 2   | 2            | no         | 1, 1   | 2, 1  |
+| 12  | `[1,2,3,4]` | 3   | 3          | 2                          | 4   | 3, 4         | yes        | 4, 1   | 5, 2  |
+| 13  | `[1,2,3,4]` | 4   | 4          | 3 (the walk wraps)         | 1   | 4, 1         | yes        | 4, 1   | 5, 2  |
+| 14  | `[3,2,1,4]` | 1   | none       | 4                          | 3   | 3            | no         | 2, 1   | 3, 1  |
+| 15  | `[1,2,3,4]` | 1   | 2, 3, 4    | 1 (one seat left)          | 1   | 2, 3, 4, 1   | yes        | 1, 1   | 2, 2  |
+| 16  | `[1,2,3,4]` | 1   | 1, 2, 3    | 4 (one seat left, `F` out) | 4   | 1, 2, 3, 4   | yes        | 4, 3   | 5, 4  |
+| 17  | `[3,2,1,4]` | 1   | none       | 2                          | 1   | 1            | yes        | 2, 1   | 3, 2  |
+| 18  | `[1,3,2,4]` | 1   | none       | 3                          | 2   | 2            | no         | 3, 1   | 4, 1  |
+| 19  | `[4,2,3,1]` | 1   | none       | 3                          | 1   | 1            | yes        | 3, 1   | 4, 2  |
 
 Rows 17 to 19 come from `[1,2,3,4]` with `F` 1:
 
@@ -518,6 +524,8 @@ The server's authorization layer rejects these before the reducer runs (S-6.3.3,
 - Checks that need the log: `not_revertible` (the target is a `game_created`, `game_started` or `game_ended` event) and a target that is not an earlier event of this log (`invalid_payload`; provisional, S-6.6.1 confirms the code). `already_reverted` is decidable from the state alone, because the target is already in `reverted`.
 - Who may revert and the undo window are server rules (`forbidden`, `undo_window_expired`, S-6.6.2), not reducer rules.
 
+**Open point for S-6.6.1 (not a rule yet).** As written, reverting a lobby event after the start can void `game_started` itself: with `seat_joined {seat: 3}` at seq 2 and `game_started {first_seat: 3}` at seq 5, `event_reverted {target_seq: 2}` makes the start `unknown_seat` during the fold, so the game folds back to `lobby` and every later event is voided. Reverting a lobby `settings_changed` would likewise change settings that the start froze (D3). S-6.6.1 must decide this before it implements the fold; the suggested rule is that once `game_started` is in the log, the events before it are `not_revertible`, and `game_started` is never voided.
+
 In this version the `event_reverted` handler is a no-op and `reverted` and `voided` stay `[]`. Both keys exist now so that S-6.6.1 does not change the state shape (and so does not bump `v`, 1.1).
 
 ## 7. Purity
@@ -529,7 +537,7 @@ A reducer, the canonical serializer and everything they call MUST NOT:
 - read the environment, the locale, the network, the file system or any global state;
 - depend on iteration order of an unordered collection, or on locale-aware formatting or sorting.
 
-Anything that looks like time or chance arrives **inside an event payload**: `game_started` carries `started_at` and the chosen `first_seat` (a random first player is picked by the sender and sent as `first_seat`). The same events applied to the same state always give the same result. The TypeScript package enforces this with `src/purity.test.ts`; the Python package must have an equivalent test.
+Anything that looks like time or chance arrives **inside an event payload**: `game_started` carries `started_at` and the chosen `first_seat` (a random first player is picked by the server and written into `first_seat`, 4.3). The same events applied to the same state always give the same result. The TypeScript package enforces this with `src/purity.test.ts`; the Python package must have an equivalent test.
 
 ## 8. Test vector format
 

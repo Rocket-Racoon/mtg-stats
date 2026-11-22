@@ -19,6 +19,7 @@ from app.games.tests.lobby_helpers import (
     active_game,
     lobby,
     make_event,
+    new_seat,
     reject_code,
     seated,
 )
@@ -273,11 +274,20 @@ def test_seat_moved_correction_is_accepted_in_the_lobby_too() -> None:
     assert state.order == [2, 1]
 
 
-@pytest.mark.parametrize("phase", ["ending", "finished", "abandoned"])
+@pytest.mark.parametrize("phase", ["finished", "abandoned"])
 def test_seat_moved_is_invalid_phase_in_every_other_phase(phase: str) -> None:
     state = active_game([1, 2], 1, 1).model_copy(update={"phase": phase})
     event = make_event("seat_moved", {"from": 1, "to": 2, "correction": True})
     assert reject_code(state, event) == "invalid_phase"
+
+
+def test_seat_moved_in_ending_needs_correction_true() -> None:
+    state = active_game([1, 2, 3], 1, 2).model_copy(update={"phase": "ending"})
+    for payload in ({"from": 1, "to": 3}, {"from": 1, "to": 3, "correction": False}):
+        assert reject_code(state, make_event("seat_moved", payload)) == "invalid_phase"
+    moved = accept(state, make_event("seat_moved", {"from": 1, "to": 3, "correction": True}))
+    assert moved.order == [3, 2, 1]
+    assert (moved.phase, moved.active_seat, moved.turn) == ("ending", 2, 1)
 
 
 @pytest.mark.parametrize(
@@ -326,13 +336,14 @@ def test_deck_assigned_sets_deck_replaces_commanders_and_zeroes_the_cast_counts(
     assert state.seats[0] == seated(2).seats[0]
 
 
-def test_commanders_set_keeps_the_deck_and_resets_the_cast_counts() -> None:
+def test_commanders_set_clears_the_deck_and_resets_the_cast_counts() -> None:
     base = accept(
         seated(2),
         make_event("deck_assigned", {"seat": 1, "deck_version_id": "d1", "commanders": [CMD, CMD]}),
     )
     state = accept(base, make_event("commanders_set", {"seat": 1, "commanders": [CMD]}))
-    assert state.seats[0].deck_version_id == "d1"
+    assert base.seats[0].deck_version_id == "d1"
+    assert state.seats[0].deck_version_id is None
     assert len(state.seats[0].commanders) == 1
     assert state.seats[0].commander_cast == [0]
 
@@ -446,8 +457,21 @@ def test_game_started_twice_is_invalid_phase() -> None:
 
 def test_turn_passed_outside_active_is_invalid_phase() -> None:
     assert reject_code(seated(2), make_event("turn_passed")) == "invalid_phase"
-    ended = active_game([1, 2], 1, 1).model_copy(update={"phase": "ending"})
-    assert reject_code(ended, make_event("turn_passed")) == "invalid_phase"
+    for phase in ("finished", "abandoned"):
+        done = active_game([1, 2], 1, 1).model_copy(update={"phase": phase})
+        assert reject_code(done, make_event("turn_passed")) == "invalid_phase"
+
+
+def test_turn_passed_is_accepted_in_ending() -> None:
+    state = active_game([1, 2, 3], 1, 3, turn=3).model_copy(update={"phase": "ending"})
+    passed = accept(state, make_event("turn_passed"))
+    assert (passed.phase, passed.active_seat, passed.turn, passed.round) == ("ending", 1, 4, 2)
+
+
+def test_turn_passed_with_a_null_active_seat_does_not_raise() -> None:
+    state = active_game([1, 2, 3], 1, 1).model_copy(update={"active_seat": None})
+    passed = accept(state, make_event("turn_passed"))
+    assert passed.active_seat == 1
 
 
 def test_turn_passed_with_every_seat_eliminated_is_invalid_phase() -> None:
@@ -495,7 +519,7 @@ TABLE: list[Row] = [
     ([1, 2, 3, 4], 3, (4,), 3, 1, (1, 1), (2, 1)),
     ([1, 2, 3, 4], 1, (1,), 2, 3, (2, 1), (3, 1)),
     ([1, 2, 3, 4], 1, (1,), 4, 2, (4, 1), (5, 2)),
-    ([1, 2, 3, 4], 1, (1,), 1, 2, (1, 1), (2, 2)),
+    ([1, 2, 3, 4], 1, (1,), 1, 2, (1, 1), (2, 1)),
     ([1, 2, 3, 4], 3, (3,), 2, 4, (4, 1), (5, 2)),
     ([1, 2, 3, 4], 4, (4,), 3, 1, (4, 1), (5, 2)),
     ([3, 2, 1, 4], 1, (), 4, 3, (2, 1), (3, 1)),
@@ -569,3 +593,67 @@ def test_a_handler_never_mutates_its_input_state() -> None:
     ):
         accept(state, event)
     assert state.model_dump(mode="json") == snapshot
+
+
+# --- unvalidated settings never make a handler raise (CONTRACT.md 3.5, 6.1) ----------------------
+
+BAD_SETTINGS: list[dict[str, Any]] = [
+    {"trust_mode": "STRICT"},
+    {"starting_life": "40"},
+    {"starting_life": True},
+    {"poison_threshold": None},
+]
+
+
+@pytest.mark.parametrize("bad", BAD_SETTINGS)
+def test_settings_changed_keeps_unvalidated_old_settings_it_did_not_touch(
+    bad: dict[str, Any],
+) -> None:
+    start = initial_state(GAME_ID, bad)
+    same = accept(start, make_event("settings_changed", {}))
+    assert same.settings == start.settings
+    assert same.last_seq == 1
+    other = "commander_damage_threshold"
+    changed = accept(start, make_event("settings_changed", {other: 30}))
+    assert getattr(changed.settings, other) == 30
+    for name, value in bad.items():
+        assert getattr(changed.settings, name) == value
+        assert getattr(changed.settings, name).__class__ is value.__class__
+
+
+@pytest.mark.parametrize("bad", BAD_SETTINGS)
+def test_settings_changed_replaces_only_the_present_key(bad: dict[str, Any]) -> None:
+    start = initial_state(GAME_ID, bad)
+    changed = accept(start, make_event("settings_changed", {"trust_mode": "strict"}))
+    assert changed.settings.trust_mode == "strict"
+    for name, value in bad.items():
+        if name != "trust_mode":
+            assert getattr(changed.settings, name) == value
+
+
+def test_seat_joined_and_game_started_accept_an_unvalidated_starting_life() -> None:
+    state = initial_state(GAME_ID, {"starting_life": "40"})
+    state = accept(state, make_event("seat_joined", {"seat": 1, "player_id": "p1", "name": "n1"}))
+    assert str(state.seats[0].life) == "40"
+    assert isinstance(state.seats[0].life, str)
+    state = accept(state, make_event("seat_joined", {"seat": 2, "player_id": "p2", "name": "n2"}))
+    state = accept(state, make_event("game_started", {"first_seat": 1, "started_at": "T"}))
+    assert [str(s.life) for s in state.seats] == ["40", "40"]
+    assert state.to_json_value()["seats"][0]["life"] == "40"
+
+
+def test_settings_changed_starting_life_fixes_lives_after_an_unvalidated_start() -> None:
+    state = initial_state(GAME_ID, {"starting_life": "40"})
+    state = accept(state, make_event("seat_joined", {"seat": 1, "player_id": "p1", "name": "n1"}))
+    state = accept(state, make_event("settings_changed", {"starting_life": 30}))
+    assert [s.life for s in state.seats] == [30]
+
+
+def test_model_construct_seat_serialises_like_a_validated_seat() -> None:
+    state = accept(
+        seated(0), make_event("seat_joined", {"seat": 1, "player_id": "p1", "name": "Seat 1"})
+    )
+    built = state.seats[0]
+    expected = new_seat(1, player_id="p1")
+    assert list(built.model_dump()) == list(expected.model_dump())
+    assert built.model_dump() == expected.model_dump()

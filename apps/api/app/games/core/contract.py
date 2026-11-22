@@ -96,7 +96,11 @@ DEFAULT_SETTINGS: Final = {
 
 SafeInt = Annotated[StrictInt, Field(ge=-MAX_SAFE_INTEGER, le=MAX_SAFE_INTEGER)]
 """An integer in the contract's range (section 1); booleans and floats are rejected."""
-SeatId = Annotated[StrictInt, Field(ge=1, le=8)]
+MIN_SEATS: Final = 2
+"""The fewest seats a game can start with (section 4.4.9)."""
+MAX_SEATS: Final = 8
+"""The most seats at a table; seat ids are 1 to MAX_SEATS (section 1)."""
+SeatId = Annotated[StrictInt, Field(ge=1, le=MAX_SEATS)]
 NonNegativeInt = Annotated[StrictInt, Field(ge=0, le=MAX_SAFE_INTEGER)]
 NonEmptyStr = Annotated[str, Field(min_length=1)]
 

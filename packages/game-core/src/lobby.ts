@@ -123,10 +123,9 @@ export const settingsChanged: Handler = (state, event, seq) => {
   const settings = { ...state.settings } as Record<keyof GameSettings, unknown>;
   for (const key of given) settings[key] = payload[key];
   const next = settings as unknown as GameSettings;
-  const seats =
-    next.starting_life === state.settings.starting_life
-      ? state.seats
-      : state.seats.map((s) => ({ ...s, life: next.starting_life }));
+  const seats = Object.hasOwn(payload, 'starting_life')
+    ? state.seats.map((s) => ({ ...s, life: next.starting_life }))
+    : state.seats;
   return done(state, seq, { settings: next, seats });
 };
 
@@ -167,8 +166,8 @@ export const seatMoved: Handler = (state, event, seq) => {
   if (correction !== undefined && correction !== null && typeof correction !== 'boolean') {
     return fail('invalid_payload');
   }
-  const isLobby = state.phase === 'lobby';
-  if (!isLobby && !(state.phase === 'active' && correction === true)) return fail('invalid_phase');
+  const corrects = state.phase === 'active' || state.phase === 'ending';
+  if (state.phase !== 'lobby' && !(corrects && correction === true)) return fail('invalid_phase');
   if (!hasSeat(state, from) || !hasSeat(state, to)) return fail('unknown_seat');
   const order = [...state.order];
   const i = order.indexOf(from);
@@ -182,13 +181,13 @@ function withCommanders(
   state: GameState,
   seat: number,
   commanders: Commander[],
-  deckVersionId?: string,
+  deckVersionId: string | null,
 ): Seat[] {
   return state.seats.map((s) => {
     if (s.seat !== seat) return s;
     return {
       ...s,
-      deck_version_id: deckVersionId === undefined ? s.deck_version_id : deckVersionId,
+      deck_version_id: deckVersionId,
       commanders,
       commander_cast: commanders.map(() => 0),
     };
@@ -215,7 +214,7 @@ export const commandersSet: Handler = (state, event, seq) => {
   if (!isSeatId(seat) || commanders === null) return fail('invalid_payload');
   if (state.phase !== 'lobby') return fail('invalid_phase');
   if (!hasSeat(state, seat)) return fail('unknown_seat');
-  return done(state, seq, { seats: withCommanders(state, seat, commanders) });
+  return done(state, seq, { seats: withCommanders(state, seat, commanders, null) });
 };
 
 export const gameStarted: Handler = (state, event, seq) => {
@@ -237,35 +236,27 @@ export const gameStarted: Handler = (state, event, seq) => {
   });
 };
 
-/** The seat whose turn starts a round: `first_seat`, or the next surviving seat after it (4.4.10). */
-function roundHead(state: GameState): number | null {
-  const order = state.order;
-  const at = order.indexOf(state.first_seat ?? -1);
-  if (at < 0) return null;
-  for (let step = 0; step < order.length; step++) {
-    const candidate = order[(at + step) % order.length]!;
-    if (!isEliminated(state, candidate)) return candidate;
-  }
-  return null;
-}
-
 export const turnPassed: Handler = (state, _event, seq) => {
-  if (state.phase !== 'active' || state.active_seat === null) return fail('invalid_phase');
+  if (state.phase !== 'active' && state.phase !== 'ending') return fail('invalid_phase');
   const order = state.order;
-  const at = order.indexOf(state.active_seat);
+  const at = order.indexOf(state.active_seat ?? -1);
+  // Walk the positions after the active seat, cyclically, up to and including the next survivor
+  // (the active seat itself is walked last). 4.4.10.
+  const walked: number[] = [];
   let next: number | null = null;
   for (let step = 1; step <= order.length; step++) {
     const candidate = order[(at + step) % order.length]!;
+    walked.push(candidate);
     if (!isEliminated(state, candidate)) {
       next = candidate;
       break;
     }
   }
   if (next === null) return fail('invalid_phase');
-  const head = roundHead(state);
+  const firstWalked = state.first_seat !== null && walked.includes(state.first_seat);
   return done(state, seq, {
     active_seat: next,
     turn: state.turn + 1,
-    round: next === head ? state.round + 1 : state.round,
+    round: firstWalked ? state.round + 1 : state.round,
   });
 };

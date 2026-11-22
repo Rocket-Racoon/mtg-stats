@@ -28,7 +28,12 @@ ELIMINATION_FIELDS = [
     "elimination_cause",
 ]
 # Vectors whose settings are unvalidated on purpose (3.5) cannot be loaded into the strict model.
-UNVALIDATED = {"initial-state-out-of-range-settings", "initial-state-unvalidated-setting-types"}
+UNVALIDATED = {
+    "initial-state-out-of-range-settings",
+    "initial-state-unvalidated-setting-types",
+    "accept-settings-changed-keeps-unvalidated-initial-settings",
+    "accept-seat-joined-with-unvalidated-starting-life",
+}
 
 
 def table_keys(contract: str, heading: str) -> list[str]:

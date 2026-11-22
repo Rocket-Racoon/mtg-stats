@@ -2,7 +2,7 @@
   "format": 1,
   "kind": "reducer",
   "name": "accept-all-registered-event-types",
-  "description": "Every registered event type (4) is accepted in one legal log: game_created at seq 1, a lobby with three seats (one leaves, two swap), a deck and commanders, the start, a turn, and then the 18 types whose handlers are still no-ops with an empty payload (they only advance last_seq). Update this vector when a handler story gives one of those types real behaviour.",
+  "description": "Every registered event type (4) is accepted in one legal log: game_created at seq 1, a lobby with three seats (one leaves, two swap), a deck and commanders, the start, a turn, and then the 20 types whose handlers are still no-ops with an empty payload (they only advance last_seq). Update this vector when a handler story gives one of those types real behaviour.",
   "game_id": "018f0000-0000-7000-8000-000000000001",
   "settings": {
     "starting_life": 30,

@@ -12,6 +12,8 @@ from typing import Any, Final, TypeGuard
 
 from app.games.core.canonical import MAX_SAFE_INTEGER
 from app.games.core.contract import (
+    MAX_SEATS,
+    MIN_SEATS,
     SETTING_RANGES,
     TRUST_MODES,
     Commander,
@@ -24,7 +26,6 @@ from app.games.core.contract import (
     Settings,
 )
 
-MAX_SEATS: Final = 8
 _SETTING_NAMES: Final = (
     "starting_life",
     "commander_damage_threshold",
@@ -107,9 +108,12 @@ def _settings_changed(state: GameState, event: EventEnvelope, seq: int) -> GameS
     present = {name: event.payload[name] for name in _SETTING_NAMES if name in event.payload}
     if not all(_setting_is_valid(name, value) for name, value in present.items()):
         return _reject("invalid_setting")
-    values = {name: getattr(state.settings, name) for name in _SETTING_NAMES}
-    values.update(present)
-    update: dict[str, Any] = {"settings": Settings(**values), "last_seq": seq}
+    # Only the keys present were checked: copy without validating, so settings that
+    # initial_state stored unvalidated (section 3.5) never make a handler raise.
+    update: dict[str, Any] = {
+        "settings": state.settings.model_copy(update=present),
+        "last_seq": seq,
+    }
     if "starting_life" in present:
         life = present["starting_life"]
         update["seats"] = [seat.model_copy(update={"life": life}) for seat in state.seats]
@@ -134,7 +138,8 @@ def _seat_joined(state: GameState, event: EventEnvelope, seq: int) -> GameState 
         return _reject("table_full")
     if seat_id in _seat_ids(state):
         return _reject("seat_taken")
-    seat = Seat(
+    # model_construct: life is copied from settings, which initial_state does not validate.
+    seat = Seat.model_construct(
         seat=seat_id,
         player_id=player_id,
         name=name,
@@ -183,7 +188,7 @@ def _seat_moved(state: GameState, event: EventEnvelope, seq: int) -> GameState |
         return _reject("invalid_payload")
     if correction is not None and not isinstance(correction, bool):
         return _reject("invalid_payload")
-    if not (state.phase == "lobby" or (state.phase == "active" and correction is True)):
+    if not (state.phase == "lobby" or (state.phase in ("active", "ending") and correction is True)):
         return _reject("invalid_phase")
     present = _seat_ids(state)
     if source not in present or target not in present:
@@ -211,9 +216,12 @@ def _commanders_change(
         return _reject("invalid_phase")
     if seat_id not in _seat_ids(state):
         return _reject("unknown_seat")
-    changes: dict[str, Any] = {"commanders": commanders, "commander_cast": [0] * len(commanders)}
-    if with_deck:
-        changes["deck_version_id"] = deck
+    changes: dict[str, Any] = {
+        "commanders": commanders,
+        "commander_cast": [0] * len(commanders),
+        # deck_assigned sets the deck; commanders_set plays without one (4.4.8).
+        "deck_version_id": deck if with_deck else None,
+    }
     return state.model_copy(
         update={"seats": _replace_seat(state, seat_id, changes), "last_seq": seq}
     )
@@ -225,7 +233,7 @@ def _deck_assigned(state: GameState, event: EventEnvelope, seq: int) -> GameStat
 
 
 def _commanders_set(state: GameState, event: EventEnvelope, seq: int) -> GameState | ReducerError:
-    """Section 4.4.8: replace a seat's commanders, keeping its deck."""
+    """Section 4.4.8: replace a seat's commanders and clear its deck."""
     return _commanders_change(state, event, seq, with_deck=False)
 
 
@@ -238,7 +246,7 @@ def _game_started(state: GameState, event: EventEnvelope, seq: int) -> GameState
         return _reject("invalid_phase")
     if first_seat not in _seat_ids(state):
         return _reject("unknown_seat")
-    if len(state.seats) < 2:
+    if len(state.seats) < MIN_SEATS:
         return _reject("not_enough_players")
     life = state.settings.starting_life
     return state.model_copy(
@@ -266,17 +274,32 @@ def _first_alive_after(state: GameState, start: int | None) -> int | None:
 
 
 def _turn_passed(state: GameState, event: EventEnvelope, seq: int) -> GameState | ReducerError:
-    """Section 4.4.10: next surviving seat; the round rises when play reaches the round head."""
-    if state.phase != "active" or all(s.eliminated_at_seq is not None for s in state.seats):
+    """Section 4.4.10: next surviving seat; the round rises when the pass walks over ``first_seat``.
+
+    The pass walks the positions of ``order`` after the active seat, cyclically, up to and
+    including the next seat's. The round goes up iff the position of ``first_seat`` is walked,
+    whether or not that seat is eliminated. A null ``active_seat`` is not a legal state of an
+    active or ending game; it is read as "before the first position", so the walk starts at the
+    head of ``order`` and nothing raises.
+    """
+    if state.phase not in ("active", "ending") or all(
+        s.eliminated_at_seq is not None for s in state.seats
+    ):
         return _reject("invalid_phase")
+    order = state.order
     next_seat = _first_alive_after(state, state.active_seat)
+    start = order.index(state.active_seat) + 1 if state.active_seat in order else 0
+    end = order.index(next_seat) if next_seat in order else start - 1
+    # Number of positions walked: from start up to and including end, cyclically.
+    walked = (end - start) % len(order) + 1 if order else 0
+    walked_positions = {(start + k) % len(order) for k in range(walked)} if order else set()
     first = state.first_seat
-    head = first if not _eliminated(first, state) else _first_alive_after(state, first)
+    rises = first in order and order.index(first) in walked_positions
     return state.model_copy(
         update={
             "active_seat": next_seat,
             "turn": state.turn + 1,
-            "round": state.round + (1 if next_seat == head else 0),
+            "round": state.round + (1 if rises else 0),
             "last_seq": seq,
         }
     )

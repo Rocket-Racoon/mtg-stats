@@ -21,9 +21,18 @@ export const S_6_1_6_TYPES = [
   'turn_passed',
 ] as const satisfies readonly EventType[];
 
+/** The three event types whose handlers S-6.1.3 specifies (CONTRACT.md 4.5). */
+export const S_6_1_3_TYPES = [
+  'life_changed',
+  'player_conceded',
+  'player_eliminated',
+] as const satisfies readonly EventType[];
+
 /** The types whose handlers are still no-ops. Shrinks as later stories land. */
 export const NO_OP_TYPES: readonly EventType[] = EVENT_TYPES.filter(
-  (t) => !(S_6_1_6_TYPES as readonly string[]).includes(t),
+  (t) =>
+    !(S_6_1_6_TYPES as readonly string[]).includes(t) &&
+    !(S_6_1_3_TYPES as readonly string[]).includes(t),
 );
 
 /** A type whose handler is a no-op in every phase, used to carry envelope tests. */
@@ -96,7 +105,7 @@ export function after(state: GameState, e: EventEnvelope): GameState {
   return run(state, e);
 }
 
-/** A copy of a state with some seats marked eliminated, built by hand: no event can do it yet (S-6.1.3). */
+/** A copy of a state with some seats marked eliminated, built by hand (a quick way to a state that events reach only after several steps). */
 export function withEliminated(state: GameState, ...seats: number[]): GameState {
   return {
     ...state,

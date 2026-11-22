@@ -24,13 +24,14 @@ import type { EventEnvelope, GameState, Phase } from './types';
  * Acceptance tests of S-6.1.6 (lobby, seat and turn events), written from the six acceptance
  * criteria of the story and from CONTRACT.md 4.4, not from the reducer. The shared vectors are
  * the primary proof for everything reachable through events. This file adds what a vector cannot
- * say: states with eliminated seats (no event can eliminate a seat before S-6.1.3), phases a log
+ * say: states with eliminated seats built by hand, phases a log
  * cannot reach yet (`ending`, `finished`, `abandoned`), and the link between CONTRACT.md 4.4 and
  * the code.
  *
- * NOTE FOR S-6.1.3: criterion 6's eliminated-seat case has NO shared vector. S-6.1.3 provides the
- * first events that eliminate a seat and MUST add vectors for the cases in the "criterion 6"
- * block below; until then they rest on these unit tests (and their Python twin).
+ * S-6.1.3 added the events that eliminate a seat, and with them the shared `accept-turn-passed-*`
+ * vectors for rows 7 to 13, 15 and 16 of the table in 4.4.10 (they build their eliminated seats
+ * with `player_conceded`). The hand-built states below stay: they cover every order, first seat and
+ * eliminated set, which a vector file per case cannot.
  */
 
 const contract = readFileSync(new URL('../CONTRACT.md', import.meta.url), 'utf8');
@@ -400,8 +401,8 @@ describe('criterion 5: game_started', () => {
 // ---------------------------------------------------------------------------------------------
 describe('criterion 6: turn_passed skips eliminated seats (hand-built states)', () => {
   /**
-   * No event can eliminate a seat before S-6.1.3, so these states are built by hand. S-6.1.3 MUST
-   * add shared vectors for these cases once elimination events exist.
+   * These states are built by hand so that one test can cover every order, first seat and
+   * eliminated set. The shared vectors build rows 7 to 13, 15 and 16 with real events (S-6.1.3).
    */
   const game = (
     order: number[],
@@ -1134,8 +1135,8 @@ describe('vector coverage of the nine handlers (8.4.1)', () => {
     expect(wrong).toEqual([]);
   });
 
-  it('the types that are still no-ops are exactly the 20 that are not S-6.1.6 types', () => {
-    expect(NO_OP_TYPES).toHaveLength(20);
+  it('the types that are still no-ops are exactly the 17 that are not S-6.1.6 or S-6.1.3 types', () => {
+    expect(NO_OP_TYPES).toHaveLength(17);
     expect(S_6_1_6_TYPES).toHaveLength(9);
   });
 });

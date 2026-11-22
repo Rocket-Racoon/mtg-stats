@@ -28,7 +28,10 @@ S_6_1_6_TYPES: tuple[str, ...] = (
     "game_started",
     "turn_passed",
 )
-NO_OP_TYPES: tuple[str, ...] = tuple(t for t in EVENT_TYPES if t not in S_6_1_6_TYPES)
+S_6_1_3_TYPES: tuple[str, ...] = ("life_changed", "player_conceded", "player_eliminated")
+NO_OP_TYPES: tuple[str, ...] = tuple(
+    t for t in EVENT_TYPES if t not in S_6_1_6_TYPES and t not in S_6_1_3_TYPES
+)
 
 DEFAULT_SETTINGS = Settings(
     starting_life=40, commander_damage_threshold=21, poison_threshold=10, trust_mode="casual"

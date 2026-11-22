@@ -193,7 +193,7 @@ def test_rejections_and_replay_work_with_clock_randomness_and_io_trapped(
 
 def test_same_state_and_event_always_give_byte_identical_canonical_output() -> None:
     state = populated()
-    e = event(type="life_changed", payload={"seat": 1, "delta": -3})
+    e = event(type="seat_claimed", payload={"seat": 1, "player_id": "p1"})
     first = canonical_bytes(ok_state(state, e).to_json_value())
     for _ in range(50):
         assert canonical_bytes(ok_state(state, e).to_json_value()) == first
@@ -334,7 +334,7 @@ def test_an_event_is_accepted_in_every_phase_because_game_closed_is_handler_leve
     phase: str,
 ) -> None:
     state = populated(phase=phase, resume_phase="active" if phase == "abandoned" else None)
-    assert ok_state(state, event(type="life_changed")) == state.model_copy(update={"last_seq": 42})
+    assert ok_state(state, event(type="seat_claimed")) == state.model_copy(update={"last_seq": 42})
 
 
 def test_reduce_is_the_same_function_as_apply() -> None:

@@ -2,7 +2,7 @@
   "format": 1,
   "kind": "reducer",
   "name": "accept-all-registered-event-types",
-  "description": "Every registered event type (4) is accepted in one legal log: game_created at seq 1, a lobby with three seats (one leaves, two swap), a deck and commanders, the start, a turn, and then the 20 types whose handlers are still no-ops with an empty payload (they only advance last_seq). Update this vector when a handler story gives one of those types real behaviour.",
+  "description": "Every registered event type (4) is accepted in one legal log: game_created at seq 1, a lobby with five seats (one leaves, two swap), a deck and commanders, the start, a turn, then life_changed, player_conceded and player_eliminated with real payloads (4.5), and the 17 types whose handlers are still no-ops with an empty payload (they only advance last_seq). Update this vector when a handler story gives one of those types real behaviour.",
   "game_id": "018f0000-0000-7000-8000-000000000001",
   "settings": {
     "starting_life": 30,
@@ -102,6 +102,36 @@
     },
     {
       "event_id": "00000000-0000-4000-8000-000000000007",
+      "type": "seat_joined",
+      "payload": {
+        "seat": 4,
+        "player_id": "018f0000-0000-7000-8000-0000000000b4",
+        "name": "Di"
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000008",
+      "type": "seat_joined",
+      "payload": {
+        "seat": 5,
+        "player_id": "018f0000-0000-7000-8000-0000000000b5",
+        "name": "Ed"
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000009",
       "type": "seat_moved",
       "payload": {
         "from": 1,
@@ -115,7 +145,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000008",
+      "event_id": "00000000-0000-4000-8000-000000000010",
       "type": "seat_claimed",
       "payload": {},
       "actor": {
@@ -126,7 +156,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000009",
+      "event_id": "00000000-0000-4000-8000-000000000011",
       "type": "deck_assigned",
       "payload": {
         "seat": 1,
@@ -146,7 +176,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000010",
+      "event_id": "00000000-0000-4000-8000-000000000012",
       "type": "commanders_set",
       "payload": {
         "seat": 2,
@@ -169,7 +199,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000011",
+      "event_id": "00000000-0000-4000-8000-000000000013",
       "type": "control_mode_changed",
       "payload": {},
       "actor": {
@@ -180,7 +210,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000012",
+      "event_id": "00000000-0000-4000-8000-000000000014",
       "type": "game_started",
       "payload": {
         "first_seat": 2,
@@ -194,7 +224,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000013",
+      "event_id": "00000000-0000-4000-8000-000000000015",
       "type": "turn_passed",
       "payload": {},
       "actor": {
@@ -205,9 +235,13 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000014",
+      "event_id": "00000000-0000-4000-8000-000000000016",
       "type": "life_changed",
-      "payload": {},
+      "payload": {
+        "seat": 1,
+        "delta": -3,
+        "source_seat": 2
+      },
       "actor": {
         "kind": "player",
         "player_id": "018f0000-0000-7000-8000-0000000000a1"
@@ -216,7 +250,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000015",
+      "event_id": "00000000-0000-4000-8000-000000000017",
       "type": "commander_damage",
       "payload": {},
       "actor": {
@@ -227,7 +261,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000016",
+      "event_id": "00000000-0000-4000-8000-000000000018",
       "type": "poison_changed",
       "payload": {},
       "actor": {
@@ -238,7 +272,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000017",
+      "event_id": "00000000-0000-4000-8000-000000000019",
       "type": "counter_changed",
       "payload": {},
       "actor": {
@@ -249,7 +283,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000018",
+      "event_id": "00000000-0000-4000-8000-000000000020",
       "type": "commander_cast",
       "payload": {},
       "actor": {
@@ -260,7 +294,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000019",
+      "event_id": "00000000-0000-4000-8000-000000000021",
       "type": "monarch_set",
       "payload": {},
       "actor": {
@@ -271,7 +305,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000020",
+      "event_id": "00000000-0000-4000-8000-000000000022",
       "type": "initiative_set",
       "payload": {},
       "actor": {
@@ -282,7 +316,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000021",
+      "event_id": "00000000-0000-4000-8000-000000000023",
       "type": "drain",
       "payload": {},
       "actor": {
@@ -293,7 +327,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000022",
+      "event_id": "00000000-0000-4000-8000-000000000024",
       "type": "group_drain",
       "payload": {},
       "actor": {
@@ -304,29 +338,34 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000023",
-      "type": "player_conceded",
-      "payload": {},
-      "actor": {
-        "kind": "player",
-        "player_id": "018f0000-0000-7000-8000-0000000000a1"
-      },
-      "on_behalf_of_seat": null,
-      "v": 1
-    },
-    {
-      "event_id": "00000000-0000-4000-8000-000000000024",
-      "type": "player_eliminated",
-      "payload": {},
-      "actor": {
-        "kind": "player",
-        "player_id": "018f0000-0000-7000-8000-0000000000a1"
-      },
-      "on_behalf_of_seat": null,
-      "v": 1
-    },
-    {
       "event_id": "00000000-0000-4000-8000-000000000025",
+      "type": "player_conceded",
+      "payload": {
+        "seat": 4
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000026",
+      "type": "player_eliminated",
+      "payload": {
+        "seat": 5,
+        "cause": "mill"
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000027",
       "type": "player_revived",
       "payload": {},
       "actor": {
@@ -337,7 +376,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000026",
+      "event_id": "00000000-0000-4000-8000-000000000028",
       "type": "value_set",
       "payload": {},
       "actor": {
@@ -348,7 +387,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000027",
+      "event_id": "00000000-0000-4000-8000-000000000029",
       "type": "game_end_requested",
       "payload": {},
       "actor": {
@@ -359,7 +398,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000028",
+      "event_id": "00000000-0000-4000-8000-000000000030",
       "type": "game_ended",
       "payload": {},
       "actor": {
@@ -370,7 +409,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000029",
+      "event_id": "00000000-0000-4000-8000-000000000031",
       "type": "game_abandoned",
       "payload": {},
       "actor": {
@@ -381,7 +420,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000030",
+      "event_id": "00000000-0000-4000-8000-000000000032",
       "type": "game_resumed",
       "payload": {},
       "actor": {
@@ -392,7 +431,7 @@
       "v": 1
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000031",
+      "event_id": "00000000-0000-4000-8000-000000000033",
       "type": "event_reverted",
       "payload": {},
       "actor": {
@@ -428,7 +467,7 @@
               "name": "Atraxa, Praetors’ Voice"
             }
           ],
-          "life": 30,
+          "life": 27,
           "poison": 0,
           "energy": 0,
           "experience": 0,
@@ -464,9 +503,53 @@
           "eliminated_at_seq": null,
           "eliminated_round": null,
           "elimination_cause": null
+        },
+        {
+          "seat": 4,
+          "player_id": "018f0000-0000-7000-8000-0000000000b4",
+          "name": "Di",
+          "deck_version_id": null,
+          "commanders": [
+            {
+              "card_id": null,
+              "name": ""
+            }
+          ],
+          "life": 30,
+          "poison": 0,
+          "energy": 0,
+          "experience": 0,
+          "commander_cast": [0],
+          "elimination_reason": "concession",
+          "eliminated_by": null,
+          "eliminated_at_seq": 25,
+          "eliminated_round": 1,
+          "elimination_cause": null
+        },
+        {
+          "seat": 5,
+          "player_id": "018f0000-0000-7000-8000-0000000000b5",
+          "name": "Ed",
+          "deck_version_id": null,
+          "commanders": [
+            {
+              "card_id": null,
+              "name": ""
+            }
+          ],
+          "life": 30,
+          "poison": 0,
+          "energy": 0,
+          "experience": 0,
+          "commander_cast": [0],
+          "elimination_reason": "declared",
+          "eliminated_by": null,
+          "eliminated_at_seq": 26,
+          "eliminated_round": 1,
+          "elimination_cause": "mill"
         }
       ],
-      "order": [2, 1],
+      "order": [2, 1, 4, 5],
       "active_seat": 1,
       "first_seat": 2,
       "turn": 2,
@@ -481,7 +564,7 @@
       "started_at": "2026-11-21T12:00:00.000Z",
       "voided": [],
       "reverted": [],
-      "last_seq": 31
+      "last_seq": 33
     }
   }
 }

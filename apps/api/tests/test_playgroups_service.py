@@ -266,3 +266,64 @@ async def test_listing_uses_a_constant_number_of_statements(
     with count_statements() as large:
         await services.list_playgroups(app_schema, user_id=user_id, params=params)
     assert small.count == large.count
+
+
+# --- house rules (S-2.5.4): the service-side branches the HTTP tests cannot reach ---------------
+
+
+async def test_saving_house_rules_after_leaving_is_a_404(app_schema: AppSession) -> None:
+    _, owner = await _membership(app_schema, "owner")
+    await app_schema.execute(text("update memberships set left_at = now()"))
+    with pytest.raises(NotFoundError):
+        await services.set_house_rules(app_schema, owner, text="Too late")
+
+
+async def test_a_demotion_after_the_dependency_ran_blocks_saving_house_rules(
+    app_schema: AppSession,
+) -> None:
+    group_id, _ = await _membership(app_schema, "owner")
+    admin_user, admin_player, _ = await make_user(app_schema)
+    await join(app_schema, group_id, admin_player, "admin")
+    stale = await services.get_membership(app_schema, playgroup_id=group_id, user_id=admin_user)
+    assert stale is not None
+    await app_schema.execute(
+        text("update memberships set role = 'member' where player_id = :p"), {"p": admin_player}
+    )
+    with pytest.raises(PermissionDeniedError):
+        await services.set_house_rules(app_schema, stale, text="Stale edit")
+
+
+async def test_house_rules_role_is_re_read_even_if_this_session_loaded_it_earlier(
+    app_schema: AppSession,
+) -> None:
+    group_id, _ = await _membership(app_schema, "owner")
+    member_user, member_player, _ = await make_user(app_schema)
+    await join(app_schema, group_id, member_player)
+    access = await services.get_membership(app_schema, playgroup_id=group_id, user_id=member_user)
+    assert access is not None
+    # A strong reference keeps the stale object in the identity map, so a plain re-read would
+    # return it with the old role instead of the committed one.
+    held = await repository.get_active_membership(app_schema, group_id, member_player)
+    assert held is not None
+    assert held.role == "member"
+    with pytest.raises(PermissionDeniedError):
+        await services.set_house_rules(app_schema, access, text="No")
+    await app_schema.execute(
+        text("update memberships set role = 'admin' where player_id = :p"), {"p": member_player}
+    )
+    saved = await services.set_house_rules(app_schema, access, text="Yes")
+    assert saved.text == "Yes"
+    assert saved.edited_by_player_id == member_player
+
+
+async def test_house_rules_of_a_never_edited_playgroup_have_no_editor(
+    app_schema: AppSession,
+) -> None:
+    _, owner = await _membership(app_schema, "owner")
+    info = await services.get_house_rules(app_schema, owner)
+    assert (info.text, info.edited_by_player_id, info.edited_by_display_name, info.edited_at) == (
+        "",
+        None,
+        None,
+        None,
+    )

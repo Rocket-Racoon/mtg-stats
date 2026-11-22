@@ -16,6 +16,7 @@ from app.playgroups.services.guests import (
     add_guest,
     rename_guest,
 )
+from app.playgroups.services.house_rules import HouseRulesInfo, get_house_rules, set_house_rules
 from app.playgroups.services.invites import (
     CreatedInvite,
     InviteInfo,
@@ -64,6 +65,7 @@ __all__ = [
     "CommonPlaygroup",
     "CreatedInvite",
     "GuestInfo",
+    "HouseRulesInfo",
     "InviteInfo",
     "InviteNoLongerValidError",
     "InvitePage",
@@ -86,6 +88,7 @@ __all__ = [
     "create_invite",
     "create_playgroup",
     "create_playgroup_invite",
+    "get_house_rules",
     "get_membership",
     "get_player_profile",
     "get_playgroup",
@@ -103,6 +106,7 @@ __all__ = [
     "require_playgroup_owner",
     "revoke_invite",
     "revoke_playgroup_invite",
+    "set_house_rules",
     "transfer_ownership",
     "update_playgroup",
     "validate_invite",

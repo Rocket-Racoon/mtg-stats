@@ -31,6 +31,7 @@ from app.games.core.contract import (
     WIN_CONDITION_CODES,
 )
 from app.games.core.reducer import REGISTRY
+from app.games.tests.lobby_helpers import CARRIER_TYPE, NO_OP_TYPES
 
 GAME_ID = "018f0000-0000-7000-8000-000000000001"
 EVENT_ID = "00000000-0000-4000-8000-000000000001"
@@ -44,7 +45,7 @@ def _event(**overrides: Any) -> dict[str, Any]:
     event: dict[str, Any] = {
         "event_id": EVENT_ID,
         "game_id": GAME_ID,
-        "type": "turn_passed",
+        "type": CARRIER_TYPE,
         "payload": {},
         "actor": {"kind": "player", "player_id": "p1"},
         "on_behalf_of_seat": None,
@@ -70,7 +71,7 @@ def test_reducer_codes_never_include_the_server_only_codes() -> None:
     assert "other" in WIN_CONDITION_CODES
 
 
-@pytest.mark.parametrize("event_type", EVENT_TYPES)
+@pytest.mark.parametrize("event_type", NO_OP_TYPES)
 def test_noop_handler_only_advances_last_seq(event_type: str) -> None:
     before = _state()
     result = apply(before, _event(type=event_type))
@@ -212,7 +213,7 @@ def test_absent_seq_is_applied_as_last_seq_plus_one() -> None:
 
 
 def test_replay_folds_events_and_reports_the_first_rejection_index() -> None:
-    ok = replay(_state(), [_event(), _event(seq=2), _event(type="game_started")])
+    ok = replay(_state(), [_event(), _event(seq=2), _event(type="seat_claimed")])
     assert isinstance(ok, ReplayOk)
     assert ok.state.last_seq == 3
     bad = replay(_state(), [_event(), _event(type="nope"), _event(v=9)])
@@ -248,7 +249,7 @@ def test_initial_state_holds_every_key_and_the_four_settings() -> None:
         ),
     )
     value = state.to_json_value()
-    assert len(value) == 22
+    assert len(value) == 23
     assert value["settings"] == {
         "starting_life": 30,
         "commander_damage_threshold": 15,

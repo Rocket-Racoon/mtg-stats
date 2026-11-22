@@ -19,6 +19,7 @@ from app.games.core.contract import (
     Commander,
     EventEnvelope,
     GameState,
+    ReducerError,
     Seat,
     Settings,
 )
@@ -26,7 +27,6 @@ from app.games.core.reducer import (
     ApplyError,
     ApplyOk,
     ApplyResult,
-    ReducerError,
     ReplayError,
     ReplayOk,
     ReplayResult,

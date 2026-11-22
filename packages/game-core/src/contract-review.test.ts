@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { canonicalJson } from './canonical-json';
 import { apply } from './reducer';
 import { initialState } from './state';
-import { SUPPORTED_VERSIONS } from './types';
+import { SETTING_DEFAULTS, SUPPORTED_VERSIONS } from './types';
 import type { EventEnvelope } from './types';
 
 /**
@@ -149,23 +149,26 @@ describe('not yet enforced (4.3) really is not enforced', () => {
     expect(text).toContain('Message size');
   });
 
-  it('accepts game_created at any seq and as a later event, since handlers are no-ops', () => {
-    const first = apply(lobby(), make('game_created', { settings: {} }));
-    expect(first.ok).toBe(true);
-    const later = apply(
+  it('enforces game_created only as the event at seq 1 (S-6.1.6, 4.4.2)', () => {
+    const settings = { ...SETTING_DEFAULTS, starting_life: 30 };
+    const first = apply(lobby(), make('game_created', { settings }));
+    expect(first.ok && first.state.settings).toEqual(settings);
+    if (!first.ok) return;
+    const again = apply(first.state, make('game_created', { settings }, { seq: 2 }));
+    expect(again).toEqual({ ok: false, error: { code: 'invalid_phase' } });
+  });
+
+  it('enforces the settings ranges in game_created (S-6.1.6) but not in initialState', () => {
+    expect(initialState('g', { starting_life: 0 }).settings.starting_life).toBe(0);
+    const bad = apply(
       lobby(),
-      make('game_created', { settings: { starting_life: 0 } }, { seq: 1 }),
+      make('game_created', { settings: { ...SETTING_DEFAULTS, starting_life: 0 } }),
     );
-    expect(later.ok).toBe(true);
-    if (later.ok) {
-      const again = apply(later.state, make('game_created', { settings: {} }, { seq: 2 }));
-      expect(again.ok).toBe(true);
-      expect(canonicalJson(later.state.settings)).toBe(canonicalJson(lobby().settings));
-    }
+    expect(bad).toEqual({ ok: false, error: { code: 'invalid_setting' } });
   });
 
   it('accepts a first event that is not game_created', () => {
-    expect(apply(lobby(), make('turn_passed', {})).ok).toBe(true);
+    expect(apply(lobby(), make('settings_changed', {})).ok).toBe(true);
   });
 
   it('leaves reverted and voided empty after an event_reverted (no-op handler)', () => {

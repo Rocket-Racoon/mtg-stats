@@ -34,6 +34,7 @@ from app.games.services import (
     initial_state,
     rebuild_state,
 )
+from tests.factories import GameFactory, PlaygroupFactory, create
 from tests.games_rebuild_support import (
     IMPLEMENTED_TYPES,
     SECRETS,
@@ -150,8 +151,6 @@ DAMAGES: dict[str, Damage] = {
     "stale_prefix_with_matching_column": lambda ctx: (ctx.prefix(ctx.count - 4), ctx.count - 4),
     "stale_prefix_with_current_column": lambda ctx: (ctx.prefix(ctx.count - 4), ctx.count),
     "stale_initial_state": lambda ctx: (initial_state(str(ctx.game_id)).to_json_value(), 0),
-    "snapshot_ahead_of_the_log": _ahead,
-    "column_ahead_of_snapshot": lambda ctx: (ctx.state, ctx.count + 3),
     "column_zero": lambda ctx: (ctx.state, 0),
     "column_one_behind": lambda ctx: (ctx.state, ctx.count - 1),
     "schema_version_changed": _set("v", 99),
@@ -164,10 +163,32 @@ DAMAGES: dict[str, Damage] = {
 }
 
 
-@pytest.mark.parametrize("damage", DAMAGES.values(), ids=DAMAGES.keys())
+AHEAD_DAMAGES: dict[str, Damage] = {
+    "snapshot_ahead_of_the_log": _ahead,
+    "column_ahead_of_snapshot": lambda ctx: (ctx.state, ctx.count + 3),
+    "column_one_above_the_event_count": lambda ctx: (ctx.state, ctx.count + 1),
+    "snapshot_last_seq_one_above_the_event_count": lambda ctx: (
+        {**ctx.state, "last_seq": ctx.count + 1},
+        ctx.count,
+    ),
+}
+CASES: dict[str, tuple[Damage, bool]] = {
+    **{name: (damage, False) for name, damage in DAMAGES.items()},
+    **{name: (damage, True) for name, damage in AHEAD_DAMAGES.items()},
+}
+"""Every kind of damage, with whether the log is *behind* the snapshot (an ERROR, not a WARNING).
+
+The log is behind when the old ``games.last_seq`` column, or the old snapshot's integer
+``last_seq``, is greater than the event count: events may have been lost after the last stored
+seq. Equal to the count (a wrong seat value, say) and below it are ordinary mismatches.
+"""
+
+
+@pytest.mark.parametrize("case", CASES.values(), ids=CASES.keys())
 async def test_a_damaged_snapshot_is_replaced_by_the_replay_of_the_log_and_the_mismatch_is_logged(
-    app_schema: AsyncSession, caplog: pytest.LogCaptureFixture, damage: Damage
+    app_schema: AsyncSession, caplog: pytest.LogCaptureFixture, case: tuple[Damage, bool]
 ) -> None:
+    damage, ahead = case
     ctx = await real_game(app_schema)
     damaged, column = damage(ctx)
     await set_snapshot(app_schema, ctx.game_id, damaged, column)
@@ -186,11 +207,15 @@ async def test_a_damaged_snapshot_is_replaced_by_the_replay_of_the_log_and_the_m
     assert result.event_count == ctx.count
     assert result.old_last_seq == column
     assert result.new_last_seq == ctx.count
+    assert result.log_behind_snapshot is ahead
+    assert result.settings_from_log is True
     assert state_bytes(result.state.to_json_value()) == expected
 
     mismatches = app_records(caplog, MISMATCH)
     assert len(mismatches) == 1
-    assert mismatches[0].levelno == logging.WARNING
+    assert mismatches[0].levelno == (logging.ERROR if ahead else logging.WARNING)
+    assert f"log_behind_snapshot={ahead}" in mismatches[0].getMessage()
+    assert "settings_from_log=True" in mismatches[0].getMessage()
     assert str(ctx.game_id) in mismatches[0].getMessage()
     assert app_records(caplog, MATCH) == []
     logged = everything_logged(caplog)
@@ -598,3 +623,165 @@ async def test_a_game_with_2000_events_is_rebuilt_in_under_500_ms(
     with capsys.disabled():
         print(f"\nrebuild of {EVENTS} events (s): {[round(t, 4) for t in timings]}")  # noqa: T201
     assert min(timings) < LIMIT_SECONDS, f"timings: {timings}"
+
+
+# ---------------------------------------------------------------------------------------------
+# The boundary of "ahead of the log", the flag in the match record, and settings_from_log
+# ---------------------------------------------------------------------------------------------
+
+
+async def test_a_column_equal_to_the_event_count_is_not_ahead_and_one_above_is(
+    app_schema: AsyncSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    ctx = await real_game(app_schema)
+    levels: dict[int, int] = {}
+    for column in (ctx.count, ctx.count + 1):
+        await set_snapshot(app_schema, ctx.game_id, ctx.state, column)
+        caplog.clear()
+        with caplog.at_level(logging.DEBUG):
+            result = await rebuild_state(app_schema, ctx.game_id, dry_run=True)
+        assert result.changed is (column != ctx.count)
+        assert result.log_behind_snapshot is (column > ctx.count)
+        records = app_records(caplog, MISMATCH)
+        levels[column] = records[0].levelno if records else 0
+    assert levels == {ctx.count: 0, ctx.count + 1: logging.ERROR}
+
+
+async def test_a_dry_run_of_an_ahead_snapshot_flags_it_and_writes_nothing(
+    app_schema: AsyncSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    ctx = await real_game(app_schema)
+    damaged, column = _ahead(ctx)
+    await set_snapshot(app_schema, ctx.game_id, damaged, column)
+    before = await read_game(app_schema, ctx.game_id)
+    with caplog.at_level(logging.DEBUG):
+        result = await rebuild_state(app_schema, ctx.game_id, dry_run=True)
+    after = await read_game(app_schema, ctx.game_id)
+    assert result.log_behind_snapshot
+    assert not result.written
+    assert (state_bytes(after.state), after.last_seq) == (state_bytes(before.state), column)
+    assert [r.levelno for r in app_records(caplog, MISMATCH)] == [logging.ERROR]
+
+
+async def test_a_normal_game_reads_its_settings_from_the_log_and_says_so_in_both_records(
+    app_schema: AsyncSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    ctx = await real_game(app_schema)
+    with caplog.at_level(logging.DEBUG):
+        matched = await rebuild_state(app_schema, ctx.game_id)
+    assert matched.settings_from_log is True
+    assert not matched.log_behind_snapshot
+    assert "settings_from_log=True" in app_records(caplog, MATCH)[0].getMessage()
+
+
+async def test_an_empty_game_does_not_get_its_settings_from_the_log(
+    app_schema: AsyncSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    game_id = await make_game(app_schema)
+    with caplog.at_level(logging.DEBUG):
+        matched = await rebuild_state(app_schema, game_id)
+    assert matched.settings_from_log is False
+    assert not matched.changed
+    assert "settings_from_log=False" in app_records(caplog, MATCH)[0].getMessage()
+    await set_snapshot(app_schema, game_id, DAMAGED, 0)
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG):
+        repaired = await rebuild_state(app_schema, game_id)
+    assert repaired.written
+    assert repaired.settings_from_log is False
+    assert "settings_from_log=False" in app_records(caplog, MISMATCH)[0].getMessage()
+
+
+async def test_a_log_that_does_not_start_with_game_created_is_rebuilt_with_the_default_settings(
+    app_schema: AsyncSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Pins today's behaviour (flagged for the project owner): placeholder settings are lost.
+
+    The row was created with a non-default placeholder (``starting_life`` 25) and the log has no
+    ``game_created``. The log cannot say what the placeholder was, so the rebuild replays from the
+    contract defaults and the rebuilt seats and settings differ from the healthy-looking snapshot.
+    """
+    group = await create(app_schema, PlaygroupFactory)
+    placeholder = initial_state(str(uuid4()), {"starting_life": 25}).to_json_value()
+    game = await create(app_schema, GameFactory, playgroup_id=group.id)
+    placeholder["game_id"] = str(game.id)
+    await set_snapshot(app_schema, game.id, placeholder, 0)
+    await append_steps(
+        app_schema,
+        game.id,
+        [
+            ("seat_joined", {"seat": 1, "player_id": "pid-seed-1", "name": SECRETS[0]}),
+            ("seat_joined", {"seat": 2, "player_id": "pid-seed-2", "name": SECRETS[1]}),
+        ],
+    )
+    healthy = await read_game(app_schema, game.id)
+    assert healthy.state["settings"]["starting_life"] == 25
+    assert [s["life"] for s in healthy.state["seats"]] == [25, 25]
+
+    with caplog.at_level(logging.DEBUG):
+        result = await rebuild_state(app_schema, game.id)
+    default_life = initial_state(str(game.id)).settings.starting_life
+    assert default_life != 25
+    assert result.settings_from_log is False
+    assert result.changed
+    assert result.written
+    assert {"seats", "settings"} <= set(result.differing_keys)
+    row = await read_game(app_schema, game.id)
+    assert row.state["settings"]["starting_life"] == default_life
+    assert [s["life"] for s in row.state["seats"]] == [default_life, default_life]
+    wire = await wire_events(app_schema, game.id)
+    assert state_bytes(row.state) == state_bytes(fold(game.id, wire).to_json_value())
+    message = app_records(caplog, MISMATCH)[0].getMessage()
+    assert "settings_from_log=False" in message
+    for secret in SECRETS:
+        assert secret not in everything_logged(caplog), secret
+
+
+# ---------------------------------------------------------------------------------------------
+# The mismatch record never carries a raw value from the damaged snapshot
+# ---------------------------------------------------------------------------------------------
+
+LEAK = "LEAK-Recognisable-Snapshot-Value"
+
+
+@pytest.mark.parametrize(
+    ("value", "logged"),
+    [
+        (LEAK, "snapshot_last_seq=str "),
+        ({"owner": SECRETS[0], "players": [SECRETS[1], "pid-seed-2"]}, "snapshot_last_seq=dict "),
+        ([SECRETS[2], LEAK], "snapshot_last_seq=list "),
+        (True, "snapshot_last_seq=bool "),
+        (False, "snapshot_last_seq=bool "),
+        (3.5, "snapshot_last_seq=float "),
+        (None, "snapshot_last_seq=NoneType "),
+    ],
+    ids=["string", "nested_object", "list", "true", "false", "float", "null"],
+)
+async def test_a_non_integer_snapshot_last_seq_is_logged_as_a_type_name_never_as_its_content(
+    app_schema: AsyncSession,
+    caplog: pytest.LogCaptureFixture,
+    value: Any,
+    logged: str,
+) -> None:
+    ctx = await real_game(app_schema)
+    damaged = {**ctx.state, "last_seq": value}
+    await set_snapshot(app_schema, ctx.game_id, damaged, ctx.count)
+    with caplog.at_level(logging.DEBUG):
+        result = await rebuild_state(app_schema, ctx.game_id)
+    assert result.written
+    assert not result.log_behind_snapshot  # only an integer can be "ahead"
+    text = everything_logged(caplog)
+    assert logged in app_records(caplog, MISMATCH)[0].getMessage()
+    for secret in (*SECRETS, LEAK):
+        assert secret not in text, secret
+    assert state_bytes((await read_game(app_schema, ctx.game_id)).state) == state_bytes(ctx.state)
+
+
+async def test_an_integer_snapshot_last_seq_is_logged_as_the_number(
+    app_schema: AsyncSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    ctx = await real_game(app_schema)
+    await set_snapshot(app_schema, ctx.game_id, {**ctx.state, "last_seq": 7}, ctx.count)
+    with caplog.at_level(logging.DEBUG):
+        await rebuild_state(app_schema, ctx.game_id)
+    assert "snapshot_last_seq=7 " in app_records(caplog, MISMATCH)[0].getMessage()

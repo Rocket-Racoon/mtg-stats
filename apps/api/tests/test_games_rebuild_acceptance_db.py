@@ -40,6 +40,7 @@ from app.games.services import (
     LogGapError,
     Rebuilt,
     append_event,
+    initial_state,
     rebuild_state,
 )
 from tests.factories import GameFactory, PlaygroupFactory, create
@@ -679,3 +680,102 @@ async def test_a_rejected_event_in_a_committed_log_raises_and_leaves_the_snapsho
         await session.rollback()
     assert (caught.value.seq, caught.value.code) == (len(lobby_steps()) + 1, "invalid_phase")
     assert await stored(rig, game_id) == before
+
+
+# ---------------------------------------------------------------------------------------------
+# The CLI's warning for a log behind the snapshot and its note for a log without game_created
+# ---------------------------------------------------------------------------------------------
+
+AHEAD_WARNING = "WARNING: the snapshot or last_seq was ahead of the log"
+DEFAULTS_NOTE = "does not start with game_created"
+
+
+async def committed_game_without_game_created(rig: Rig) -> UUID:
+    """A game whose log starts with ``seat_joined``; the row's placeholder has starting life 25."""
+    async with rig.a() as session:
+        group = await create(session, PlaygroupFactory)
+        game = await create(session, GameFactory, playgroup_id=group.id)
+        placeholder = initial_state(str(game.id), {"starting_life": 25}).to_json_value()
+        await set_snapshot(session, game.id, placeholder, 0)
+        await append_steps(
+            session,
+            game.id,
+            [
+                ("seat_joined", {"seat": 1, "player_id": "pid-seed-1", "name": SECRETS[0]}),
+                ("seat_joined", {"seat": 2, "player_id": "pid-seed-2", "name": SECRETS[1]}),
+            ],
+        )
+        await session.commit()
+        return game.id
+
+
+@pytest.mark.parametrize(("dry_run", "code"), [(False, 0), (True, 3)], ids=["repair", "dry_run"])
+async def test_the_cli_warns_when_the_snapshot_was_ahead_of_the_log_and_keeps_its_exit_codes(
+    rig: Rig, dry_run: bool, code: int
+) -> None:
+    game_id = await committed_game(rig, real_steps())
+    count = len(real_steps())
+    async with rig.a() as session:
+        state = (await read_game(session, game_id)).state
+        state["last_seq"] = count + 4
+        await set_snapshot(session, game_id, state, count + 4)
+        await session.commit()
+    before = await stored(rig, game_id)
+    argv = ["rebuild-state", "--game-id", str(game_id), *(["--dry-run"] if dry_run else [])]
+    result = await cli(rig, *argv)
+    assert result.code == code, result.err
+    assert AHEAD_WARNING in result.out
+    assert f"log has {count} events" in result.out
+    assert DEFAULTS_NOTE not in result.out  # the log starts with game_created
+    assert_prints_no_game_content(result)
+    if dry_run:
+        assert await stored(rig, game_id) == before
+    else:
+        assert await assert_snapshot_is_the_replay(rig, game_id) == count
+
+
+@pytest.mark.parametrize(("dry_run", "code"), [(False, 0), (True, 3)], ids=["repair", "dry_run"])
+async def test_the_cli_notes_a_log_without_game_created_and_keeps_its_exit_codes(
+    rig: Rig, dry_run: bool, code: int
+) -> None:
+    game_id = await committed_game_without_game_created(rig)
+    before = await stored(rig, game_id)
+    argv = ["rebuild-state", "--game-id", str(game_id), *(["--dry-run"] if dry_run else [])]
+    result = await cli(rig, *argv)
+    assert result.code == code, result.err
+    assert DEFAULTS_NOTE in result.out
+    assert "defaults" in result.out
+    assert AHEAD_WARNING not in result.out
+    assert_prints_no_game_content(result)
+    if dry_run:
+        assert await stored(rig, game_id) == before
+    else:
+        assert await assert_snapshot_is_the_replay(rig, game_id) == 2
+
+
+async def test_the_cli_prints_neither_warning_nor_note_for_an_ordinary_repair_or_a_match(
+    rig: Rig,
+) -> None:
+    game_id = await committed_game(rig, real_steps())
+    await damage(rig, game_id)
+    repaired = await cli(rig, "rebuild-state", "--game-id", str(game_id))
+    matched = await cli(rig, "rebuild-state", "--game-id", str(game_id))
+    for result in (repaired, matched):
+        assert result.code == 0, result.err
+        assert AHEAD_WARNING not in result.out
+        assert DEFAULTS_NOTE not in result.out
+        assert_prints_no_game_content(result)
+
+
+async def test_the_cli_never_prints_a_raw_last_seq_from_the_damaged_snapshot(rig: Rig) -> None:
+    game_id = await committed_game(rig, real_steps())
+    async with rig.a() as session:
+        state = (await read_game(session, game_id)).state
+        state["last_seq"] = {"owner": SECRETS[0], "note": "LEAK-Recognisable-Snapshot-Value"}
+        await set_snapshot(session, game_id, state)
+        await session.commit()
+    result = await cli(rig, "rebuild-state", "--game-id", str(game_id))
+    assert result.code == 0, result.err
+    assert "LEAK-Recognisable" not in result.out + result.err
+    assert_prints_no_game_content(result)
+    await assert_snapshot_is_the_replay(rig, game_id)

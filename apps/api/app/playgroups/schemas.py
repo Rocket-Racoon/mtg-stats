@@ -15,6 +15,7 @@ from pydantic import (
 )
 
 from app.core.paging import Page
+from app.identity import services as identity_services
 from app.playgroups.models import (
     HOUSE_RULES_MAX_LENGTH,
     PLAYGROUP_DESCRIPTION_MAX_LENGTH,
@@ -70,6 +71,23 @@ HouseRulesText = Annotated[
     str,
     StringConstraints(max_length=HOUSE_RULES_MAX_LENGTH),
     AfterValidator(_reject_description_controls),
+]
+
+
+def _reject_empty_key(value: str) -> str:
+    """Reject a name with nothing to compare (only marks or format characters)."""
+    if not identity_services.display_name_key(value):
+        raise ValueError("must contain a visible character")
+    return value
+
+
+GuestName = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True, min_length=1, max_length=identity_services.DISPLAY_NAME_MAX_LENGTH
+    ),
+    AfterValidator(_reject_control_characters),
+    AfterValidator(_reject_empty_key),
 ]
 
 
@@ -235,3 +253,56 @@ class HouseRulesOut(BaseModel):
     text: str = Field(description="Plain text, exactly as saved. Render it as text, never markup.")
     edited_by: HouseRulesEditor | None = Field(description="Null when never edited.")
     edited_at: datetime | None = Field(description="Null when never edited.")
+
+
+class GuestCreate(BaseModel):
+    """Body of the guest add (``POST``) and rename (``PATCH``) routes."""
+
+    model_config = ConfigDict(strict=True)
+
+    display_name: GuestName = Field(
+        description="1 to 32 characters (surrounding spaces are trimmed); unique in the "
+        "playgroup, ignoring case and accents."
+    )
+
+
+class GuestRename(GuestCreate):
+    """Body of ``PATCH /playgroups/{id}/guests/{player_id}``."""
+
+
+class GuestOut(BaseModel):
+    """A guest player of a playgroup."""
+
+    id: UUID = Field(description="The guest's player id.")
+    playgroup_id: UUID
+    display_name: str
+    avatar_color: str
+    created_by: UUID | None = Field(description="The player who added the guest.")
+    created_at: datetime
+
+
+class CommonPlaygroupOut(BaseModel):
+    """A playgroup the viewer and the profile's player share."""
+
+    id: UUID
+    name: str
+
+
+class PlayerProfileOut(BaseModel):
+    """A player's public profile for a viewer who shares a playgroup with them.
+
+    No email, username or stats: the client adds the stats player summary itself.
+    """
+
+    id: UUID
+    display_name: str
+    avatar_color: str
+    is_guest: bool
+    member_since: datetime = Field(description="When the player record was created.")
+    common_playgroups: list[CommonPlaygroupOut]
+
+
+class PlayerMergedOut(BaseModel):
+    """Body of the 308 redirect for a merged guest."""
+
+    merged_into_id: UUID

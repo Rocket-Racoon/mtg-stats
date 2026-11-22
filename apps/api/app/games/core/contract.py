@@ -7,6 +7,8 @@ Pure: no clock, randomness or I/O.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Annotated, Any, Final, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
@@ -94,7 +96,11 @@ DEFAULT_SETTINGS: Final = {
 
 SafeInt = Annotated[StrictInt, Field(ge=-MAX_SAFE_INTEGER, le=MAX_SAFE_INTEGER)]
 """An integer in the contract's range (section 1); booleans and floats are rejected."""
-SeatId = Annotated[StrictInt, Field(ge=1, le=8)]
+MIN_SEATS: Final = 2
+"""The fewest seats a game can start with (section 4.4.9)."""
+MAX_SEATS: Final = 8
+"""The most seats at a table; seat ids are 1 to MAX_SEATS (section 1)."""
+SeatId = Annotated[StrictInt, Field(ge=1, le=MAX_SEATS)]
 NonNegativeInt = Annotated[StrictInt, Field(ge=0, le=MAX_SAFE_INTEGER)]
 NonEmptyStr = Annotated[str, Field(min_length=1)]
 
@@ -203,6 +209,7 @@ class GameState(_Frozen):
     seats: Annotated[list[Seat], Field(max_length=8)]
     order: list[SeatId]
     active_seat: SeatId | None
+    first_seat: SeatId | None
     turn: NonNegativeInt
     round: NonNegativeInt
     monarch: SeatId | None
@@ -221,6 +228,13 @@ class GameState(_Frozen):
         """Return the state as plain JSON values, ready for ``canonical_json``."""
         # warnings=False: initial_state stores unvalidated settings (section 3.5).
         return self.model_dump(mode="json", warnings=False)
+
+
+@dataclass(frozen=True)
+class ReducerError:
+    """A rejected event; the caller keeps the previous state."""
+
+    code: ReducerErrorCode
 
 
 class Actor(_Frozen):
@@ -267,3 +281,7 @@ class EventEnvelope(_Frozen):
             if data[key] is None:
                 del data[key]
         return data
+
+
+Handler = Callable[[GameState, EventEnvelope, int], GameState | ReducerError]
+"""A handler gets the state, the validated envelope and the seq to record; returns the new state."""

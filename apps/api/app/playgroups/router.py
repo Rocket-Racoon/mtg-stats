@@ -3,7 +3,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, Request, Response
 
 from app.core.auth import CurrentUserDep, SiteAdminDep
 from app.core.db import SessionDep
@@ -12,6 +12,10 @@ from app.core.paging import PageParamsDep
 from app.core.rate_limit import PublicRateLimitDep
 from app.playgroups import services
 from app.playgroups.schemas import (
+    CommonPlaygroupOut,
+    GuestCreate,
+    GuestOut,
+    GuestRename,
     HouseRulesEditor,
     HouseRulesOut,
     HouseRulesUpdate,
@@ -25,6 +29,8 @@ from app.playgroups.schemas import (
     InvitePreviewRequest,
     MemberOut,
     MemberRoleUpdate,
+    PlayerMergedOut,
+    PlayerProfileOut,
     PlaygroupCreate,
     PlaygroupOut,
     PlaygroupPageOut,
@@ -34,6 +40,7 @@ from app.playgroups.schemas import (
 
 invites_router = APIRouter(prefix="/invites", tags=["invites"])
 playgroups_router = APIRouter(prefix="/playgroups", tags=["playgroups"])
+players_router = APIRouter(prefix="/players", tags=["players"])
 router = APIRouter()
 
 
@@ -215,7 +222,7 @@ async def get_house_rules(
     escapes it, so it may contain HTML or script tags. Clients must render it as text (keeping
     line breaks), never as markup. `edited_by` (player id and current display name) and
     `edited_at` are null until the first save. A non-member, a former member or an unknown id
-    gets a 404. Guests have no credentials yet, so they cannot read it.
+    gets a 404. This route is for members.
     """
     return _rules_out(await services.get_house_rules(session, access))
 
@@ -335,5 +342,111 @@ async def revoke_playgroup_invite(
     return _out(await services.revoke_playgroup_invite(session, access, invite_id=parsed))
 
 
+def _guest_out(info: services.GuestInfo) -> GuestOut:
+    return GuestOut(
+        id=info.player_id,
+        playgroup_id=info.playgroup_id,
+        display_name=info.display_name,
+        avatar_color=info.avatar_color,
+        created_by=info.created_by,
+        created_at=info.created_at,
+    )
+
+
+@playgroups_router.post("/{playgroup_id}/guests", summary="Add a guest player", status_code=201)
+async def add_guest(
+    playgroup_id: str, body: GuestCreate, access: services.MemberDep, session: SessionDep
+) -> GuestOut:
+    """Add a friend as a guest player of this playgroup; any member may. Guests have no login.
+
+    `display_name` is 1-32 characters (trimmed), else 422. A name that matches a member or guest
+    of the playgroup, ignoring case and accents, is 409 `player_name_taken`. A non-member gets 404.
+    """
+    return _guest_out(await services.add_guest(session, access, display_name=body.display_name))
+
+
+@playgroups_router.patch("/{playgroup_id}/guests/{player_id}", summary="Rename a guest player")
+async def rename_guest(
+    playgroup_id: str,
+    player_id: str,
+    body: GuestRename,
+    access: services.MemberDep,
+    session: SessionDep,
+) -> GuestOut:
+    """Rename a guest. Allowed for the guest's creator, the playgroup's owner and its admins; any
+    other member gets 403 `forbidden`, a non-member 404.
+
+    A guest that does not exist, belongs to another playgroup or was merged is 404. A name that
+    matches another member or guest, ignoring case and accents, is 409 `player_name_taken`.
+    """
+    try:
+        target = UUID(player_id)
+    except ValueError:
+        raise NotFoundError from None
+    return _guest_out(
+        await services.rename_guest(
+            session, access, player_id=target, display_name=body.display_name
+        )
+    )
+
+
+# Ordering rule: this route takes a ``str`` and matches every single-segment GET under
+# ``/players``. Any future literal ``/players/<word>`` GET route must be registered BEFORE it.
+@players_router.get(
+    "/{player_id}",
+    summary="View a player's profile",
+    response_model=PlayerProfileOut,
+    responses={308: {"model": PlayerMergedOut, "description": "A merged guest; see `Location`."}},
+)
+async def get_player_profile(
+    player_id: str,
+    request: Request,
+    response: Response,
+    user: CurrentUserDep,
+    session: SessionDep,
+) -> Response | PlayerProfileOut:
+    """A player's display name, avatar color, guest badge, "member since" and the playgroups
+    you have in common with them. No email, username or stats.
+
+    You can open your own profile, and another player's when you are both active members of a
+    playgroup, or they are a guest whose home playgroup is one you belong to. Anyone else, an
+    unknown id and an unparseable id are all the same 404 `not_found`. A guest that was merged
+    into another player answers 308 with `Location` set to the survivor's profile (and
+    `merged_into_id` in the body), but only when you could open both the old guest (you belong to
+    its home playgroup or share one with it, or you are the survivor) and the survivor; otherwise
+    404. `member_since` is when the player record was created.
+
+    Browsers' `fetch` follows the 308 by itself, so a client detects a merge because the returned
+    profile's `id` differs from the id it asked for; the 308 body is visible only to clients that
+    do not follow redirects. Responses are `Cache-Control: no-store` (the answer depends on the
+    viewer, and a cached 308 would be replayed for another user of the same browser).
+    """
+    try:
+        parsed = UUID(player_id)
+    except ValueError:
+        raise NotFoundError from None
+    profile = await services.get_player_profile(session, viewer_user_id=user.id, player_id=parsed)
+    response.headers["Cache-Control"] = "no-store"
+    if profile.redirected_from is not None:
+        location = request.app.url_path_for("get_player_profile", player_id=str(profile.id))
+        return Response(
+            content=PlayerMergedOut(merged_into_id=profile.id).model_dump_json(),
+            status_code=308,
+            media_type="application/json",
+            headers={"Location": str(location), "Cache-Control": "no-store"},
+        )
+    return PlayerProfileOut(
+        id=profile.id,
+        display_name=profile.display_name,
+        avatar_color=profile.avatar_color,
+        is_guest=profile.is_guest,
+        member_since=profile.member_since,
+        common_playgroups=[
+            CommonPlaygroupOut(id=g.id, name=g.name) for g in profile.common_playgroups
+        ],
+    )
+
+
 router.include_router(invites_router)
 router.include_router(playgroups_router)
+router.include_router(players_router)

@@ -1,0 +1,122 @@
+{
+  "format": 1,
+  "kind": "reducer",
+  "name": "accept-settings-changed-keeps-unvalidated-initial-settings",
+  "description": "The initial settings are not validated (3.5), and settings_changed validates only the keys it carries (4.4.3): with trust_mode \"STRICT\" in the initial settings, an empty settings_changed and a settings_changed of starting_life or of poison_threshold are accepted, the untouched \"STRICT\" is kept as it is, and only the present key is validated and replaced. A change of starting_life rewrites the seat’s life.",
+  "game_id": "018f0000-0000-7000-8000-000000000001",
+  "settings": {
+    "starting_life": 40,
+    "commander_damage_threshold": 21,
+    "poison_threshold": 10,
+    "trust_mode": "STRICT"
+  },
+  "events": [
+    {
+      "event_id": "00000000-0000-4000-8000-000000000001",
+      "type": "seat_joined",
+      "payload": {
+        "seat": 1,
+        "player_id": "018f0000-0000-7000-8000-0000000000b1",
+        "name": "Seat 1"
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000002",
+      "type": "settings_changed",
+      "payload": {},
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000003",
+      "type": "settings_changed",
+      "payload": {
+        "starting_life": 30
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000004",
+      "type": "settings_changed",
+      "payload": {
+        "poison_threshold": 5
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    }
+  ],
+  "expect": {
+    "state": {
+      "v": 1,
+      "game_id": "018f0000-0000-7000-8000-000000000001",
+      "phase": "lobby",
+      "resume_phase": null,
+      "settings": {
+        "starting_life": 30,
+        "commander_damage_threshold": 21,
+        "poison_threshold": 5,
+        "trust_mode": "STRICT"
+      },
+      "control_mode": "own_seat",
+      "seats": [
+        {
+          "seat": 1,
+          "player_id": "018f0000-0000-7000-8000-0000000000b1",
+          "name": "Seat 1",
+          "deck_version_id": null,
+          "commanders": [
+            {
+              "card_id": null,
+              "name": ""
+            }
+          ],
+          "life": 30,
+          "poison": 0,
+          "energy": 0,
+          "experience": 0,
+          "commander_cast": [0],
+          "elimination_reason": null,
+          "eliminated_by": null,
+          "eliminated_at_seq": null,
+          "eliminated_round": null,
+          "elimination_cause": null
+        }
+      ],
+      "order": [1],
+      "active_seat": null,
+      "first_seat": null,
+      "turn": 0,
+      "round": 0,
+      "monarch": null,
+      "initiative": null,
+      "commander_damage": {},
+      "no_winner": false,
+      "winner_seat": null,
+      "win_condition": null,
+      "win_condition_note": "",
+      "started_at": null,
+      "voided": [],
+      "reverted": [],
+      "last_seq": 4
+    }
+  }
+}

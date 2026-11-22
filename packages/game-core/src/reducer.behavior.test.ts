@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { canonicalJson, canonicalJsonBytes } from './canonical-json';
 import { apply, reduce, replay } from './reducer';
 import { initialState } from './state';
+import { activeGame, CARRIER_TYPE, NO_OP_TYPES, S_6_1_6_TYPES, seated } from './lobby.test.helpers';
 import { EVENT_TYPES, SETTING_DEFAULTS } from './types';
 import type { EventEnvelope, GameState } from './types';
 
@@ -20,7 +21,7 @@ function event(overrides: Record<string, unknown> = {}): EventEnvelope {
   return {
     event_id: `00000000-0000-4000-8000-${String(counter).padStart(12, '0')}`,
     game_id: GAME_ID,
-    type: 'turn_passed',
+    type: CARRIER_TYPE,
     payload: {},
     actor: { kind: 'player', player_id: PLAYER_ID },
     on_behalf_of_seat: null,
@@ -100,7 +101,7 @@ describe('criterion 3: apply reads no clock, randomness or I/O', () => {
     expect(() => withTraps(() => performance.now())).toThrow(/forbidden call/);
   });
 
-  it.each(EVENT_TYPES)('accepts a %s event with every clock and random source trapped', (type) => {
+  it.each(NO_OP_TYPES)('accepts a %s event with every clock and random source trapped', (type) => {
     const state = populatedState();
     const e = event({ type, ts: '2026-11-21T12:00:00.000Z' });
     const plain = apply(state, e);
@@ -108,6 +109,38 @@ describe('criterion 3: apply reads no clock, randomness or I/O', () => {
     expect(trapped.ok).toBe(true);
     expect(text(trapped)).toBe(text(plain));
   });
+
+  /** A state and a valid payload for each S-6.1.6 type, so each handler runs under the traps. */
+  const handled: Record<
+    (typeof S_6_1_6_TYPES)[number],
+    () => [GameState, Record<string, unknown>]
+  > = {
+    game_created: () => [lobby(), { settings: { ...SETTING_DEFAULTS, starting_life: 30 } }],
+    settings_changed: () => [lobby(), { trust_mode: 'strict' }],
+    seat_joined: () => [lobby(), { seat: 1, player_id: null, name: 'Ana' }],
+    seat_left: () => [seated(2), { seat: 2 }],
+    seat_moved: () => [seated(3), { from: 1, to: 3 }],
+    deck_assigned: () => [
+      seated(2),
+      { seat: 1, deck_version_id: 'd', commanders: [{ card_id: null, name: 'C' }] },
+    ],
+    commanders_set: () => [seated(2), { seat: 1, commanders: [{ card_id: 'c', name: 'C' }] }],
+    game_started: () => [seated(3), { first_seat: 3, started_at: 'any text' }],
+    turn_passed: () => [activeGame(3), {}],
+  };
+
+  it.each(S_6_1_6_TYPES)(
+    'runs the %s handler with every clock and random source trapped',
+    (type) => {
+      const [state, payload] = handled[type]();
+      const e = event({ type, payload, ts: '2026-11-21T12:00:00.000Z' });
+      const plain = apply(state, e);
+      const trapped = withTraps(() => apply(state, e));
+      expect(trapped.ok).toBe(true);
+      expect(text(trapped)).toBe(text(plain));
+      expect(trapped.ok && trapped.state.last_seq).toBe(state.last_seq + 1);
+    },
+  );
 
   it('rejects with every clock and random source trapped, and returns the same rejection', () => {
     const bad = event({ type: 'nope' });
@@ -179,35 +212,33 @@ describe('criterion 3: apply reads no clock, randomness or I/O', () => {
   });
 
   it('takes the start time and the first seat only from the payload', () => {
-    const state = lobby();
-    const started = event({
-      type: 'game_started',
-      payload: { first_seat: 3, started_at: '2026-11-21T12:00:00.000Z' },
-    });
-    const result = apply(state, started);
-    expect(result.ok).toBe(true);
-    // Until S-6.1.6 the handler is a no-op: only last_seq changes (contract 4, 6.2).
-    expect(result).toEqual({ ok: true, state: { ...state, last_seq: 1 } });
-    // Different payload values never change the outcome through a hidden source.
-    const other = apply(
-      state,
-      event({ type: 'game_started', payload: { first_seat: 8, started_at: 'whenever' } }),
+    const state = seated(3);
+    const started = (payload: Record<string, unknown>) =>
+      apply(state, event({ type: 'game_started', payload }));
+    const result = started({ first_seat: 3, started_at: '2026-11-21T12:00:00.000Z' });
+    expect(result.ok && result.state.started_at).toBe('2026-11-21T12:00:00.000Z');
+    expect(result.ok && result.state.active_seat).toBe(3);
+    // The same payload always gives the same state; another payload gives that payload's values.
+    expect(text(started({ first_seat: 3, started_at: '2026-11-21T12:00:00.000Z' }))).toBe(
+      text(result),
     );
-    expect(text(other)).toBe(text(result));
+    const other = started({ first_seat: 1, started_at: 'whenever' });
+    expect(other.ok && [other.state.started_at, other.state.active_seat]).toEqual(['whenever', 1]);
   });
 });
 
-describe('every registered event type is accepted as a no-op', () => {
-  it('has the 29 types of the registry', () => {
+describe('every registered event type whose handler is still a no-op is accepted as one', () => {
+  it('has the 29 types of the registry, 9 of them with handlers (S-6.1.6)', () => {
     expect(EVENT_TYPES).toHaveLength(29);
+    expect(NO_OP_TYPES).toHaveLength(20);
   });
 
-  it.each(EVENT_TYPES)('%s from the initial state only advances last_seq', (type) => {
+  it.each(NO_OP_TYPES)('%s from the initial state only advances last_seq', (type) => {
     const state = lobby();
     expect(apply(state, event({ type }))).toEqual({ ok: true, state: { ...state, last_seq: 1 } });
   });
 
-  it.each(EVENT_TYPES)('%s with seq last_seq + 1 from a populated state', (type) => {
+  it.each(NO_OP_TYPES)('%s with seq last_seq + 1 from a populated state', (type) => {
     const state = populatedState();
     expect(apply(state, event({ type, seq: 42 }))).toEqual({
       ok: true,

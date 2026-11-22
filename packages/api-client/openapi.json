@@ -22,6 +22,26 @@
         "title": "ChangePasswordRequest",
         "type": "object"
       },
+      "CommonPlaygroupOut": {
+        "description": "A playgroup the viewer and the profile's player share.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "CommonPlaygroupOut",
+        "type": "object"
+      },
       "ErrorBody": {
         "description": "The ``error`` object of every error response.",
         "properties": {
@@ -74,6 +94,92 @@
           "error"
         ],
         "title": "ErrorResponse",
+        "type": "object"
+      },
+      "GuestCreate": {
+        "description": "Body of the guest add (``POST``) and rename (``PATCH``) routes.",
+        "properties": {
+          "display_name": {
+            "description": "1 to 32 characters (surrounding spaces are trimmed); unique in the playgroup, ignoring case and accents.",
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name"
+        ],
+        "title": "GuestCreate",
+        "type": "object"
+      },
+      "GuestOut": {
+        "description": "A guest player of a playgroup.",
+        "properties": {
+          "avatar_color": {
+            "title": "Avatar Color",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The player who added the guest.",
+            "title": "Created By"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "The guest's player id.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "playgroup_id": {
+            "format": "uuid",
+            "title": "Playgroup Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "playgroup_id",
+          "display_name",
+          "avatar_color",
+          "created_by",
+          "created_at"
+        ],
+        "title": "GuestOut",
+        "type": "object"
+      },
+      "GuestRename": {
+        "description": "Body of ``PATCH /playgroups/{id}/guests/{player_id}``.",
+        "properties": {
+          "display_name": {
+            "description": "1 to 32 characters (surrounding spaces are trimmed); unique in the playgroup, ignoring case and accents.",
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name"
+        ],
+        "title": "GuestRename",
         "type": "object"
       },
       "HouseRulesEditor": {
@@ -622,6 +728,66 @@
           "role"
         ],
         "title": "MemberRoleUpdate",
+        "type": "object"
+      },
+      "PlayerMergedOut": {
+        "description": "Body of the 308 redirect for a merged guest.",
+        "properties": {
+          "merged_into_id": {
+            "format": "uuid",
+            "title": "Merged Into Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "merged_into_id"
+        ],
+        "title": "PlayerMergedOut",
+        "type": "object"
+      },
+      "PlayerProfileOut": {
+        "description": "A player's public profile for a viewer who shares a playgroup with them.\n\nNo email, username or stats: the client adds the stats player summary itself.",
+        "properties": {
+          "avatar_color": {
+            "title": "Avatar Color",
+            "type": "string"
+          },
+          "common_playgroups": {
+            "items": {
+              "$ref": "#/components/schemas/CommonPlaygroupOut"
+            },
+            "title": "Common Playgroups",
+            "type": "array"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_guest": {
+            "title": "Is Guest",
+            "type": "boolean"
+          },
+          "member_since": {
+            "description": "When the player record was created.",
+            "format": "date-time",
+            "title": "Member Since",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "display_name",
+          "avatar_color",
+          "is_guest",
+          "member_since",
+          "common_playgroups"
+        ],
+        "title": "PlayerProfileOut",
         "type": "object"
       },
       "PlaygroupCreate": {
@@ -2913,6 +3079,144 @@
         ]
       }
     },
+    "/api/v1/players/{player_id}": {
+      "get": {
+        "description": "A player's display name, avatar color, guest badge, \"member since\" and the playgroups\nyou have in common with them. No email, username or stats.\n\nYou can open your own profile, and another player's when you are both active members of a\nplaygroup, or they are a guest whose home playgroup is one you belong to. Anyone else, an\nunknown id and an unparseable id are all the same 404 `not_found`. A guest that was merged\ninto another player answers 308 with `Location` set to the survivor's profile (and\n`merged_into_id` in the body), but only when you could open both the old guest (you belong to\nits home playgroup or share one with it, or you are the survivor) and the survivor; otherwise\n404. `member_since` is when the player record was created.\n\nBrowsers' `fetch` follows the 308 by itself, so a client detects a merge because the returned\nprofile's `id` differs from the id it asked for; the 308 body is visible only to clients that\ndo not follow redirects. Responses are `Cache-Control: no-store` (the answer depends on the\nviewer, and a cached 308 would be replayed for another user of the same browser).",
+        "operationId": "playgroups_get_player_profile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "player_id",
+            "required": true,
+            "schema": {
+              "title": "Player Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlayerProfileOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "308": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlayerMergedOut"
+                }
+              }
+            },
+            "description": "A merged guest; see `Location`."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Client error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "View a player's profile",
+        "tags": [
+          "players"
+        ]
+      }
+    },
     "/api/v1/playgroups": {
       "get": {
         "description": "Every playgroup the caller belongs to, with their role in each, newest membership first.",
@@ -3453,9 +3757,294 @@
         ]
       }
     },
+    "/api/v1/playgroups/{playgroup_id}/guests": {
+      "post": {
+        "description": "Add a friend as a guest player of this playgroup; any member may. Guests have no login.\n\n`display_name` is 1-32 characters (trimmed), else 422. A name that matches a member or guest\nof the playgroup, ignoring case and accents, is 409 `player_name_taken`. A non-member gets 404.",
+        "operationId": "playgroups_add_guest",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "playgroup_id",
+            "required": true,
+            "schema": {
+              "title": "Playgroup Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuestCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Client error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Add a guest player",
+        "tags": [
+          "playgroups"
+        ]
+      }
+    },
+    "/api/v1/playgroups/{playgroup_id}/guests/{player_id}": {
+      "patch": {
+        "description": "Rename a guest. Allowed for the guest's creator, the playgroup's owner and its admins; any\nother member gets 403 `forbidden`, a non-member 404.\n\nA guest that does not exist, belongs to another playgroup or was merged is 404. A name that\nmatches another member or guest, ignoring case and accents, is 409 `player_name_taken`.",
+        "operationId": "playgroups_rename_guest",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "playgroup_id",
+            "required": true,
+            "schema": {
+              "title": "Playgroup Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "player_id",
+            "required": true,
+            "schema": {
+              "title": "Player Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuestRename"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Client error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Rename a guest player",
+        "tags": [
+          "playgroups"
+        ]
+      }
+    },
     "/api/v1/playgroups/{playgroup_id}/house-rules": {
       "get": {
-        "description": "The house rules note and who last edited it, for any active member.\n\n`text` is plain text, returned exactly as saved: the server never sanitises, strips or\nescapes it, so it may contain HTML or script tags. Clients must render it as text (keeping\nline breaks), never as markup. `edited_by` (player id and current display name) and\n`edited_at` are null until the first save. A non-member, a former member or an unknown id\ngets a 404. Guests have no credentials yet, so they cannot read it.",
+        "description": "The house rules note and who last edited it, for any active member.\n\n`text` is plain text, returned exactly as saved: the server never sanitises, strips or\nescapes it, so it may contain HTML or script tags. Clients must render it as text (keeping\nline breaks), never as markup. `edited_by` (player id and current display name) and\n`edited_at` are null until the first save. A non-member, a former member or an unknown id\ngets a 404. This route is for members.",
         "operationId": "playgroups_get_house_rules",
         "parameters": [
           {

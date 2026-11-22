@@ -10,7 +10,7 @@ from uuid import UUID
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import DomainError
+from app.core.errors import DomainError, NotFoundError
 from app.core.ids import uuid7
 from app.identity import repository
 from app.identity.models import AVATAR_COLORS, DISPLAY_NAME_MAX_LENGTH, Player, User
@@ -77,6 +77,7 @@ class PlayerInfo:
     home_playgroup_id: UUID | None
     merged_into_id: UUID | None
     created_at: datetime
+    created_by_id: UUID | None = None
 
 
 def _to_info(player: Player) -> PlayerInfo:
@@ -89,6 +90,7 @@ def _to_info(player: Player) -> PlayerInfo:
         home_playgroup_id=player.home_playgroup_id,
         merged_into_id=player.merged_into_id,
         created_at=player.created_at,
+        created_by_id=player.created_by_id,
     )
 
 
@@ -114,6 +116,25 @@ def normalize_display_name(value: str) -> str:
     ):
         raise InvalidDisplayNameError(details={"max_length": DISPLAY_NAME_MAX_LENGTH})
     return name
+
+
+def display_name_key(value: str) -> str:
+    """The comparison key of a display name: equal keys mean "the same name" (S-2.3.1).
+
+    Ignores case, accents and invisible characters: NFKD-decompose, drop every combining mark
+    (category ``Mn``) and every format character (category ``Cf``), casefold, and collapse runs of
+    whitespace. ``"José"``, ``"JOSE"`` and ``"jose"`` share a key, and so do ``"Bob"`` and
+    ``"Bob"`` followed by a zero-width space. Pure; no length check. An empty key means the name
+    has nothing visible to compare (only marks or format characters).
+
+    ``Cf`` was chosen over the Unicode default-ignorable set: the standard library has no property
+    for the latter, and ``Cf`` covers zero-width space and joiners, soft hyphen, word joiner, BOM,
+    Mongolian vowel separator (U+180E) and the tag characters. Variation selectors are ``Mn``.
+    Not covered: default-ignorable letters such as the Hangul fillers (category ``Lo``).
+    """
+    decomposed = unicodedata.normalize("NFKD", value)
+    kept = "".join(ch for ch in decomposed if unicodedata.category(ch) not in ("Mn", "Cf"))
+    return " ".join(kept.casefold().split())
 
 
 def normalize_email(value: str) -> str:
@@ -157,6 +178,43 @@ async def get_player(session: AsyncSession, player_id: UUID) -> PlayerInfo | Non
     return None if player is None else _to_info(player)
 
 
+MAX_MERGE_HOPS = 10
+"""Longest chain of merges ``resolve_merged_player`` follows before giving up."""
+
+
+async def resolve_merge(
+    session: AsyncSession, player_id: UUID
+) -> tuple[PlayerInfo | None, PlayerInfo | None]:
+    """Return ``(requested, survivor)`` for this id, following ``merged_into_id``.
+
+    ``requested`` is the player with this id (None when unknown). ``survivor`` is the end of the
+    merge chain: the player itself when it was never merged, None when the id is unknown or the
+    chain ends at a missing row, loops (self-merge included) or is longer than
+    ``MAX_MERGE_HOPS``. One query per hop (a chain is almost always 0 or 1 long).
+    """
+    seen: set[UUID] = set()
+    current: UUID = player_id
+    first: PlayerInfo | None = None
+    for _ in range(MAX_MERGE_HOPS + 1):
+        if current in seen:
+            return first, None
+        seen.add(current)
+        player = await repository.get_player(session, current)
+        if player is None:
+            return first, None
+        info = _to_info(player)
+        first = first or info
+        if player.merged_into_id is None:
+            return first, info
+        current = player.merged_into_id
+    return first, None
+
+
+async def resolve_merged_player(session: AsyncSession, player_id: UUID) -> PlayerInfo | None:
+    """The surviving player at the end of this player's merge chain (see ``resolve_merge``)."""
+    return (await resolve_merge(session, player_id))[1]
+
+
 async def get_players(
     session: AsyncSession, player_ids: Collection[UUID]
 ) -> dict[UUID, PlayerInfo]:
@@ -173,9 +231,18 @@ async def get_player_for_user(session: AsyncSession, user_id: UUID) -> PlayerInf
 
 
 async def create_guest_player(
-    session: AsyncSession, *, display_name: str, avatar_color: str | None = None
+    session: AsyncSession,
+    *,
+    display_name: str,
+    avatar_color: str | None = None,
+    home_playgroup_id: UUID | None = None,
+    created_by_id: UUID | None = None,
 ) -> PlayerInfo:
-    """Create a guest player (no user). Flushes; the caller commits."""
+    """Create a guest player (no user, so no credentials). Flushes; the caller commits.
+
+    ``home_playgroup_id`` and ``created_by_id`` (the adding player) are stored as given. Name
+    uniqueness inside the playgroup is the caller's job (``playgroups`` does it under a lock).
+    """
     name = normalize_display_name(display_name)
     player_id = uuid7()
     player = Player(
@@ -184,8 +251,32 @@ async def create_guest_player(
         is_guest=True,
         display_name=name,
         avatar_color=_resolve_color(player_id, avatar_color),
+        home_playgroup_id=home_playgroup_id,
+        created_by_id=created_by_id,
     )
     repository.add_player(session, player)
+    await session.flush()
+    return _to_info(player)
+
+
+async def list_guest_players(session: AsyncSession, playgroup_id: UUID) -> list[PlayerInfo]:
+    """The guests whose home is this playgroup (merged guests excluded), in one query."""
+    return [_to_info(p) for p in await repository.get_guests_of_playgroup(session, playgroup_id)]
+
+
+async def rename_guest_player(
+    session: AsyncSession, player_id: UUID, *, display_name: str
+) -> PlayerInfo:
+    """Change a guest's display name. Flushes; the caller commits.
+
+    Raises:
+        NotFoundError: if the player does not exist, is not a guest, or was merged into an account.
+        InvalidDisplayNameError: if the name breaks the rules.
+    """
+    player = await repository.get_player(session, player_id)
+    if player is None or not player.is_guest or player.merged_into_id is not None:
+        raise NotFoundError
+    player.display_name = normalize_display_name(display_name)
     await session.flush()
     return _to_info(player)
 

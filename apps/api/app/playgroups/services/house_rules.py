@@ -15,7 +15,7 @@ from app.playgroups.services.access import MembershipInfo
 
 @dataclass(frozen=True)
 class HouseRulesInfo:
-    """The house rules text and who last edited it (all None when never edited)."""
+    """The house rules text and who last edited it (the editor and time are None until a save)."""
 
     text: str
     edited_by_player_id: UUID | None
@@ -63,11 +63,12 @@ async def set_house_rules(
     The text is stored exactly as sent (no trimming, escaping or newline conversion); the schema
     has already checked its length and characters. A whitespace-only text is stored as ``""``,
     which clears the rules. The editor and time are still recorded for a clear. The role is
-    checked again on the membership row read here, so a demotion between the dependency and this
-    call cannot authorise the edit. Concurrent saves: the last one wins.
+    checked on the membership row re-read here with ``fresh=True`` (``populate_existing``), so the
+    role is the committed one even if this session loaded the row earlier: a demotion between the
+    dependency and this call cannot authorise the edit. Concurrent saves: the last one wins.
     """
     membership = await repository.get_active_membership(
-        session, access.playgroup_id, access.player_id
+        session, access.playgroup_id, access.player_id, fresh=True
     )
     if membership is None:
         raise NotFoundError

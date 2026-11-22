@@ -2,19 +2,26 @@
   "format": 1,
   "kind": "reducer",
   "name": "accept-all-registered-event-types-with-seq-and-ts",
-  "description": "The same 29 types, each with an explicit seq 1..29 and a ts. ts is never read: a ts in the wrong format, an empty string or a far-future date is accepted. Update with the handler stories.",
+  "description": "The log of accept-all-registered-event-types with server-assigned seq (1 to 31) and ts on every event: the same final state.",
   "game_id": "018f0000-0000-7000-8000-000000000001",
   "settings": {
-    "starting_life": 40,
-    "commander_damage_threshold": 21,
-    "poison_threshold": 10,
-    "trust_mode": "casual"
+    "starting_life": 30,
+    "commander_damage_threshold": 15,
+    "poison_threshold": 5,
+    "trust_mode": "strict"
   },
   "events": [
     {
       "event_id": "00000000-0000-4000-8000-000000000001",
       "type": "game_created",
-      "payload": {},
+      "payload": {
+        "settings": {
+          "starting_life": 30,
+          "commander_damage_threshold": 15,
+          "poison_threshold": 5,
+          "trust_mode": "strict"
+        }
+      },
       "actor": {
         "kind": "player",
         "player_id": "018f0000-0000-7000-8000-0000000000a1"
@@ -27,7 +34,9 @@
     {
       "event_id": "00000000-0000-4000-8000-000000000002",
       "type": "settings_changed",
-      "payload": {},
+      "payload": {
+        "poison_threshold": 7
+      },
       "actor": {
         "kind": "player",
         "player_id": "018f0000-0000-7000-8000-0000000000a1"
@@ -35,12 +44,16 @@
       "on_behalf_of_seat": null,
       "v": 1,
       "seq": 2,
-      "ts": "not a time"
+      "ts": "2026-11-21T12:00:01.000Z"
     },
     {
       "event_id": "00000000-0000-4000-8000-000000000003",
       "type": "seat_joined",
-      "payload": {},
+      "payload": {
+        "seat": 1,
+        "player_id": "018f0000-0000-7000-8000-0000000000b1",
+        "name": "Ana"
+      },
       "actor": {
         "kind": "player",
         "player_id": "018f0000-0000-7000-8000-0000000000a1"
@@ -48,12 +61,16 @@
       "on_behalf_of_seat": null,
       "v": 1,
       "seq": 3,
-      "ts": ""
+      "ts": "2026-11-21T12:00:02.000Z"
     },
     {
       "event_id": "00000000-0000-4000-8000-000000000004",
-      "type": "seat_left",
-      "payload": {},
+      "type": "seat_joined",
+      "payload": {
+        "seat": 2,
+        "player_id": "018f0000-0000-7000-8000-0000000000b2",
+        "name": "Bo"
+      },
       "actor": {
         "kind": "player",
         "player_id": "018f0000-0000-7000-8000-0000000000a1"
@@ -61,12 +78,16 @@
       "on_behalf_of_seat": null,
       "v": 1,
       "seq": 4,
-      "ts": "9999-99-99T99:99:99.999Z"
+      "ts": "2026-11-21T12:00:03.000Z"
     },
     {
       "event_id": "00000000-0000-4000-8000-000000000005",
-      "type": "seat_moved",
-      "payload": {},
+      "type": "seat_joined",
+      "payload": {
+        "seat": 3,
+        "player_id": "018f0000-0000-7000-8000-0000000000b3",
+        "name": "Cy"
+      },
       "actor": {
         "kind": "player",
         "player_id": "018f0000-0000-7000-8000-0000000000a1"
@@ -74,10 +95,41 @@
       "on_behalf_of_seat": null,
       "v": 1,
       "seq": 5,
-      "ts": "1970-01-01T00:00:00.000Z"
+      "ts": "2026-11-21T12:00:04.000Z"
     },
     {
       "event_id": "00000000-0000-4000-8000-000000000006",
+      "type": "seat_left",
+      "payload": {
+        "seat": 3
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1,
+      "seq": 6,
+      "ts": "2026-11-21T12:00:05.000Z"
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000007",
+      "type": "seat_moved",
+      "payload": {
+        "from": 1,
+        "to": 2
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1,
+      "seq": 7,
+      "ts": "2026-11-21T12:00:06.000Z"
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000008",
       "type": "seat_claimed",
       "payload": {},
       "actor": {
@@ -86,37 +138,58 @@
       },
       "on_behalf_of_seat": null,
       "v": 1,
-      "seq": 6,
-      "ts": "2026-11-21T12:00:00.000Z"
-    },
-    {
-      "event_id": "00000000-0000-4000-8000-000000000007",
-      "type": "deck_assigned",
-      "payload": {},
-      "actor": {
-        "kind": "player",
-        "player_id": "018f0000-0000-7000-8000-0000000000a1"
-      },
-      "on_behalf_of_seat": null,
-      "v": 1,
-      "seq": 7,
-      "ts": "not a time"
-    },
-    {
-      "event_id": "00000000-0000-4000-8000-000000000008",
-      "type": "commanders_set",
-      "payload": {},
-      "actor": {
-        "kind": "player",
-        "player_id": "018f0000-0000-7000-8000-0000000000a1"
-      },
-      "on_behalf_of_seat": null,
-      "v": 1,
       "seq": 8,
-      "ts": ""
+      "ts": "2026-11-21T12:00:07.000Z"
     },
     {
       "event_id": "00000000-0000-4000-8000-000000000009",
+      "type": "deck_assigned",
+      "payload": {
+        "seat": 1,
+        "deck_version_id": "018f0000-0000-7000-8000-0000000000d1",
+        "commanders": [
+          {
+            "card_id": "018f0000-0000-7000-8000-0000000000c1",
+            "name": "Atraxa, Praetors’ Voice"
+          }
+        ]
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1,
+      "seq": 9,
+      "ts": "2026-11-21T12:00:08.000Z"
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000010",
+      "type": "commanders_set",
+      "payload": {
+        "seat": 2,
+        "commanders": [
+          {
+            "card_id": "018f0000-0000-7000-8000-0000000000c2",
+            "name": "Tymna the Weaver"
+          },
+          {
+            "card_id": "018f0000-0000-7000-8000-0000000000c3",
+            "name": "Thrasios, Triton Hero"
+          }
+        ]
+      },
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1,
+      "seq": 10,
+      "ts": "2026-11-21T12:00:09.000Z"
+    },
+    {
+      "event_id": "00000000-0000-4000-8000-000000000011",
       "type": "control_mode_changed",
       "payload": {},
       "actor": {
@@ -125,24 +198,27 @@
       },
       "on_behalf_of_seat": null,
       "v": 1,
-      "seq": 9,
-      "ts": "9999-99-99T99:99:99.999Z"
+      "seq": 11,
+      "ts": "2026-11-21T12:00:10.000Z"
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000010",
+      "event_id": "00000000-0000-4000-8000-000000000012",
       "type": "game_started",
-      "payload": {},
+      "payload": {
+        "first_seat": 2,
+        "started_at": "2026-11-21T12:00:00.000Z"
+      },
       "actor": {
         "kind": "player",
         "player_id": "018f0000-0000-7000-8000-0000000000a1"
       },
       "on_behalf_of_seat": null,
       "v": 1,
-      "seq": 10,
-      "ts": "1970-01-01T00:00:00.000Z"
+      "seq": 12,
+      "ts": "2026-11-21T12:00:11.000Z"
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000011",
+      "event_id": "00000000-0000-4000-8000-000000000013",
       "type": "turn_passed",
       "payload": {},
       "actor": {
@@ -151,11 +227,11 @@
       },
       "on_behalf_of_seat": null,
       "v": 1,
-      "seq": 11,
-      "ts": "2026-11-21T12:00:00.000Z"
+      "seq": 13,
+      "ts": "2026-11-21T12:00:12.000Z"
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000012",
+      "event_id": "00000000-0000-4000-8000-000000000014",
       "type": "life_changed",
       "payload": {},
       "actor": {
@@ -164,11 +240,11 @@
       },
       "on_behalf_of_seat": null,
       "v": 1,
-      "seq": 12,
-      "ts": "not a time"
+      "seq": 14,
+      "ts": "2026-11-21T12:00:13.000Z"
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000013",
+      "event_id": "00000000-0000-4000-8000-000000000015",
       "type": "commander_damage",
       "payload": {},
       "actor": {
@@ -177,11 +253,11 @@
       },
       "on_behalf_of_seat": null,
       "v": 1,
-      "seq": 13,
-      "ts": ""
+      "seq": 15,
+      "ts": "2026-11-21T12:00:14.000Z"
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000014",
+      "event_id": "00000000-0000-4000-8000-000000000016",
       "type": "poison_changed",
       "payload": {},
       "actor": {
@@ -190,11 +266,11 @@
       },
       "on_behalf_of_seat": null,
       "v": 1,
-      "seq": 14,
-      "ts": "9999-99-99T99:99:99.999Z"
+      "seq": 16,
+      "ts": "2026-11-21T12:00:15.000Z"
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000015",
+      "event_id": "00000000-0000-4000-8000-000000000017",
       "type": "counter_changed",
       "payload": {},
       "actor": {
@@ -203,11 +279,11 @@
       },
       "on_behalf_of_seat": null,
       "v": 1,
-      "seq": 15,
-      "ts": "1970-01-01T00:00:00.000Z"
+      "seq": 17,
+      "ts": "2026-11-21T12:00:16.000Z"
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000016",
+      "event_id": "00000000-0000-4000-8000-000000000018",
       "type": "commander_cast",
       "payload": {},
       "actor": {
@@ -216,11 +292,11 @@
       },
       "on_behalf_of_seat": null,
       "v": 1,
-      "seq": 16,
-      "ts": "2026-11-21T12:00:00.000Z"
+      "seq": 18,
+      "ts": "2026-11-21T12:00:17.000Z"
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000017",
+      "event_id": "00000000-0000-4000-8000-000000000019",
       "type": "monarch_set",
       "payload": {},
       "actor": {
@@ -229,11 +305,11 @@
       },
       "on_behalf_of_seat": null,
       "v": 1,
-      "seq": 17,
-      "ts": "not a time"
+      "seq": 19,
+      "ts": "2026-11-21T12:00:18.000Z"
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000018",
+      "event_id": "00000000-0000-4000-8000-000000000020",
       "type": "initiative_set",
       "payload": {},
       "actor": {
@@ -242,11 +318,11 @@
       },
       "on_behalf_of_seat": null,
       "v": 1,
-      "seq": 18,
-      "ts": ""
+      "seq": 20,
+      "ts": "2026-11-21T12:00:19.000Z"
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000019",
+      "event_id": "00000000-0000-4000-8000-000000000021",
       "type": "drain",
       "payload": {},
       "actor": {
@@ -255,11 +331,11 @@
       },
       "on_behalf_of_seat": null,
       "v": 1,
-      "seq": 19,
-      "ts": "9999-99-99T99:99:99.999Z"
+      "seq": 21,
+      "ts": "2026-11-21T12:00:20.000Z"
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000020",
+      "event_id": "00000000-0000-4000-8000-000000000022",
       "type": "group_drain",
       "payload": {},
       "actor": {
@@ -268,11 +344,11 @@
       },
       "on_behalf_of_seat": null,
       "v": 1,
-      "seq": 20,
-      "ts": "1970-01-01T00:00:00.000Z"
+      "seq": 22,
+      "ts": "2026-11-21T12:00:21.000Z"
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000021",
+      "event_id": "00000000-0000-4000-8000-000000000023",
       "type": "player_conceded",
       "payload": {},
       "actor": {
@@ -281,11 +357,11 @@
       },
       "on_behalf_of_seat": null,
       "v": 1,
-      "seq": 21,
-      "ts": "2026-11-21T12:00:00.000Z"
+      "seq": 23,
+      "ts": "2026-11-21T12:00:22.000Z"
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000022",
+      "event_id": "00000000-0000-4000-8000-000000000024",
       "type": "player_eliminated",
       "payload": {},
       "actor": {
@@ -294,11 +370,11 @@
       },
       "on_behalf_of_seat": null,
       "v": 1,
-      "seq": 22,
-      "ts": "not a time"
+      "seq": 24,
+      "ts": "2026-11-21T12:00:23.000Z"
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000023",
+      "event_id": "00000000-0000-4000-8000-000000000025",
       "type": "player_revived",
       "payload": {},
       "actor": {
@@ -307,11 +383,11 @@
       },
       "on_behalf_of_seat": null,
       "v": 1,
-      "seq": 23,
-      "ts": ""
+      "seq": 25,
+      "ts": "2026-11-21T12:00:24.000Z"
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000024",
+      "event_id": "00000000-0000-4000-8000-000000000026",
       "type": "value_set",
       "payload": {},
       "actor": {
@@ -320,11 +396,11 @@
       },
       "on_behalf_of_seat": null,
       "v": 1,
-      "seq": 24,
-      "ts": "9999-99-99T99:99:99.999Z"
+      "seq": 26,
+      "ts": "2026-11-21T12:00:25.000Z"
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000025",
+      "event_id": "00000000-0000-4000-8000-000000000027",
       "type": "game_end_requested",
       "payload": {},
       "actor": {
@@ -333,11 +409,11 @@
       },
       "on_behalf_of_seat": null,
       "v": 1,
-      "seq": 25,
-      "ts": "1970-01-01T00:00:00.000Z"
+      "seq": 27,
+      "ts": "2026-11-21T12:00:26.000Z"
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000026",
+      "event_id": "00000000-0000-4000-8000-000000000028",
       "type": "game_ended",
       "payload": {},
       "actor": {
@@ -346,11 +422,11 @@
       },
       "on_behalf_of_seat": null,
       "v": 1,
-      "seq": 26,
-      "ts": "2026-11-21T12:00:00.000Z"
+      "seq": 28,
+      "ts": "2026-11-21T12:00:27.000Z"
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000027",
+      "event_id": "00000000-0000-4000-8000-000000000029",
       "type": "game_abandoned",
       "payload": {},
       "actor": {
@@ -359,11 +435,11 @@
       },
       "on_behalf_of_seat": null,
       "v": 1,
-      "seq": 27,
-      "ts": "not a time"
+      "seq": 29,
+      "ts": "2026-11-21T12:00:28.000Z"
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000028",
+      "event_id": "00000000-0000-4000-8000-000000000030",
       "type": "game_resumed",
       "payload": {},
       "actor": {
@@ -372,11 +448,11 @@
       },
       "on_behalf_of_seat": null,
       "v": 1,
-      "seq": 28,
-      "ts": ""
+      "seq": 30,
+      "ts": "2026-11-21T12:00:29.000Z"
     },
     {
-      "event_id": "00000000-0000-4000-8000-000000000029",
+      "event_id": "00000000-0000-4000-8000-000000000031",
       "type": "event_reverted",
       "payload": {},
       "actor": {
@@ -385,28 +461,78 @@
       },
       "on_behalf_of_seat": null,
       "v": 1,
-      "seq": 29,
-      "ts": "9999-99-99T99:99:99.999Z"
+      "seq": 31,
+      "ts": "2026-11-21T12:00:30.000Z"
     }
   ],
   "expect": {
     "state": {
       "v": 1,
       "game_id": "018f0000-0000-7000-8000-000000000001",
-      "phase": "lobby",
+      "phase": "active",
       "resume_phase": null,
       "settings": {
-        "starting_life": 40,
-        "commander_damage_threshold": 21,
-        "poison_threshold": 10,
-        "trust_mode": "casual"
+        "starting_life": 30,
+        "commander_damage_threshold": 15,
+        "poison_threshold": 7,
+        "trust_mode": "strict"
       },
       "control_mode": "own_seat",
-      "seats": [],
-      "order": [],
-      "active_seat": null,
-      "turn": 0,
-      "round": 0,
+      "seats": [
+        {
+          "seat": 1,
+          "player_id": "018f0000-0000-7000-8000-0000000000b1",
+          "name": "Ana",
+          "deck_version_id": "018f0000-0000-7000-8000-0000000000d1",
+          "commanders": [
+            {
+              "card_id": "018f0000-0000-7000-8000-0000000000c1",
+              "name": "Atraxa, Praetors’ Voice"
+            }
+          ],
+          "life": 30,
+          "poison": 0,
+          "energy": 0,
+          "experience": 0,
+          "commander_cast": [0],
+          "elimination_reason": null,
+          "eliminated_by": null,
+          "eliminated_at_seq": null,
+          "eliminated_round": null,
+          "elimination_cause": null
+        },
+        {
+          "seat": 2,
+          "player_id": "018f0000-0000-7000-8000-0000000000b2",
+          "name": "Bo",
+          "deck_version_id": null,
+          "commanders": [
+            {
+              "card_id": "018f0000-0000-7000-8000-0000000000c2",
+              "name": "Tymna the Weaver"
+            },
+            {
+              "card_id": "018f0000-0000-7000-8000-0000000000c3",
+              "name": "Thrasios, Triton Hero"
+            }
+          ],
+          "life": 30,
+          "poison": 0,
+          "energy": 0,
+          "experience": 0,
+          "commander_cast": [0, 0],
+          "elimination_reason": null,
+          "eliminated_by": null,
+          "eliminated_at_seq": null,
+          "eliminated_round": null,
+          "elimination_cause": null
+        }
+      ],
+      "order": [2, 1],
+      "active_seat": 1,
+      "first_seat": 2,
+      "turn": 2,
+      "round": 1,
       "monarch": null,
       "initiative": null,
       "commander_damage": {},
@@ -414,10 +540,10 @@
       "winner_seat": null,
       "win_condition": null,
       "win_condition_note": "",
-      "started_at": null,
+      "started_at": "2026-11-21T12:00:00.000Z",
       "voided": [],
-      "last_seq": 29,
-      "reverted": []
+      "reverted": [],
+      "last_seq": 31
     }
   }
 }

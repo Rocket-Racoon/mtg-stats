@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { apply, reduce, replay } from './reducer';
 import { initialState } from './state';
-import { EVENT_TYPES, type EventEnvelope, type ReducerErrorCode } from './types';
+import { CARRIER_TYPE, NO_OP_TYPES } from './lobby.test.helpers';
+import type { EventEnvelope, ReducerErrorCode } from './types';
 
 const GAME_ID = '018f0000-0000-7000-8000-000000000001';
 
@@ -9,7 +10,7 @@ function event(over: Record<string, unknown> = {}): EventEnvelope {
   return {
     event_id: '00000000-0000-4000-8000-000000000001',
     game_id: GAME_ID,
-    type: 'turn_passed',
+    type: CARRIER_TYPE,
     payload: {},
     actor: { kind: 'player', player_id: 'p1' },
     on_behalf_of_seat: null,
@@ -114,8 +115,8 @@ describe('apply', () => {
     expect(codeFor(event({ seq: 2 }))).toBe('out_of_order');
   });
 
-  it('accepts every registered type through its no-op handler and advances last_seq', () => {
-    for (const type of EVENT_TYPES) {
+  it('accepts every type whose handler is still a no-op and advances last_seq only', () => {
+    for (const type of NO_OP_TYPES) {
       const state = initialState(GAME_ID);
       const r = apply(state, event({ type }));
       expect(r.ok).toBe(true);

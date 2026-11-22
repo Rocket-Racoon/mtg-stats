@@ -1,0 +1,33 @@
+{
+  "format": 1,
+  "kind": "reducer",
+  "name": "reject-seq-zero",
+  "description": "seq 0 is invalid_event (seq is at least 1), not out_of_order.",
+  "game_id": "018f0000-0000-7000-8000-000000000001",
+  "settings": {
+    "starting_life": 40,
+    "commander_damage_threshold": 21,
+    "poison_threshold": 10,
+    "trust_mode": "casual"
+  },
+  "events": [
+    {
+      "event_id": "00000000-0000-4000-8000-000000000001",
+      "type": "turn_passed",
+      "payload": {},
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1,
+      "seq": 0
+    }
+  ],
+  "expect": {
+    "error": {
+      "index": 0,
+      "code": "invalid_event"
+    }
+  }
+}

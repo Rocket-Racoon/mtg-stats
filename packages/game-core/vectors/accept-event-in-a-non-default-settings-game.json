@@ -1,0 +1,57 @@
+{
+  "format": 1,
+  "kind": "reducer",
+  "name": "accept-event-in-a-non-default-settings-game",
+  "description": "Non-default strict settings survive an applied event unchanged.",
+  "game_id": "018f0000-0000-7000-8000-000000000001",
+  "settings": {
+    "starting_life": 1,
+    "commander_damage_threshold": 99,
+    "poison_threshold": 1,
+    "trust_mode": "strict"
+  },
+  "events": [
+    {
+      "event_id": "00000000-0000-4000-8000-000000000001",
+      "type": "turn_passed",
+      "payload": {},
+      "actor": {
+        "kind": "player",
+        "player_id": "018f0000-0000-7000-8000-0000000000a1"
+      },
+      "on_behalf_of_seat": null,
+      "v": 1
+    }
+  ],
+  "expect": {
+    "state": {
+      "v": 1,
+      "game_id": "018f0000-0000-7000-8000-000000000001",
+      "phase": "lobby",
+      "resume_phase": null,
+      "settings": {
+        "starting_life": 1,
+        "commander_damage_threshold": 99,
+        "poison_threshold": 1,
+        "trust_mode": "strict"
+      },
+      "control_mode": "own_seat",
+      "seats": [],
+      "order": [],
+      "active_seat": null,
+      "turn": 0,
+      "round": 0,
+      "monarch": null,
+      "initiative": null,
+      "commander_damage": {},
+      "no_winner": false,
+      "winner_seat": null,
+      "win_condition": null,
+      "win_condition_note": "",
+      "started_at": null,
+      "voided": [],
+      "last_seq": 1,
+      "reverted": []
+    }
+  }
+}

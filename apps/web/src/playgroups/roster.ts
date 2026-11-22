@@ -11,11 +11,16 @@ export interface RosterGroups {
  * Splits the roster for display: owner, then admins, then members, then guests. The API lists
  * members before guests, each group alphabetical, and that order is kept inside every group. A
  * guest is whoever has `is_guest` (their `role` is null); a member row without a known role
- * lands with the members rather than disappearing.
+ * lands with the members rather than disappearing. A person listed twice (the API documents that
+ * a row renamed between pages can appear on two) is shown once.
  */
 export function groupRoster(players: readonly PlaygroupPlayer[]): RosterGroups {
   const groups: RosterGroups = { owners: [], admins: [], members: [], guests: [] };
+  // A row renamed between two pages can come back on both: the first occurrence wins.
+  const seen = new Set<string>();
   for (const player of players) {
+    if (seen.has(player.id)) continue;
+    seen.add(player.id);
     if (player.is_guest) groups.guests.push(player);
     else if (player.role === 'owner') groups.owners.push(player);
     else if (player.role === 'admin') groups.admins.push(player);

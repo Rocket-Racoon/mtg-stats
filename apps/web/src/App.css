@@ -431,7 +431,7 @@ button:focus-visible {
 }
 
 .playgroup-switcher-option[aria-selected='true']::after {
-  content: ' ¹3';
+  content: ' \2713' / '';
 }
 
 .playgroup-switcher button:focus-visible,

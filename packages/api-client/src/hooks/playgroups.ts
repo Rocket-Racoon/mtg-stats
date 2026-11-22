@@ -12,6 +12,9 @@ export type PlaygroupPlayer = components['schemas']['PlaygroupPlayerOut'];
 export type PlaygroupPlayerPage = components['schemas']['PlaygroupPlayerPageOut'];
 export type InviteJoinResult = components['schemas']['InviteJoinOut'];
 
+/** The API's largest page: fewer round trips for a roster that is read whole. */
+const ROSTER_PAGE_SIZE = 200;
+
 export const playgroupKeys = {
   /** `['playgroups', 'list', {}]`: the caller's playgroups. */
   list: () => queryKey('playgroups', 'list'),
@@ -83,7 +86,8 @@ export function usePlaygroupPlayers(playgroupId: string) {
         client.GET('/api/v1/playgroups/{playgroup_id}/players', {
           params: {
             path: { playgroup_id: playgroupId },
-            query: cursor === null ? {} : { cursor },
+            query:
+              cursor === null ? { limit: ROSTER_PAGE_SIZE } : { limit: ROSTER_PAGE_SIZE, cursor },
           },
           signal,
         }),

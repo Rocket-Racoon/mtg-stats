@@ -573,7 +573,7 @@ const ACTION_TITLES = [
   'Invite people',
   'Name and description',
   'House rules',
-  'Manage guests',
+  'Add a guest',
   'Admins and members',
   'Transfer ownership',
 ] as const;
@@ -592,7 +592,7 @@ const API_MATRIX: Record<ActionTitle, readonly Role[]> = {
   'Invite people': ['owner', 'admin'],
   'Name and description': ['owner', 'admin'],
   'House rules': ['owner', 'admin'],
-  'Manage guests': ['owner', 'admin', 'member'],
+  'Add a guest': ['owner', 'admin', 'member'],
   'Admins and members': ['owner'],
   'Transfer ownership': ['owner'],
 };
@@ -872,7 +872,7 @@ describe('AC3: actions by role (hidden means not in the DOM)', () => {
     });
     expect(screen.queryByRole('region', { name: 'House rules' })).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Name and description' })).not.toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Manage guests' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Add a guest' })).toBeInTheDocument();
     expect(screen.getByText('Your role:').parentElement).toHaveTextContent('Your role: Member');
   });
 
@@ -881,7 +881,7 @@ describe('AC3: actions by role (hidden means not in the DOM)', () => {
     stubWorld(world);
     const { queryClient } = mount('/playgroups/g1');
     await heading2('Crew');
-    expect(await screen.findByRole('region', { name: 'Manage guests' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Add a guest' })).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Transfer ownership' })).not.toBeInTheDocument();
 
     world.groups[0] = group('g1', 'Crew', 'owner');

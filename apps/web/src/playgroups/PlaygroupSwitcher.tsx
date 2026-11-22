@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { Link, matchPath, useLocation, useNavigate } from 'react-router';
 import { useSession } from '../session/session';
 import { useActivePlaygroup, useReconcileActivePlaygroup } from './useActivePlaygroup';
@@ -31,7 +31,7 @@ function SignedInSwitcher() {
   };
 
   return (
-    <div className="playgroup-switcher" role="group" aria-label="Playgroup">
+    <div className="playgroup-switcher">
       {/* Plain text, not live regions: the shell must not announce itself on every page. */}
       {status === 'loading' ? <p>Loading playgroups…</p> : null}
       {status === 'error' ? (
@@ -67,26 +67,44 @@ interface ListboxProps {
 /**
  * The "select-only combobox" pattern (WAI-ARIA APG): the trigger is a button with role
  * `combobox` and keeps focus the whole time; the highlighted option is named by
- * `aria-activedescendant`. Closed: Enter, Space, ArrowDown or ArrowUp open it on the active
+ * `aria-activedescendant`. Its accessible name is the label plus the current group (the acceptance
+ * tests assert that; the APG would name it by the label alone, see the S-2.4.5 report). Closed: Enter, Space, ArrowDown or ArrowUp open it on the active
  * playgroup; Home and End open it on the first or last. Open: ArrowDown and ArrowUp move (they
  * stop at the ends), Home and End jump, Enter or Space select and close, Escape closes without
- * changing anything and keeps focus on the trigger, Tab and a click elsewhere close it without
+ * changing anything and keeps focus on the trigger, Tab, blur and a pointer press elsewhere close it without
  * selecting. Clicking or tapping an option selects it.
  */
-function PlaygroupListbox({ playgroups, activeId, onSelect }: ListboxProps) {
-  const [highlight, setHighlight] = useState<Highlight>(null);
+export function PlaygroupListbox({ playgroups, activeId, onSelect }: ListboxProps) {
+  const [rawHighlight, setHighlight] = useState<Highlight>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const fieldRef = useRef<HTMLDivElement>(null);
   const baseId = useId();
   const listId = `${baseId}-list`;
   const labelId = `${baseId}-label`;
   const optionId = (index: number) => `${baseId}-option-${String(index)}`;
-  const open = highlight !== null;
+  const open = rawHighlight !== null;
   const activeIndex = Math.max(
     0,
     playgroups.findIndex((p) => p.id === activeId),
   );
   const active = playgroups.find((p) => p.id === activeId);
   const last = playgroups.length - 1;
+  // The list can shrink while open: never point at an option that is gone.
+  const highlight = rawHighlight === null ? null : Math.min(rawHighlight, last);
+
+  // Safari (macOS, iOS) and Firefox on macOS do not focus a button on click, so blur never fires
+  // for a click elsewhere: close on a pointer press outside while open.
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && fieldRef.current?.contains(event.target)) return;
+      setHighlight(null);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+    };
+  }, [open]);
 
   const close = () => {
     setHighlight(null);
@@ -113,6 +131,7 @@ function PlaygroupListbox({ playgroups, activeId, onSelect }: ListboxProps) {
       }
       return;
     }
+    if (highlight === null) return;
     switch (key) {
       case 'ArrowDown':
         event.preventDefault();
@@ -149,7 +168,7 @@ function PlaygroupListbox({ playgroups, activeId, onSelect }: ListboxProps) {
   };
 
   return (
-    <div className="playgroup-switcher-field">
+    <div ref={fieldRef} className="playgroup-switcher-field">
       <span id={labelId} className="playgroup-switcher-label">
         Playgroup
       </span>
@@ -162,10 +181,11 @@ function PlaygroupListbox({ playgroups, activeId, onSelect }: ListboxProps) {
         aria-expanded={open}
         aria-controls={listId}
         aria-labelledby={`${labelId} ${baseId}-value`}
-        aria-activedescendant={open ? optionId(highlight) : undefined}
+        aria-activedescendant={highlight === null ? undefined : optionId(highlight)}
         onKeyDown={onKeyDown}
         onBlur={close}
         onClick={() => {
+          triggerRef.current?.focus(); // Safari and Firefox on macOS leave a clicked button unfocused
           setHighlight(open ? null : activeIndex);
         }}
       >

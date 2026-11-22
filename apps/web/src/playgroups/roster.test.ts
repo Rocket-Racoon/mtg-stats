@@ -37,6 +37,15 @@ describe('groupRoster', () => {
   });
 });
 
+describe('groupRoster duplicates', () => {
+  it('shows a person listed on two pages once, the first occurrence winning', () => {
+    const first = { ...p('amy', 'member'), display_name: 'Amy (old)' };
+    const second = { ...p('amy', 'member'), display_name: 'Amy (new)' };
+    const groups = groupRoster([first, p('bob', 'member'), second]);
+    expect(groups.members.map((x) => x.display_name)).toEqual(['Amy (old)', 'bob']);
+  });
+});
+
 describe('readableTextColor', () => {
   it.each([
     ['#ffffff', '#000000'],

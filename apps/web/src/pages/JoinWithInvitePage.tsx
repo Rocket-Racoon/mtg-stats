@@ -17,9 +17,9 @@ export const INVITE_UNREADABLE_MESSAGE = 'That does not look like an invite link
 export function extractInviteToken(raw: string): string | null {
   const text = raw.trim();
   if (text === '') return null;
-  const link = /^(?:[a-z][a-z0-9+.-]*:\/\/[^/?#\s]*)?\/?invite\/([^/?#\s]+)\/?(?:[?#].*)?$/i.exec(
-    text,
-  );
+  // The last /invite/<token> path segment of whatever was pasted, wherever it sits in the URL.
+  // Only the token is used; the pasted URL is never opened.
+  const link = /(?:^|\/)invite\/([^/\s]+)\/?$/i.exec(text.split(/[?#]/, 1)[0] ?? '');
   const candidate = link?.[1] ?? text;
   if (/[\s/?#]/.test(candidate)) return null;
   try {
@@ -97,7 +97,7 @@ export function JoinWithInvitePage() {
       <p role="status">
         {joined
           ? joined.already
-            ? `You are already in ${joined.name}.`
+            ? `You're already in ${joined.name}.`
             : `You joined ${joined.name}.`
           : ''}
       </p>

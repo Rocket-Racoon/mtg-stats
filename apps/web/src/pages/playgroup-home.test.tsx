@@ -192,7 +192,7 @@ describe('role-based actions (S-2.4.5 AC3)', () => {
     ['invites.manage', 'Invite people'],
     ['playgroup.edit', 'Name and description'],
     ['houseRules.edit', 'House rules'],
-    ['guests.add', 'Manage guests'],
+    ['guests.add', 'Add a guest'],
     ['members.changeRole', 'Admins and members'],
     ['ownership.transfer', 'Transfer ownership'],
   ];
@@ -226,6 +226,8 @@ describe('"I have an invite" (/playgroups/join)', () => {
     ['https://mtg.example/invite/abc123?utm=x#frag', 'abc123'],
     ['mtgstats://invite/abc123', 'abc123'],
     ['/invite/abc123', 'abc123'],
+    ['https://mtg.example/app/v2/invite/abc123', 'abc123'],
+    ['https://mtg.example/invite/old/invite/abc123', 'abc123'],
     ['abc123', 'abc123'],
     ['  abc-123_XYZ  ', 'abc-123_XYZ'],
   ])('extracts the token from %j', (raw, token) => {
@@ -279,7 +281,7 @@ describe('"I have an invite" (/playgroups/join)', () => {
     mountApp('/playgroups/join');
     await user.type(screen.getByRole('textbox', { name: 'Invite link or code' }), 'tok');
     await user.click(screen.getByRole('button', { name: 'Join playgroup' }));
-    expect(await screen.findByText('You are already in Crew.')).toBeInTheDocument();
+    expect(await screen.findByText("You're already in Crew.")).toBeInTheDocument();
   });
 
   it('branches on the error code for a dead invite, next to the field', async () => {

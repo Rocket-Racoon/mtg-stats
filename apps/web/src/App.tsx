@@ -1,6 +1,6 @@
 import { useRef, useState, type KeyboardEvent } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router';
-import { NAV_ITEMS } from './nav';
+import { Link, Outlet, useLocation } from 'react-router';
+import { NAV_ITEMS, isNavCurrent } from './nav';
 import { Footer } from './Footer';
 import { AccountMenu } from './AccountMenu';
 import { PlaygroupSwitcher } from './playgroups/PlaygroupSwitcher';
@@ -58,15 +58,15 @@ export function App() {
         <ul>
           {NAV_ITEMS.map((item) => (
             <li key={item.to}>
-              <NavLink
+              <Link
                 to={item.to}
-                end={item.end}
+                aria-current={isNavCurrent(item, location.pathname) ? 'page' : undefined}
                 onClick={() => {
                   setOpen(false);
                 }}
               >
                 {item.label}
-              </NavLink>
+              </Link>
             </li>
           ))}
         </ul>

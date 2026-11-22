@@ -1,10 +1,15 @@
 import { useEffect } from 'react';
-import { usePlaygroup, usePlaygroups, type Playgroup } from '@mtg-stats/api-client';
+import { ApiError, usePlaygroup, usePlaygroups, type Playgroup } from '@mtg-stats/api-client';
 import { useActivePlaygroupStore } from './active-store';
 
 /** The rows of a page; a malformed response (no `items` array) counts as an empty page. */
 export function itemsOf<T>(page: { items: T[] }): T[] {
   return Array.isArray(page.items) ? page.items : [];
+}
+
+/** True for a 404 `not_found` (decided by `code`, never by message). */
+export function isNotFound(error: unknown): boolean {
+  return error instanceof ApiError && error.code === 'not_found';
 }
 
 export interface ActivePlaygroup {
@@ -40,27 +45,39 @@ export function useActivePlaygroup(): ActivePlaygroup {
   const setActive = useActivePlaygroupStore((s) => s.setActive);
   const loaded = list.data?.pages.flatMap(itemsOf) ?? [];
 
+  // A failed background refetch keeps the data it already has: only "error and no data" is an error.
+  const hasList = list.data !== undefined;
   const storedLoaded = storedId !== null && loaded.some((p) => p.id === storedId);
-  const needsCheck = list.isSuccess && storedId !== null && !storedLoaded;
+  const needsCheck = hasList && storedId !== null && !storedLoaded;
   const check = usePlaygroup(storedId ?? '', { enabled: needsCheck });
+  // Only a 404 means "no longer a member"; any other failure is an error and must not overwrite
+  // the remembered id.
+  const checkNotFound = needsCheck && check.isError && isNotFound(check.error);
+  const checkFailed = needsCheck && check.isError && !checkNotFound && check.data === undefined;
+  const checkMember = needsCheck && check.data !== undefined && !checkNotFound;
 
   let active: Playgroup | null = null;
-  if (list.isSuccess) {
+  if (hasList) {
     if (storedLoaded) active = loaded.find((p) => p.id === storedId) ?? null;
-    else if (needsCheck && check.isSuccess) active = check.data;
+    else if (checkMember) active = check.data ?? null;
     else active = loaded[0] ?? null;
   }
   const playgroups =
     active && !loaded.some((p) => p.id === active.id) ? [...loaded, active] : loaded;
 
   const checking = needsCheck && check.isPending;
-  const status = list.isError ? 'error' : !list.isSuccess || checking ? 'loading' : 'ready';
+  const status =
+    (list.isError && !hasList) || checkFailed
+      ? 'error'
+      : !hasList || checking
+        ? 'loading'
+        : 'ready';
   return {
     status,
     playgroups,
     active,
     setActive,
-    error: list.error,
+    error: checkFailed ? check.error : list.error,
     retry: () => {
       void list.refetch();
     },

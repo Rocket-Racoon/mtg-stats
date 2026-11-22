@@ -603,7 +603,7 @@ describe('the join screen reached from "I have an invite"', () => {
     mount('/playgroups/join');
     await paste(user, CODE);
     await user.click(joinButton());
-    expect(await screen.findByText('You are already in Crew.')).toBeInTheDocument();
+    expect(await screen.findByText("You're already in Crew.")).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Go to Crew' })).toHaveAttribute(
       'href',
       '/playgroups/g1',

@@ -177,8 +177,8 @@ describe('usePlaygroupPlayers', () => {
     });
     expect(result.current.data?.pages.flatMap((p) => p.items.map((i) => i.id))).toEqual(['a', 'b']);
     expect(urls).toEqual([
-      'GET /api/v1/playgroups/g1/players',
-      'GET /api/v1/playgroups/g1/players?cursor=c1',
+      'GET /api/v1/playgroups/g1/players?limit=200',
+      'GET /api/v1/playgroups/g1/players?limit=200&cursor=c1',
     ]);
   });
 });

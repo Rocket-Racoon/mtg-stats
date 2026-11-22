@@ -1,14 +1,10 @@
 import { useEffect, type CSSProperties } from 'react';
 import { Link, useParams } from 'react-router';
-import {
-  ApiError,
-  usePlaygroup,
-  usePlaygroupPlayers,
-  type PlaygroupPlayer,
-} from '@mtg-stats/api-client';
+import { usePlaygroup, usePlaygroupPlayers, type PlaygroupPlayer } from '@mtg-stats/api-client';
 import { errorMessage, errorRequestId } from '../errors/message';
 import { ActionSlot } from '../playgroups/ActionSlot';
 import { useActivePlaygroupStore } from '../playgroups/active-store';
+import { isNotFound } from '../playgroups/useActivePlaygroup';
 import { groupRoster, readableTextColor } from '../playgroups/roster';
 import { useFetchAllPages } from '../playgroups/useAllPages';
 import { NotFoundPage } from './NotFound';
@@ -93,9 +89,11 @@ export function PlaygroupHomePage() {
     document.title = `${name ?? 'Playgroup'} · MTG Stats`;
   }, [name]);
 
-  if (playgroup.isError) {
+  // A failed background refetch keeps showing the data already loaded; a 404 never does (the
+  // caller is no longer a member).
+  if (playgroup.isError && (isNotFound(playgroup.error) || !playgroup.data)) {
     const { error } = playgroup;
-    if (error instanceof ApiError && error.code === 'not_found') return <NotFoundPage />;
+    if (isNotFound(error)) return <NotFoundPage />;
     const requestId = errorRequestId(error);
     return (
       <section aria-labelledby="page-title">
@@ -116,7 +114,7 @@ export function PlaygroupHomePage() {
     );
   }
 
-  if (playgroup.isPending) {
+  if (!playgroup.data) {
     return (
       <section aria-labelledby="page-title">
         <h2 id="page-title">Playgroup</h2>
@@ -125,7 +123,7 @@ export function PlaygroupHomePage() {
     );
   }
 
-  const { data } = playgroup;
+  const data = playgroup.data;
   const role = data.role;
   const roster = groupRoster(players.data?.pages.flatMap((page) => page.items) ?? []);
   const rosterReady = players.isSuccess && !players.hasNextPage;
@@ -140,7 +138,7 @@ export function PlaygroupHomePage() {
 
       <section aria-labelledby="people-title">
         <h3 id="people-title">People</h3>
-        {players.isError ? (
+        {players.isError && (!players.data || players.hasNextPage) ? (
           <PlayersError
             error={players.error}
             retry={() => {
@@ -167,7 +165,7 @@ export function PlaygroupHomePage() {
         <ActionSlot action="invites.manage" role={role} title="Invite people" />
         <ActionSlot action="playgroup.edit" role={role} title="Name and description" />
         <ActionSlot action="houseRules.edit" role={role} title="House rules" />
-        <ActionSlot action="guests.add" role={role} title="Manage guests" />
+        <ActionSlot action="guests.add" role={role} title="Add a guest" />
         <ActionSlot action="members.changeRole" role={role} title="Admins and members" />
         <ActionSlot action="ownership.transfer" role={role} title="Transfer ownership" />
       </section>

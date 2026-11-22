@@ -1,6 +1,7 @@
 // Test helper (S-2.4.5): a stubbed API for the playgroup screens, mounted through the real route
 // table and AppRoot like the other page tests.
 import { render } from '@testing-library/react';
+import type { QueryClient } from '@tanstack/react-query';
 import { createMemoryRouter } from 'react-router';
 import { vi } from 'vitest';
 import { AppRoot } from '../providers/AppRoot';
@@ -101,9 +102,9 @@ export function stubWorld(world: World): Call[] {
 }
 
 /** Mounts the whole app at `path`, signed in. */
-export function mountApp(path: string) {
+export function mountApp(path: string, queryClient?: QueryClient) {
   useSessionStore.setState({ status: 'signed_in', accessToken: 'token' }); // secrets-check: allow
   const router = createMemoryRouter(routes, { initialEntries: [path] });
-  render(<AppRoot router={router} />);
+  render(<AppRoot router={router} {...(queryClient ? { queryClient } : {})} />);
   return router;
 }

@@ -13,6 +13,7 @@ INVITE_MAX_USES_LIMIT = 20
 PLAYGROUP_NAME_MIN_LENGTH = 3
 PLAYGROUP_NAME_MAX_LENGTH = 50
 PLAYGROUP_DESCRIPTION_MAX_LENGTH = 500
+HOUSE_RULES_MAX_LENGTH = 5000
 
 ROLE_OWNER = "owner"
 ROLE_ADMIN = "admin"
@@ -37,12 +38,25 @@ class Playgroup(IdMixin, TimestampMixin, Base):
             f"char_length(description) <= {PLAYGROUP_DESCRIPTION_MAX_LENGTH}",
             name="description_length",
         ),
+        CheckConstraint(
+            f"char_length(house_rules_text) <= {HOUSE_RULES_MAX_LENGTH}",
+            name="house_rules_length",
+        ),
     )
 
     name: Mapped[str] = mapped_column(String(PLAYGROUP_NAME_MAX_LENGTH))
     description: Mapped[str] = mapped_column(
         String(PLAYGROUP_DESCRIPTION_MAX_LENGTH), default="", server_default=""
     )
+    house_rules_text: Mapped[str] = mapped_column(
+        String(HOUSE_RULES_MAX_LENGTH), default="", server_default=""
+    )
+    """Free text stored exactly as sent; never sanitised (clients render it as plain text)."""
+    house_rules_edited_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("players.id"), default=None
+    )
+    """The player who last saved the house rules; null when they were never edited."""
+    house_rules_edited_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
 
 
 class Membership(IdMixin, Base):

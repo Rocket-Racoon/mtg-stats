@@ -3,7 +3,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, Request, Response
 
 from app.core.auth import CurrentUserDep, SiteAdminDep
 from app.core.db import SessionDep
@@ -12,6 +12,7 @@ from app.core.paging import PageParamsDep
 from app.core.rate_limit import PublicRateLimitDep
 from app.playgroups import services
 from app.playgroups.schemas import (
+    CommonPlaygroupOut,
     GuestCreate,
     GuestOut,
     GuestRename,
@@ -25,6 +26,8 @@ from app.playgroups.schemas import (
     InvitePreviewRequest,
     MemberOut,
     MemberRoleUpdate,
+    PlayerMergedOut,
+    PlayerProfileOut,
     PlaygroupCreate,
     PlaygroupOut,
     PlaygroupPageOut,
@@ -34,6 +37,7 @@ from app.playgroups.schemas import (
 
 invites_router = APIRouter(prefix="/invites", tags=["invites"])
 playgroups_router = APIRouter(prefix="/playgroups", tags=["playgroups"])
+players_router = APIRouter(prefix="/players", tags=["players"])
 router = APIRouter()
 
 
@@ -338,5 +342,63 @@ async def rename_guest(
     )
 
 
+# Ordering rule: this route takes a ``str`` and matches every single-segment GET under
+# ``/players``. Any future literal ``/players/<word>`` GET route must be registered BEFORE it.
+@players_router.get(
+    "/{player_id}",
+    summary="View a player's profile",
+    response_model=PlayerProfileOut,
+    responses={308: {"model": PlayerMergedOut, "description": "A merged guest; see `Location`."}},
+)
+async def get_player_profile(
+    player_id: str,
+    request: Request,
+    response: Response,
+    user: CurrentUserDep,
+    session: SessionDep,
+) -> Response | PlayerProfileOut:
+    """A player's display name, avatar color, guest badge, "member since" and the playgroups
+    you have in common with them. No email, username or stats.
+
+    You can open your own profile, and another player's when you are both active members of a
+    playgroup, or they are a guest whose home playgroup is one you belong to. Anyone else, an
+    unknown id and an unparseable id are all the same 404 `not_found`. A guest that was merged
+    into another player answers 308 with `Location` set to the survivor's profile (and
+    `merged_into_id` in the body), but only when you could open both the old guest (you belong to
+    its home playgroup or share one with it, or you are the survivor) and the survivor; otherwise
+    404. `member_since` is when the player record was created.
+
+    Browsers' `fetch` follows the 308 by itself, so a client detects a merge because the returned
+    profile's `id` differs from the id it asked for; the 308 body is visible only to clients that
+    do not follow redirects. Responses are `Cache-Control: no-store` (the answer depends on the
+    viewer, and a cached 308 would be replayed for another user of the same browser).
+    """
+    try:
+        parsed = UUID(player_id)
+    except ValueError:
+        raise NotFoundError from None
+    profile = await services.get_player_profile(session, viewer_user_id=user.id, player_id=parsed)
+    response.headers["Cache-Control"] = "no-store"
+    if profile.redirected_from is not None:
+        location = request.app.url_path_for("get_player_profile", player_id=str(profile.id))
+        return Response(
+            content=PlayerMergedOut(merged_into_id=profile.id).model_dump_json(),
+            status_code=308,
+            media_type="application/json",
+            headers={"Location": str(location), "Cache-Control": "no-store"},
+        )
+    return PlayerProfileOut(
+        id=profile.id,
+        display_name=profile.display_name,
+        avatar_color=profile.avatar_color,
+        is_guest=profile.is_guest,
+        member_since=profile.member_since,
+        common_playgroups=[
+            CommonPlaygroupOut(id=g.id, name=g.name) for g in profile.common_playgroups
+        ],
+    )
+
+
 router.include_router(invites_router)
 router.include_router(playgroups_router)
+router.include_router(players_router)

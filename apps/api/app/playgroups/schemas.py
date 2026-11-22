@@ -245,3 +245,30 @@ class GuestOut(BaseModel):
     avatar_color: str
     created_by: UUID | None = Field(description="The player who added the guest.")
     created_at: datetime
+
+
+class CommonPlaygroupOut(BaseModel):
+    """A playgroup the viewer and the profile's player share."""
+
+    id: UUID
+    name: str
+
+
+class PlayerProfileOut(BaseModel):
+    """A player's public profile for a viewer who shares a playgroup with them.
+
+    No email, username or stats: the client adds the stats player summary itself.
+    """
+
+    id: UUID
+    display_name: str
+    avatar_color: str
+    is_guest: bool
+    member_since: datetime = Field(description="When the player record was created.")
+    common_playgroups: list[CommonPlaygroupOut]
+
+
+class PlayerMergedOut(BaseModel):
+    """Body of the 308 redirect for a merged guest."""
+
+    merged_into_id: UUID

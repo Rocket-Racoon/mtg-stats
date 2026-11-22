@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-audit-canonical-case-names-missing-twice-do-not-duplicate",
+  "rule": "8.3 details: case names",
+  "description": "Cases without a name do not take part in the duplicate check.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"canonical_json\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"cases\":[{\"input\":1,\"output\":\"1\"},{\"input\":1,\"output\":\"1\"}]}",
+  "messages": ["vec.json: cases[0].name is required", "vec.json: cases[1].name is required"]
+}

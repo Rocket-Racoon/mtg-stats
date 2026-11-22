@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-audit-float-index-1e999-is-not-an-integer",
+  "rule": "8.3 details",
+  "description": "1e999 is infinite, not an integer: field message and token message.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1},{\"event_id\":\"e1\",\"type\":\"turn_passed\",\"payload\":{},\"v\":1}],\"expect\":{\"error\":{\"index\":1e999,\"code\":\"invalid_event\"}}}",
+  "messages": [
+    "vec.json: expect.error.index must be a non-negative integer",
+    "vec.json: expect.error.index must be an integer (found the number token 1e999)"
+  ]
+}

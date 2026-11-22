@@ -140,6 +140,8 @@ describe('validator case corpus', () => {
     'must be decimal text of an integer outside the safe range',
     'must be the 4-digit hex code of a surrogate code unit (d800 to dfff)',
     'must be decimal text of an integer from 1 to 10000',
+    'must have at most 300 digits',
+    '$ is nested more than 512 levels deep',
   ];
   const everyMessage = validatorCases.flatMap((c) =>
     (c.messages ?? []).map((m) => (typeof m === 'string' ? m : m.startsWith)),

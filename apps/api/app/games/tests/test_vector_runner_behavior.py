@@ -366,3 +366,143 @@ def test_coverage_of_a_directory_without_reducer_vectors_lists_every_type_in_ord
     assert uncovered_event_type_messages(vectors, EVENT_TYPES) == [
         f"uncovered event type: {t}" for t in EVENT_TYPES
     ]
+
+
+# ------------------------------------------------- the S-6.1.2 review rules of CONTRACT.md 8.5
+
+
+def _nested(levels: int) -> str:
+    return "[" * levels + "]" * levels
+
+
+def test_other_spellings_of_the_extension_are_ignored(tmp_path: Path) -> None:
+    for name in ("X.JSON", "y.Json", "z.jSON"):
+        (tmp_path / name).write_text("{}", encoding="utf-8")
+    with pytest.raises(VectorError) as raised:
+        list_vector_files(tmp_path)
+    assert str(raised.value) == f"vectors directory has no .json files: {tmp_path}"
+    (tmp_path / "a.json").write_text("{}", encoding="utf-8")
+    assert [p.name for p in list_vector_files(tmp_path)] == ["a.json"]
+
+
+def test_directories_and_nested_directories_are_ignored_even_when_named_like_a_vector(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "trap.json").mkdir()
+    (tmp_path / "nested").mkdir()
+    (tmp_path / "nested" / "deep.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(VectorError) as raised:
+        list_vector_files(tmp_path)
+    assert str(raised.value) == f"vectors directory has no .json files: {tmp_path}"
+
+
+def test_symbolic_links_to_files_directories_and_nothing_are_ignored(tmp_path: Path) -> None:
+    (tmp_path / "real.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "target-dir").mkdir()
+    try:
+        (tmp_path / "file-link.json").symlink_to(tmp_path / "real.json")
+        (tmp_path / "dir-link.json").symlink_to(tmp_path / "target-dir", target_is_directory=True)
+        (tmp_path / "dangling.json").symlink_to(tmp_path / "missing")
+    except OSError:
+        pytest.skip("symbolic links need a privilege on this system")
+    assert [p.name for p in list_vector_files(tmp_path)] == ["real.json"]
+
+
+def test_only_regular_files_count_towards_the_no_json_file_failure(tmp_path: Path) -> None:
+    (tmp_path / "real.txt").write_text("{}", encoding="utf-8")
+    try:
+        (tmp_path / "only-a-link.json").symlink_to(tmp_path / "real.txt")
+    except OSError:
+        pytest.skip("symbolic links need a privilege on this system")
+    with pytest.raises(VectorError) as raised:
+        list_vector_files(tmp_path)
+    assert str(raised.value) == f"vectors directory has no .json files: {tmp_path}"
+
+
+def test_a_canonical_file_reports_every_failing_case_one_line_each_in_case_order(
+    tmp_path: Path,
+) -> None:
+    doc = _real("canonical-json-integers")
+    assert len(doc["cases"]) >= 4
+    doc["cases"][0]["output"] += "x"
+    doc["cases"][2]["output"] += "y"
+    path = _write(tmp_path, "canonical-two-wrong", doc)
+    with pytest.raises(VectorError) as raised:
+        run_vector_file(path)
+    lines = str(raised.value).split("\n")
+    assert len(lines) == 2
+    assert lines[0].startswith(f'canonical-two-wrong.json: case "{doc["cases"][0]["name"]}": ')
+    assert lines[1].startswith(f'canonical-two-wrong.json: case "{doc["cases"][2]["name"]}": ')
+
+
+def test_a_wrong_error_code_and_a_wrong_output_of_one_file_are_reported_together(
+    tmp_path: Path,
+) -> None:
+    rejections = _real("canonical-json-rejections")
+    bad = next(c for c in rejections["cases"] if "invalid" in c)
+    bad["error"] = "non_integer" if bad["error"] == "unsupported_value" else "unsupported_value"
+    first = _real("canonical-json-integers")["cases"][0]
+    doc = {
+        **rejections,
+        "cases": [bad, {**first, "name": "second", "output": first["output"] + "z"}],
+    }
+    path = _write(tmp_path, "canonical-mixed-wrong", doc)
+    with pytest.raises(VectorError) as raised:
+        run_vector_file(path)
+    lines = str(raised.value).split("\n")
+    assert len(lines) == 2
+    assert lines[0].startswith(f'canonical-mixed-wrong.json: case "{bad["name"]}": ')
+    assert lines[1].startswith('canonical-mixed-wrong.json: case "second": ')
+
+
+def test_a_file_nested_more_than_512_levels_fails_with_the_single_depth_message(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "deep.json"
+    path.write_text(f'{{"kind":"reducer","x":{_nested(520)}}}', encoding="utf-8")
+    with pytest.raises(VectorError) as raised:
+        run_vector_file(path)
+    assert str(raised.value) == "deep.json: $ is nested more than 512 levels deep"
+
+
+def test_deep_and_broken_files_fail_alone_and_do_not_stop_the_others_or_the_coverage_check(
+    tmp_path: Path,
+) -> None:
+    covers = _real("accept-all-registered-event-types")
+    _write(tmp_path, "covers-everything", covers)
+    (tmp_path / "deep-one.json").write_text(
+        json.dumps({**covers, "name": "deep-one"})[:-1] + f',"x":{_nested(600)}}}', encoding="utf-8"
+    )
+    (tmp_path / "broken.json").write_text('{"kind":', encoding="utf-8")
+    (tmp_path / "bytes.json").write_bytes(b"\xef\xbb\xbf{}")
+    outcomes: dict[str, str] = {}
+    for path in list_vector_files(tmp_path):
+        try:
+            run_vector_file(path)
+            outcomes[path.name] = "passed"
+        except VectorError as failure:
+            outcomes[path.name] = str(failure).split("\n")[0]
+    assert outcomes["covers-everything.json"] == "passed"
+    assert outcomes["deep-one.json"] == "deep-one.json: $ is nested more than 512 levels deep"
+    assert outcomes["broken.json"].startswith("broken.json: invalid JSON: ")
+    assert outcomes["bytes.json"].startswith("bytes.json: invalid JSON: ")
+    files = list_vector_files(tmp_path)
+    vectors = valid_reducer_vectors(files)
+    assert [v["name"] for v in vectors] == ["covers-everything"]
+    assert uncovered_event_type_messages(vectors, EVENT_TYPES) == []
+    only_broken = [p for p in files if p.name != "covers-everything.json"]
+    assert uncovered_event_type_messages(valid_reducer_vectors(only_broken), EVENT_TYPES) == [
+        f"uncovered event type: {t}" for t in EVENT_TYPES
+    ]
+
+
+def test_a_vector_nested_to_exactly_512_levels_is_not_rejected_for_depth(tmp_path: Path) -> None:
+    doc = _real("initial-state-empty-settings")
+    path = tmp_path / "at-the-limit.json"
+    path.write_text(
+        json.dumps({**doc, "name": "at-the-limit"})[:-1] + f',"x":{_nested(511)}}}',
+        encoding="utf-8",
+    )
+    with pytest.raises(VectorError) as raised:
+        run_vector_file(path)
+    assert str(raised.value) == "at-the-limit.json: x is not a known key"

@@ -122,6 +122,8 @@ TEMPLATES = [
     "must be decimal text of an integer outside the safe range",
     "must be the 4-digit hex code of a surrogate code unit (d800 to dfff)",
     "must be decimal text of an integer from 1 to 10000",
+    "must have at most 300 digits",
+    "$ is nested more than 512 levels deep",
 ]
 
 
@@ -131,19 +133,18 @@ def test_corpus_holds_both_kinds_of_case_named_after_their_files() -> None:
     assert len({c["name"] for c in CASES}) == len(CASES)
     for c in VALIDATOR_CASES:
         assert c["file"].endswith(".json"), c["name"]
-        assert ("messages" in c) != ("alternatives" in c), f"{c['name']}: messages xor gap"
-        if "alternatives" in c:
-            assert c.get("gap"), c["name"]
-            assert len(c["alternatives"]) >= 2, c["name"]
+        # A case with "alternatives" could pass on one reading in one language and on another in
+        # the other, hiding drift: every case states exactly one list of messages.
+        assert "alternatives" not in c, f"{c['name']}: alternatives are not allowed"
+        assert "gap" not in c, f"{c['name']}: gap is not allowed"
+        assert isinstance(c.get("messages"), list), f"{c['name']}: messages"
 
 
 @pytest.mark.parametrize("template", TEMPLATES)
 def test_some_case_pins_the_message(template: str) -> None:
     every: list[str] = []
     for c in VALIDATOR_CASES:
-        entries = list(c.get("messages", [])) + [
-            m for alt in c.get("alternatives", []) for m in alt
-        ]
+        entries = list(c["messages"])
         every.extend(m if isinstance(m, str) else m["startsWith"] for m in entries)
     assert any(template in m for m in every)
 
@@ -151,15 +152,8 @@ def test_some_case_pins_the_message(template: str) -> None:
 @pytest.mark.parametrize("case", VALIDATOR_CASES, ids=[c["name"] for c in VALIDATOR_CASES])
 def test_validator_agrees_with_the_shared_case(case: dict[str, Any]) -> None:
     actual = list(validate_vector_text(case["file"], case["text"]).messages)
-    if "messages" in case:
-        assert _agrees(actual, case["messages"]), (
-            f"{case['name']}: expected {_display(case['messages'])}, got {actual}"
-        )
-        return
-    readings = case["alternatives"]
-    assert any(_agrees(actual, alt) for alt in readings), (
-        f"{case['name']}: contract gap ({case['gap']}); got {actual}, "
-        f"defensible readings {[_display(r) for r in readings]}"
+    assert _agrees(actual, case["messages"]), (
+        f"{case['name']}: expected {_display(case['messages'])}, got {actual}"
     )
 
 

@@ -1,5 +1,13 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -374,5 +382,120 @@ describe('coverage on a directory (8.4)', () => {
   it('lists every type in registry order when only canonical vectors exist', () => {
     const only = put('only-canonical', real('canonical-json-integers'));
     expect(checkCoverage([only])).toEqual(EVENT_TYPES.map((t) => `uncovered event type: ${t}`));
+  });
+});
+
+describe('discovery of the S-6.1.2 review rules (8.5)', () => {
+  it('ignores other spellings of the extension and fails as empty when nothing else is there', () => {
+    for (const n of ['X.JSON', 'y.Json', 'z.jSON']) writeFileSync(join(dir, n), '{}');
+    expect(() => loadVectorFiles(dir)).toThrow(`vectors directory has no .json files: ${dir}`);
+    writeFileSync(join(dir, 'a.json'), '{}');
+    expect(loadVectorFiles(dir).map((f) => f.name)).toEqual(['a.json']);
+  });
+
+  it('ignores directories and nested directories, even when named like a vector', () => {
+    mkdirSync(join(dir, 'trap.json'));
+    mkdirSync(join(dir, 'nested'));
+    writeFileSync(join(dir, 'nested', 'deep.json'), '{}');
+    expect(() => loadVectorFiles(dir)).toThrow(`vectors directory has no .json files: ${dir}`);
+  });
+
+  it('ignores symbolic links to files, to directories and dangling ones', (ctx) => {
+    writeFileSync(join(dir, 'real.json'), '{}');
+    mkdirSync(join(dir, 'target-dir'));
+    try {
+      symlinkSync(join(dir, 'real.json'), join(dir, 'file-link.json'));
+      symlinkSync(join(dir, 'target-dir'), join(dir, 'dir-link.json'), 'dir');
+      symlinkSync(join(dir, 'missing'), join(dir, 'dangling.json'));
+    } catch {
+      ctx.skip(); // symbolic links need a privilege on some systems
+    }
+    expect(loadVectorFiles(dir).map((f) => f.name)).toEqual(['real.json']);
+  });
+
+  it('counts only regular files towards the no-json-file failure', (ctx) => {
+    writeFileSync(join(dir, 'real.txt'), '{}');
+    try {
+      symlinkSync(join(dir, 'real.txt'), join(dir, 'only-a-link.json'));
+    } catch {
+      ctx.skip();
+    }
+    expect(() => loadVectorFiles(dir)).toThrow(`vectors directory has no .json files: ${dir}`);
+  });
+});
+
+describe('a canonical file reports every failing case (8.5)', () => {
+  it('lists each failing case on its own line, in case order, and not the passing ones', () => {
+    const doc = real('canonical-json-integers');
+    expect(doc.cases.length).toBeGreaterThanOrEqual(4);
+    doc.cases[0]!.output = `${doc.cases[0]!.output}x`;
+    doc.cases[2]!.output = `${doc.cases[2]!.output}y`;
+    const lines = failureOf(put('canonical-two-wrong', doc)).split('\n');
+    expect(lines).toHaveLength(2);
+    expect(lines[0]!.startsWith(`canonical-two-wrong.json: case "${doc.cases[0]!.name}": `)).toBe(
+      true,
+    );
+    expect(lines[1]!.startsWith(`canonical-two-wrong.json: case "${doc.cases[2]!.name}": `)).toBe(
+      true,
+    );
+  });
+
+  it('reports a wrong error code and a wrong output of one file together', () => {
+    const rejections = real('canonical-json-rejections');
+    const bad = rejections.cases.find((c) => 'invalid' in c)!;
+    bad.error = bad.error === 'unsupported_value' ? 'non_integer' : 'unsupported_value';
+    const input = real('canonical-json-integers').cases[0]!;
+    const doc = {
+      ...rejections,
+      cases: [bad, { ...input, name: 'second', output: `${input.output}z` }],
+    } as Doc;
+    const lines = failureOf(put('canonical-mixed-wrong', doc)).split('\n');
+    expect(lines).toHaveLength(2);
+    expect(lines[0]!.startsWith(`canonical-mixed-wrong.json: case "${bad.name}": `)).toBe(true);
+    expect(lines[1]!.startsWith('canonical-mixed-wrong.json: case "second": ')).toBe(true);
+  });
+});
+
+describe('a deep or broken file fails alone (8.3, 8.4)', () => {
+  const nested = (levels: number): string => '['.repeat(levels) + ']'.repeat(levels);
+
+  it('names a file nested more than 512 levels with the single depth message', () => {
+    const deep = { name: 'deep.json', text: `{"kind":"reducer","x":${nested(520)}}` };
+    expect(failureOf(deep)).toBe('deep.json: $ is nested more than 512 levels deep');
+  });
+
+  it('keeps the other files and the coverage check running beside deep and broken ones', () => {
+    const covers = put('covers-everything', real('accept-all-registered-event-types'));
+    const deep = put('deep-one', {
+      ...real('accept-all-registered-event-types'),
+      x: JSON.parse(nested(600)),
+    });
+    const broken = { name: 'broken.json', text: '{"kind":' };
+    const badBytes = { name: 'bytes.json', text: '﻿{}' };
+    const files = [covers, deep, broken, badBytes];
+    const outcomes = files.map((f) => {
+      try {
+        runVectorFile(f);
+        return 'passed';
+      } catch (e) {
+        return e instanceof Error ? e.message.split('\n')[0]! : 'non-error';
+      }
+    });
+    expect(outcomes[0]).toBe('passed');
+    expect(outcomes[1]).toBe('deep-one.json: $ is nested more than 512 levels deep');
+    expect(outcomes[2]!.startsWith('broken.json: invalid JSON: ')).toBe(true);
+    expect(outcomes[3]!.startsWith('bytes.json: invalid JSON: ')).toBe(true);
+    expect(checkCoverage(files)).toEqual([]);
+    expect(checkCoverage([deep, broken, badBytes])).toEqual(
+      EVENT_TYPES.map((t) => `uncovered event type: ${t}`),
+    );
+  });
+
+  it('accepts a vector nested to exactly 512 levels', () => {
+    const doc = { ...real('initial-state-empty-settings'), x: JSON.parse(nested(511)) };
+    // The top-level object is level 1, so a 511-level array inside it makes exactly 512.
+    expect(() => runVectorFile(put('at-the-limit', doc as Doc))).toThrow(
+      /^at-the-limit\.json: x is not a known key/,
+    );
   });
 });

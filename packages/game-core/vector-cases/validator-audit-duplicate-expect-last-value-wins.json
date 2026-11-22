@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "kind": "validator",
+  "name": "validator-audit-duplicate-expect-last-value-wins",
+  "rule": "8.3 step 5",
+  "description": "expect is a good object first and 5 last: the rules see 5.",
+  "file": "vec.json",
+  "text": "{\"kind\":\"reducer\",\"format\":1,\"name\":\"vec\",\"description\":\"d\",\"game_id\":\"g\",\"settings\":{},\"events\":[],\"expect\":{\"state\":{}},\"expect\":5}",
+  "messages": ["vec.json: expect must be an object", "vec.json: expect is a duplicate key"]
+}

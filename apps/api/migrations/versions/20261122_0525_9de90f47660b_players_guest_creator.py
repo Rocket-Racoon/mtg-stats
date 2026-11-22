@@ -1,7 +1,7 @@
 """players guest creator
 
 Revision ID: 9de90f47660b
-Revises: 37f07339b8e2
+Revises: 92321b9b300c
 Create Date: 2026-11-22 05:25:50.316664+00:00
 """
 
@@ -14,7 +14,7 @@ from alembic import op
 import app.core.db
 
 revision: str = "9de90f47660b"
-down_revision: str | None = "37f07339b8e2"
+down_revision: str | None = "92321b9b300c"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

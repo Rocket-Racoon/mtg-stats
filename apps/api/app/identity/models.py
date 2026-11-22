@@ -56,6 +56,18 @@ class Player(IdMixin, Base):
             name="display_name_valid",
         ),
         CheckConstraint(f"avatar_color IN ({_AVATAR_COLOR_LIST})", name="avatar_color_valid"),
+        # Serves "the guests of a playgroup" (S-2.3.1).
+        Index(
+            "ix_players_home_playgroup_id_guest",
+            "home_playgroup_id",
+            postgresql_where=text("is_guest AND merged_into_id IS NULL"),
+        ),
+        # Serves the ``ON DELETE SET NULL`` of ``created_by_id`` (no scan of ``players``).
+        Index(
+            "ix_players_created_by_id",
+            "created_by_id",
+            postgresql_where=text("created_by_id IS NOT NULL"),
+        ),
     )
 
     user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"), unique=True, default=None)
@@ -67,6 +79,10 @@ class Player(IdMixin, Base):
     # which the CLI and workers never load. Deferred until a mechanism exists (a later story).
     home_playgroup_id: Mapped[UUID | None] = mapped_column(default=None)
     merged_into_id: Mapped[UUID | None] = mapped_column(ForeignKey("players.id"), default=None)
+    created_by_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("players.id", ondelete="SET NULL"), default=None
+    )
+    """The player who added this guest (S-2.3.1); None for members and for older rows."""
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_utcnow)
 
 

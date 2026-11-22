@@ -408,6 +408,53 @@ export interface paths {
         patch: operations["playgroups_update_playgroup"];
         trace?: never;
     };
+    "/api/v1/playgroups/{playgroup_id}/guests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a guest player
+         * @description Add a friend as a guest player of this playgroup; any member may. Guests have no login.
+         *
+         *     `display_name` is 1-32 characters (trimmed), else 422. A name that matches a member or guest
+         *     of the playgroup, ignoring case and accents, is 409 `player_name_taken`. A non-member gets 404.
+         */
+        post: operations["playgroups_add_guest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/playgroups/{playgroup_id}/guests/{player_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Rename a guest player
+         * @description Rename a guest. Allowed for the guest's creator, the playgroup's owner and its admins; any
+         *     other member gets 403 `forbidden`, a non-member 404.
+         *
+         *     A guest that does not exist, belongs to another playgroup or was merged is 404. A name that
+         *     matches another member or guest, ignoring case and accents, is 409 `player_name_taken`.
+         */
+        patch: operations["playgroups_rename_guest"];
+        trace?: never;
+    };
     "/api/v1/playgroups/{playgroup_id}/invites": {
         parameters: {
             query?: never;
@@ -555,6 +602,59 @@ export interface components {
          */
         ErrorResponse: {
             error: components["schemas"]["ErrorBody"];
+        };
+        /**
+         * GuestCreate
+         * @description Body of the guest add (``POST``) and rename (``PATCH``) routes.
+         */
+        GuestCreate: {
+            /**
+             * Display Name
+             * @description 1 to 32 characters (surrounding spaces are trimmed); unique in the playgroup, ignoring case and accents.
+             */
+            display_name: string;
+        };
+        /**
+         * GuestOut
+         * @description A guest player of a playgroup.
+         */
+        GuestOut: {
+            /** Avatar Color */
+            avatar_color: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Created By
+             * @description The player who added the guest.
+             */
+            created_by: string | null;
+            /** Display Name */
+            display_name: string;
+            /**
+             * Id
+             * Format: uuid
+             * @description The guest's player id.
+             */
+            id: string;
+            /**
+             * Playgroup Id
+             * Format: uuid
+             */
+            playgroup_id: string;
+        };
+        /**
+         * GuestRename
+         * @description Body of ``PATCH /playgroups/{id}/guests/{player_id}``.
+         */
+        GuestRename: {
+            /**
+             * Display Name
+             * @description 1 to 32 characters (surrounding spaces are trimmed); unique in the playgroup, ignoring case and accents.
+             */
+            display_name: string;
         };
         /**
          * InviteCreate
@@ -2986,6 +3086,221 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlaygroupOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    playgroups_add_guest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                playgroup_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GuestCreate"];
+            };
+        };
+        responses: {
+            /** @description Client error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuestOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    playgroups_rename_guest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                player_id: string;
+                playgroup_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GuestRename"];
+            };
+        };
+        responses: {
+            /** @description Client error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuestOut"];
                 };
             };
             /** @description Unauthorized */

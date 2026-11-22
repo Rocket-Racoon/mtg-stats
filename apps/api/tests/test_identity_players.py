@@ -314,6 +314,7 @@ def test_player_info_has_the_contracted_fields() -> None:
         "home_playgroup_id",
         "merged_into_id",
         "created_at",
+        "created_by_id",
     }
 
 

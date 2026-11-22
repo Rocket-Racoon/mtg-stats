@@ -899,6 +899,99 @@
         "title": "PlaygroupPageOut",
         "type": "object"
       },
+      "PlaygroupPlayerOut": {
+        "description": "A member or guest of a playgroup (the picker and roster row). No email or username.",
+        "properties": {
+          "avatar_color": {
+            "title": "Avatar Color",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a guest, the player who added it; else null.",
+            "title": "Created By"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "The player id.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_guest": {
+            "title": "Is Guest",
+            "type": "boolean"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "enum": [
+                  "owner",
+                  "admin",
+                  "member"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The member's role; null for a guest.",
+            "title": "Role"
+          }
+        },
+        "required": [
+          "id",
+          "display_name",
+          "avatar_color",
+          "is_guest",
+          "role",
+          "created_by"
+        ],
+        "title": "PlaygroupPlayerOut",
+        "type": "object"
+      },
+      "PlaygroupPlayerPageOut": {
+        "description": "One page of a playgroup's players: members first, then guests.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PlaygroupPlayerOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Opaque cursor for the next page, or null on the last page.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "PlaygroupPlayerPageOut",
+        "type": "object"
+      },
       "PlaygroupUpdate": {
         "description": "Body of ``PATCH /playgroups/{id}``. Send only the fields to change; null is rejected.",
         "properties": {
@@ -4888,6 +4981,185 @@
           }
         ],
         "summary": "Change a member's role",
+        "tags": [
+          "playgroups"
+        ]
+      }
+    },
+    "/api/v1/playgroups/{playgroup_id}/players": {
+      "get": {
+        "description": "The player picker and roster: active members first (owner, admins and members, with their\n`role`), then the playgroup's guests (`role` null, `created_by` set), each group in\nalphabetical order. Any member may call it; a non-member, an unknown id or an unparseable id\ngets 404.\n\n`q` keeps the players with a name word starting with it (the name starts with it, or it\nfollows a space or a hyphen), ignoring case, accents and invisible characters, so `jo`\nfinds \"Jöel\" and \"Mary Jo\". It is at most 64 characters with no control characters (else\n422 `validation_error`); an empty `q`, or one with only spaces or invisible characters,\nlists everyone. Order is the accent- and case-insensitive name, compared by code point,\nthen the player id. Paging is `?cursor=&limit=` (422 `invalid_cursor` for a bad cursor).\nPlayers nobody changed between two pages are never skipped or repeated; a renamed one can\nappear twice or not at all. A former member is not listed; a merged guest is not listed; a\ndeactivated account that is still a member is. Never email or username.",
+        "operationId": "playgroups_list_playgroup_players",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "playgroup_id",
+            "required": true,
+            "schema": {
+              "title": "Playgroup Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Keep the players with a name word starting with this text, ignoring case and accents. Empty, or only spaces or invisible characters, keeps everyone.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Keep the players with a name word starting with this text, ignoring case and accents. Empty, or only spaces or invisible characters, keeps everyone.",
+              "title": "Q"
+            }
+          },
+          {
+            "description": "Opaque cursor from `next_cursor`.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from `next_cursor`.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Page size (1 to 200).",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Page size (1 to 200).",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaygroupPlayerPageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Client error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List a playgroup's players",
         "tags": [
           "playgroups"
         ]

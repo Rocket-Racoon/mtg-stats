@@ -1,6 +1,7 @@
 """Public interface of the ``identity`` domain; other code imports only from here."""
 
 from app.identity.models import AVATAR_COLORS, DISPLAY_NAME_MAX_LENGTH
+from app.identity.names import display_name_key
 from app.identity.services.admin import (
     LastSiteAdminError,
     MeInfo,
@@ -39,12 +40,12 @@ from app.identity.services.players import (
     InvalidDisplayNameError,
     InvalidEmailError,
     PlayerInfo,
+    PlayerPage,
     UsernameTakenError,
     UserNotFoundError,
     create_guest_player,
     create_user_with_player,
     default_avatar_color,
-    display_name_key,
     get_player,
     get_player_for_user,
     get_players,
@@ -54,6 +55,7 @@ from app.identity.services.players import (
     rename_guest_player,
     resolve_merge,
     resolve_merged_player,
+    search_playgroup_players,
     set_password,
 )
 from app.identity.services.throttle import throttled_sign_in
@@ -71,6 +73,7 @@ __all__ = [
     "LastSiteAdminError",
     "MeInfo",
     "PlayerInfo",
+    "PlayerPage",
     "RefreshTokenReuseError",
     "SignInResult",
     "SiteAdminChange",
@@ -100,6 +103,7 @@ __all__ = [
     "resolve_merged_player",
     "revoke_all_refresh_tokens",
     "revoke_refresh_token",
+    "search_playgroup_players",
     "set_password",
     "set_site_admin",
     "sign_in",

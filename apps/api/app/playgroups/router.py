@@ -31,9 +31,12 @@ from app.playgroups.schemas import (
     MemberRoleUpdate,
     PlayerMergedOut,
     PlayerProfileOut,
+    PlayerQuery,
     PlaygroupCreate,
     PlaygroupOut,
     PlaygroupPageOut,
+    PlaygroupPlayerOut,
+    PlaygroupPlayerPageOut,
     PlaygroupUpdate,
     TransferOwnership,
 )
@@ -340,6 +343,46 @@ async def revoke_playgroup_invite(
     except ValueError:
         raise NotFoundError from None
     return _out(await services.revoke_playgroup_invite(session, access, invite_id=parsed))
+
+
+@playgroups_router.get("/{playgroup_id}/players", summary="List a playgroup's players")
+async def list_playgroup_players(
+    playgroup_id: str,
+    access: services.MemberDep,
+    session: SessionDep,
+    params: PageParamsDep,
+    q: PlayerQuery = None,
+) -> PlaygroupPlayerPageOut:
+    """The player picker and roster: active members first (owner, admins and members, with their
+    `role`), then the playgroup's guests (`role` null, `created_by` set), each group in
+    alphabetical order. Any member may call it; a non-member, an unknown id or an unparseable id
+    gets 404.
+
+    `q` keeps the players with a name word starting with it (the name starts with it, or it
+    follows a space or a hyphen), ignoring case, accents and invisible characters, so `jo`
+    finds "Jöel" and "Mary Jo". It is at most 64 characters with no control characters (else
+    422 `validation_error`); an empty `q`, or one with only spaces or invisible characters,
+    lists everyone. Order is the accent- and case-insensitive name, compared by code point,
+    then the player id. Paging is `?cursor=&limit=` (422 `invalid_cursor` for a bad cursor).
+    Players nobody changed between two pages are never skipped or repeated; a renamed one can
+    appear twice or not at all. A former member is not listed; a merged guest is not listed; a
+    deactivated account that is still a member is. Never email or username.
+    """
+    page = await services.list_playgroup_players(session, access, query=q, params=params)
+    return PlaygroupPlayerPageOut(
+        items=[
+            PlaygroupPlayerOut(
+                id=p.player_id,
+                display_name=p.display_name,
+                avatar_color=p.avatar_color,
+                is_guest=p.is_guest,
+                role=p.role,
+                created_by=p.created_by,
+            )
+            for p in page.items
+        ],
+        next_cursor=page.next_cursor,
+    )
 
 
 def _guest_out(info: services.GuestInfo) -> GuestOut:

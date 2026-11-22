@@ -3,10 +3,23 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Index, String, false, func, text, true
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    false,
+    func,
+    text,
+    true,
+)
+from sqlalchemy.engine.default import DefaultExecutionContext
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base, IdMixin, UtcDateTime, _utcnow
+from app.identity.names import display_name_key
 
 AVATAR_COLORS: tuple[str, ...] = (
     "red",
@@ -29,6 +42,12 @@ DISPLAY_NAME_MAX_LENGTH = 32
 _AVATAR_COLOR_LIST = ", ".join(f"'{color}'" for color in AVATAR_COLORS)
 
 
+def _default_name_key(context: DefaultExecutionContext) -> str:
+    """Column default: the key of the ``display_name`` being inserted."""
+    parameters = context.get_current_parameters()  # type: ignore[no-untyped-call]
+    return display_name_key(str(parameters["display_name"]))
+
+
 class User(IdMixin, Base):
     """A registered account. Created together with its :class:`Player`."""
 
@@ -45,7 +64,17 @@ class User(IdMixin, Base):
 
 
 class Player(IdMixin, Base):
-    """Who plays: a member (``user_id`` set) or a guest (``is_guest`` and no user)."""
+    """Who plays: a member (``user_id`` set) or a guest (``is_guest`` and no user).
+
+    **Changing a name.** Every path that changes a display name (a guest rename, the profile
+    update of S-2.2.2, a guest claim that renames) must call :meth:`set_display_name`, the only
+    place that assigns ``display_name`` after creation. It keeps ``display_name_key`` in step.
+
+    **Unicode tables.** The key depends on the interpreter's Unicode tables
+    (``unicodedata.unidata_version``). A Python upgrade that changes that version can change keys:
+    it needs a migration that re-keys every player (see the pin test in
+    ``tests/test_playgroup_players.py``).
+    """
 
     __tablename__ = "players"
     __table_args__ = (
@@ -73,6 +102,13 @@ class Player(IdMixin, Base):
     user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"), unique=True, default=None)
     is_guest: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     display_name: Mapped[str] = mapped_column(String(DISPLAY_NAME_MAX_LENGTH))
+    display_name_key: Mapped[str] = mapped_column(Text, default=_default_name_key)
+    """``display_name_key(display_name)``, stored so SQL can search and sort by it (S-2.2.4).
+
+    Filled on insert by the column default and kept right by :meth:`set_display_name`. There is
+    deliberately no database default: an insert that bypasses the ORM must pass the key, or it
+    fails (NOT NULL) instead of storing ``''`` and vanishing from every search.
+    """
     avatar_color: Mapped[str] = mapped_column(String(16))
     # No foreign key to ``playgroups``: ``identity`` is the lower domain and cannot import it, so a
     # ``ForeignKey`` here would make every ``Player`` flush need ``playgroups`` in the metadata,
@@ -84,6 +120,12 @@ class Player(IdMixin, Base):
     )
     """The player who added this guest (S-2.3.1); None for members and for older rows."""
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=_utcnow)
+
+    def set_display_name(self, name: str) -> None:
+        """Set ``display_name`` and its ``display_name_key`` together. The name is stored as given
+        (validate it with ``normalize_display_name`` first)."""
+        self.display_name = name
+        self.display_name_key = display_name_key(name)
 
 
 class RefreshToken(IdMixin, Base):

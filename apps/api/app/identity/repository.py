@@ -4,7 +4,21 @@ from collections.abc import Collection
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy import (
+    ARRAY,
+    ColumnElement,
+    Uuid,
+    and_,
+    any_,
+    case,
+    collate,
+    delete,
+    func,
+    literal,
+    or_,
+    select,
+    update,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.identity.models import Player, RefreshToken, User
@@ -181,4 +195,54 @@ async def get_guests_of_playgroup(session: AsyncSession, playgroup_id: UUID) -> 
             Player.merged_into_id.is_(None),
         )
     )
+    return list(result.scalars())
+
+
+def _word_prefix_filter(key: str) -> ColumnElement[bool]:
+    """Names whose stored key has a word starting with ``key`` (after a space or a hyphen)."""
+    escaped = key.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    column = Player.display_name_key
+    return or_(
+        column.like(f"{escaped}%", escape="\\"),
+        column.like(f"% {escaped}%", escape="\\"),
+        column.like(f"%-{escaped}%", escape="\\"),
+    )
+
+
+async def search_playgroup_players(
+    session: AsyncSession,
+    *,
+    member_ids: Collection[UUID],
+    playgroup_id: UUID,
+    key: str,
+    after: tuple[int, str, UUID] | None,
+    limit: int,
+) -> list[Player]:
+    """One page of a playgroup's pickable players, in one query.
+
+    The players are the ones in ``member_ids`` (group 0) and the unmerged guests whose home is
+    ``playgroup_id`` (group 1). Ordered by ``(group, display_name_key COLLATE "C", id)``;
+    ``after`` is the ``(group, key, id)`` of the last row already seen. A non-empty ``key``
+    keeps the names with a word starting with it. Returns up to ``limit`` rows.
+    """
+    members = literal(list(member_ids), ARRAY(Uuid(as_uuid=True)))
+    is_member = Player.id == any_(members)
+    group = case((is_member, 0), else_=1)
+    guest = and_(
+        Player.is_guest, Player.merged_into_id.is_(None), Player.home_playgroup_id == playgroup_id
+    )
+    name_key = collate(Player.display_name_key, "C")
+    stmt = select(Player).where(or_(is_member, guest))
+    if key:
+        stmt = stmt.where(_word_prefix_filter(key))
+    if after is not None:
+        after_group, after_key, after_id = after
+        stmt = stmt.where(
+            or_(
+                group > after_group,
+                and_(group == after_group, name_key > after_key),
+                and_(group == after_group, name_key == after_key, Player.id > after_id),
+            )
+        )
+    result = await session.execute(stmt.order_by(group, name_key, Player.id).limit(limit))
     return list(result.scalars())

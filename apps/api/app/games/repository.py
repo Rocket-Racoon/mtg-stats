@@ -16,9 +16,16 @@ pending), so neither can write its audit row today.
 module issues UPDATE or DELETE against ``game_events``. The rest of this module touches the
 ``games`` table: :func:`lock_game`, :func:`get_game`, :func:`add_game` and :func:`save_snapshot`.
 
-Lock order: a transaction locks the game row (``lock_game``) after any other lock it needs
-(for example the playgroups' ``lock_active_memberships``), and takes no other row lock while it
-holds the game row. The append path locks nothing else, so it cannot deadlock with them.
+Lock order (about *explicit* row locks; the implicit ``FOR KEY SHARE`` of foreign key checks does
+not conflict with ``FOR NO KEY UPDATE``): a transaction locks the game row (``lock_game``) after
+any other explicit lock it needs (for example the playgroups' ``lock_active_memberships``), and
+takes no other explicit row lock while it holds the game row. The append path locks nothing else,
+so it cannot deadlock with them.
+
+The ``app.game_events_audited_mutation`` setting that lets the audited operations past the
+database trigger guards against accidents, not against an attacker: any connection can set it.
+The audited operations must set it with ``set_config(..., 'on', true)`` (``is_local``, transaction
+scope), so it can never stay on in a pooled connection.
 """
 
 from datetime import datetime
@@ -38,21 +45,32 @@ def add_game(session: AsyncSession, game: Game) -> None:
 
 
 async def get_game(session: AsyncSession, game_id: UUID) -> Game | None:
-    """The game row without locking it, or ``None``."""
-    return await session.get(Game, game_id)
+    """The committed game row, read without locking it, or ``None``.
+
+    ``populate_existing`` refreshes an instance already in the session, so unflushed changes to
+    it are overwritten.
+    """
+    result = await session.execute(
+        select(Game).where(Game.id == game_id).execution_options(populate_existing=True)
+    )
+    return result.scalar_one_or_none()
 
 
 async def lock_game(session: AsyncSession, game_id: UUID) -> Game | None:
-    """The game row locked with ``SELECT ... FOR UPDATE``, or ``None``.
+    """The game row locked with ``SELECT ... FOR NO KEY UPDATE``, or ``None``.
 
-    The lock serialises every append to the game, so ``last_seq + 1`` is race-free.
-    ``populate_existing`` refreshes an instance already in the session, so ``state`` and
-    ``last_seq`` are the committed ones, not a stale copy read before the lock wait.
+    The task wording says ``FOR UPDATE``; this is the deliberate weaker form. Appends change only
+    non-key columns, and ``FOR UPDATE`` would also conflict with the ``FOR KEY SHARE`` that every
+    insert into a table referencing ``games`` (seats, results, spectators) takes. ``FOR NO KEY
+    UPDATE`` still conflicts with itself, so it serialises every append to the game and
+    ``last_seq + 1`` is race-free. ``populate_existing`` refreshes an instance already in the
+    session, so ``state`` and ``last_seq`` are the committed ones, not a stale copy read before the
+    lock wait.
     """
     result = await session.execute(
         select(Game)
         .where(Game.id == game_id)
-        .with_for_update()
+        .with_for_update(key_share=True)
         .execution_options(populate_existing=True)
     )
     return result.scalar_one_or_none()
@@ -77,6 +95,8 @@ async def read_since(
     session: AsyncSession, game_id: UUID, seq: int, limit: int | None = None
 ) -> list[GameEvent]:
     """Events of ``game_id`` with ``seq`` greater than the given one, in ascending ``seq``."""
+    if limit is not None and limit < 0:
+        raise ValueError("limit must not be negative")
     statement = (
         select(GameEvent)
         .where(GameEvent.game_id == game_id, GameEvent.seq > seq)

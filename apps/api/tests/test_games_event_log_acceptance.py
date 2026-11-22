@@ -144,7 +144,7 @@ async def new_game(rig: Rig) -> UUID:
 
 def envelope(
     game_id: UUID | str,
-    type: str = "turn_passed",
+    type: str = "settings_changed",
     payload: Any = None,
     *,
     event_id: str | None = None,
@@ -513,7 +513,7 @@ async def test_appending_a_stored_event_id_returns_the_stored_event_and_writes_n
     rig: Rig,
 ) -> None:
     game_id = await new_game(rig)
-    sub = envelope(game_id, "life_changed", {"seat": 1, "delta": -3})
+    sub = envelope(game_id, "settings_changed", {})
     first = await commit_append(rig.a, game_id, sub)
     assert isinstance(first, Appended)
     log_before = await stored_log(rig.probe, game_id)
@@ -586,13 +586,13 @@ async def test_a_resubmitted_event_id_with_another_body_keeps_the_stored_event(r
     first = await commit_append(
         rig.a,
         game_id,
-        envelope(game_id, "life_changed", {"seat": 1, "delta": -1}, event_id=event_id),
+        envelope(game_id, "settings_changed", {"starting_life": 40}, event_id=event_id),
     )
     assert isinstance(first, Appended)
     log_before = await stored_log(rig.probe, game_id)
 
     again = await commit_append(
-        rig.a, game_id, envelope(game_id, "turn_passed", {}, event_id=event_id)
+        rig.a, game_id, envelope(game_id, "settings_changed", {}, event_id=event_id)
     )
 
     assert isinstance(again, Appended)
@@ -624,9 +624,9 @@ async def test_the_same_event_id_in_another_game_is_a_new_event_with_its_own_seq
 
 async def test_after_a_commit_event_state_and_last_seq_are_visible_and_agree(rig: Rig) -> None:
     game_id = await new_game(rig)
-    await commit_append(rig.a, game_id, envelope(game_id, "turn_passed"))
-    await commit_append(rig.b, game_id, envelope(game_id, "life_changed", {"seat": 2, "delta": 5}))
-    await commit_append(rig.a, game_id, envelope(game_id, "monarch_set", {"seat": 1}))
+    await commit_append(rig.a, game_id, envelope(game_id, "settings_changed"))
+    await commit_append(rig.b, game_id, envelope(game_id, "settings_changed", {}))
+    await commit_append(rig.a, game_id, envelope(game_id, "settings_changed", {}))
     # The probe is a third connection; the stored state equals the fold of the stored log.
     await assert_log_is_consistent(rig.probe, game_id, 3)
 
@@ -985,7 +985,7 @@ AWKWARD_PAYLOAD: dict[str, Any] = {
 
 async def test_awkward_payload_round_trips_with_the_same_canonical_json(rig: Rig) -> None:
     game_id = await new_game(rig)
-    sub = envelope(game_id, "turn_passed", AWKWARD_PAYLOAD)
+    sub = envelope(game_id, "settings_changed", AWKWARD_PAYLOAD)
     result = await commit_append(rig.a, game_id, sub)
     assert isinstance(result, Appended)
     expected = canonical_json(AWKWARD_PAYLOAD)
@@ -1019,9 +1019,7 @@ async def test_a_payload_with_a_nul_character_does_not_crash_the_append(rig: Rig
 
 async def test_an_event_read_back_later_is_byte_for_byte_what_was_stored(rig: Rig) -> None:
     game_id = await new_game(rig)
-    sub = envelope(
-        game_id, "life_changed", {"seat": 3, "delta": -SAFE_MAX, "note": "caf\u00e9 \U0001f9d9"}
-    )
+    sub = envelope(game_id, "settings_changed", {"big": -SAFE_MAX, "note": "caf\u00e9 \U0001f9d9"})
     moment = datetime(2026, 11, 21, 8, 30, 15, 987654, tzinfo=UTC)
     actor = player("p-1")
     appended = await commit_append(rig.a, game_id, sub, actor=actor, now=moment)

@@ -159,15 +159,9 @@ async def test_a_unique_violation_the_precheck_missed_returns_the_stored_event(
     async def blind_once(session: AsyncSession, gid: UUID, event_id: UUID) -> GameEvent | None:
         nonlocal calls
         calls += 1
-        return None if calls == 1 else await real(session, gid, event_id)
+        return None if calls <= 2 else await real(session, gid, event_id)  # both prechecks
 
     monkeypatch.setattr(repository, "get_by_event_id", blind_once)
-    # Another game state is simulated by pointing the game back at last_seq 0: the insert at
-    # seq 1 then violates both constraints, and the event_id one is what the service answers.
-    game = await app_schema.get_one(Game, game_id)
-    game.last_seq = 0
-    game.state = initial_state(str(game_id)).to_json_value()
-    await app_schema.flush()
     again = await append_event(
         app_schema,
         game_id,
@@ -179,6 +173,8 @@ async def test_a_unique_violation_the_precheck_missed_returns_the_stored_event(
     assert again.event.seq == 1
     assert await _count(app_schema, game_id) == 1
     assert (await app_schema.execute(select(1))).scalar_one() == 1  # the session is still usable
+    app_schema.expire_all()
+    assert (await app_schema.get_one(Game, game_id)).last_seq == 1  # the snapshot rolled back
 
 
 @pytest.mark.parametrize(
@@ -339,7 +335,7 @@ async def test_a_nul_in_type_or_event_id_is_rejected_not_a_database_error(
     app_schema: AsyncSession,
 ) -> None:
     game_id = await make_game(app_schema)
-    bad_type = {**submission(game_id), "type": "turn_passed\x00"}
+    bad_type = {**submission(game_id), "type": "settings_changed\x00"}
     bad_id = {**submission(game_id), "event_id": "\x00" + str(uuid4())[1:]}
     assert await append_event(app_schema, game_id, bad_type, actor=player_actor()) == Rejected(
         "unknown_event_type"
@@ -412,3 +408,59 @@ async def test_a_seq_collision_that_is_not_a_duplicate_event_id_is_raised(
     with pytest.raises(IntegrityError):
         await append_event(app_schema, game_id, submission(game_id), actor=player_actor())
     assert (await app_schema.execute(select(1))).scalar_one() == 1
+
+
+async def test_a_naive_now_is_refused(app_schema: AsyncSession) -> None:
+    game_id = await make_game(app_schema)
+    with pytest.raises(ValueError, match="timezone-aware"):
+        await append_event(
+            app_schema,
+            game_id,
+            submission(game_id),
+            actor=player_actor(),
+            now=datetime(2026, 11, 22, 1, 2, 3),  # noqa: DTZ001  (the point of the test)
+        )
+    assert await _count(app_schema, game_id) == 0
+
+
+async def test_a_negative_read_limit_is_refused(app_schema: AsyncSession) -> None:
+    game_id = await make_game(app_schema)
+    with pytest.raises(ValueError, match="negative"):
+        await read_events_since(app_schema, game_id, 0, limit=-1)
+    with pytest.raises(ValueError, match="negative"):
+        await repository.read_since(app_schema, game_id, 0, limit=-5)
+    assert await read_events_since(app_schema, game_id, 0, limit=0) == []
+
+
+async def test_the_event_and_the_snapshot_are_written_in_one_flush(
+    app_schema: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    game_id = await make_game(app_schema)
+    flushes = 0
+    real = AsyncSession.flush
+
+    async def counting(self: AsyncSession, objects: Any = None) -> None:
+        nonlocal flushes
+        flushes += 1
+        await real(self, objects)
+
+    monkeypatch.setattr(AsyncSession, "flush", counting)
+    await _appended(app_schema, game_id)
+    assert flushes == 1
+
+
+async def test_a_duplicate_is_answered_even_if_the_game_row_is_gone_from_the_session(
+    app_schema: AsyncSession,
+) -> None:
+    game_id = await make_game(app_schema)
+    first = await _appended(app_schema, game_id)
+    app_schema.expunge_all()  # nothing of the game is cached: the unlocked read must work
+    again = await append_event(
+        app_schema,
+        game_id,
+        submission(game_id, event_id=first.event.event_id),
+        actor=player_actor(),
+    )
+    assert isinstance(again, Appended)
+    assert again.duplicate
+    assert again.state.last_seq == 1

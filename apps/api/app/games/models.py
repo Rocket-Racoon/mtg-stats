@@ -31,6 +31,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base, IdMixin, TimestampMixin, UtcDateTime
 
+# A guard against accidents, not a security boundary: any connection can set it. The audited
+# operations must set it with ``is_local = true`` (transaction scope), so it can never stay on in
+# a pooled connection.
 AUDITED_MUTATION_SETTING = "app.game_events_audited_mutation"
 """Transaction-local setting (``set_config(..., true)``) that lets the audited operations pass."""
 

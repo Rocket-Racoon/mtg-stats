@@ -202,6 +202,15 @@ def _check_actor(actor: Actor) -> None:
         raise InvalidActorError(f"unknown actor kind {actor.kind!r}")
 
 
+EVENT_ID_CONSTRAINT = "uq_game_events_game_id_event_id"
+
+
+def _violated_constraint(exc: IntegrityError) -> str | None:
+    """Name of the constraint a unique violation names, if the driver reports one."""
+    name = getattr(getattr(exc.orig, "diag", None), "constraint_name", None)
+    return name if isinstance(name, str) else None
+
+
 def _load_state(game_id: UUID, snapshot: dict[str, Any], last_seq: int) -> GameState:
     try:
         state = GameState.model_validate(snapshot)
@@ -247,11 +256,13 @@ async def append_event(
     does not do it.
 
     - A new event the reducer accepts is stored at ``last_seq + 1`` together with the new
-      ``games.state`` and ``games.last_seq``, and returned as :class:`Appended`.
+      ``games.state`` and ``games.last_seq`` (one flush), and returned as :class:`Appended`.
     - An ``event_id`` already stored in this game returns the stored event (original ``seq``),
       writes nothing, and is marked ``duplicate``. The same id in another game is a different
-      event: ids are unique per game. A duplicate is detected before the reducer runs, so it is
-      answered even if the game has since closed.
+      event: ids are unique per game. Event rows never change, so a hit is authoritative: it is
+      looked up first *without* the game lock (a duplicate never waits behind an open append),
+      and again under the lock on a miss, which settles a race. A duplicate is detected before
+      the reducer runs, so it is answered even if the game has since closed.
     - An event the reducer rejects returns :class:`Rejected` with its code, and so does one whose
       payload has a U+0000 character (``jsonb`` cannot store it; the code is ``invalid_payload``).
       Nothing is written.
@@ -259,19 +270,42 @@ async def append_event(
     No input can reach the database as a value it cannot store: ``event_id`` and ``type`` are
     checked by the reducer, the payload for U+0000 (above), and the actor before anything else.
 
+    **Rules for the caller.**
+
+    - The game row stays locked (``FOR NO KEY UPDATE``) until the caller's transaction ends. Do
+      no network I/O and await nothing on Redis or sockets while holding it, commit promptly, and
+      publish only through ``core.db.after_commit``.
+    - On *any* exception the caller must roll back its transaction: a failure part way leaves the
+      session in an unspecified state, and only the rollback restores event, state and
+      ``last_seq`` together.
+    - The game row is loaded with ``populate_existing``, which overwrites pending changes to it.
+      A caller must not have unflushed changes to the game row, in particular not inside
+      ``session.no_autoflush``.
+
     Raises:
         InvalidActorError: ``actor`` is not a storable contract actor (a server-side bug).
+        ValueError: ``now`` is a naive datetime.
         NotFoundError: there is no game ``game_id``.
         GameLogCorruptError: the stored snapshot disagrees with ``last_seq``.
     """
     _check_actor(actor)
+    if now is not None and (now.tzinfo is None or now.utcoffset() is None):
+        raise ValueError("now must be a timezone-aware datetime")
+
+    event_id = _parse_event_id(submission.get("event_id")) if isinstance(submission, dict) else None
+    if event_id is not None:  # no lock: a stored event never changes
+        stored = await repository.get_by_event_id(session, game_id, event_id)
+        if stored is not None:
+            current = await repository.get_game(session, game_id)
+            if current is not None:
+                state = _load_state(game_id, current.state, current.last_seq)
+                return _duplicate(game_id, stored, submission, state)
+
     game = await repository.lock_game(session, game_id)
     if game is None:
         raise NotFoundError("Game not found.")
     state = _load_state(game_id, game.state, game.last_seq)
-
-    event_id = _parse_event_id(submission.get("event_id")) if isinstance(submission, dict) else None
-    if event_id is not None:
+    if event_id is not None:  # a racing append may have stored it while we waited for the lock
         stored = await repository.get_by_event_id(session, game_id, event_id)
         if stored is not None:
             return _duplicate(game_id, stored, submission, state)
@@ -291,6 +325,11 @@ async def append_event(
     event_id = UUID(candidate["event_id"])  # accepted by the reducer, so well formed
     try:
         async with session.begin_nested():  # a unique violation must not poison the caller
+            # Staged inside the savepoint, so the snapshot and the event go out in the one flush
+            # that ``append`` ends with, and a failed insert rolls the snapshot back too.
+            repository.save_snapshot(
+                game, state=outcome.state.to_json_value(), last_seq=seq, now=stamp
+            )
             row = await repository.append(
                 session,
                 game_id=game_id,
@@ -303,20 +342,24 @@ async def append_event(
                 ts=stamp,
                 v=candidate["v"],
             )
-    except IntegrityError:
+    except IntegrityError as exc:
+        if _violated_constraint(exc) != EVENT_ID_CONSTRAINT:
+            raise  # a (game_id, seq) collision is a damaged counter, never a duplicate
         stored = await repository.get_by_event_id(session, game_id, event_id)
-        if stored is None:  # not the event_id constraint: a real fault
+        if stored is None:
             raise
         return _duplicate(game_id, stored, submission, state)
-    repository.save_snapshot(game, state=outcome.state.to_json_value(), last_seq=seq, now=stamp)
-    await session.flush()
     return Appended(event=_to_stored(row), state=outcome.state)
 
 
 async def read_events_since(
     session: AsyncSession, game_id: UUID, seq: int, limit: int | None = None
 ) -> list[StoredEvent]:
-    """Events of the game with ``seq`` greater than ``seq``, in ascending order (``sync``)."""
+    """Events of the game with ``seq`` greater than ``seq``, in ascending order (``sync``).
+
+    The caller caps the read: pass a ``limit`` (a client far behind gets a snapshot instead).
+    A negative ``limit`` raises ``ValueError``.
+    """
     return [_to_stored(row) for row in await repository.read_since(session, game_id, seq, limit)]
 
 

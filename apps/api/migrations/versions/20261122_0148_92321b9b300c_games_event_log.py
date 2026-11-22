@@ -72,7 +72,9 @@ def upgrade() -> None:
     # ### end Alembic commands ###
     # Database guard for the append-only rule (CONTRACT.md, architecture 6.1): a row can be
     # changed or deleted only in a transaction that opted in with the setting below, which only
-    # the two audited operations do. TRUNCATE and DDL (dev resets, this downgrade) are not
+    # the two audited operations do. It guards against accidents, not against an attacker (any
+    # connection can set it); they set it with is_local = true (transaction scope), so it never
+    # stays on in a pooled connection. TRUNCATE and DDL (dev resets, this downgrade) are not
     # row operations and stay possible.
     op.execute(
         """

@@ -18,7 +18,7 @@ def player_actor(player_id: UUID | None = None) -> Actor:
 
 def submission(
     game_id: UUID | str,
-    type: str = "turn_passed",
+    type: str = "settings_changed",
     payload: dict[str, Any] | None = None,
     *,
     event_id: str | None = None,

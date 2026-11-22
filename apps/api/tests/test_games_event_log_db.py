@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async
 
 from app.core import db
 from app.core.db import AppSession
+from app.games import repository
 from app.games.models import AUDITED_MUTATION_SETTING
 from app.games.services import (
     Appended,
@@ -233,3 +234,39 @@ async def test_a_transaction_that_opts_in_may_change_events_and_nobody_else_can(
     async with live.probe.connect() as conn:
         kinds = (await conn.execute(text("SELECT type FROM game_events"))).scalars().all()
     assert kinds == ["edited"]
+
+
+async def test_a_duplicate_is_answered_while_another_transaction_holds_the_game_lock(
+    live: Live,
+) -> None:
+    first = await _append(live.first, live.game_id)
+    assert isinstance(first, Appended)
+    async with live.second() as holder:
+        assert await repository.lock_game(holder, live.game_id) is not None
+        again = await asyncio.wait_for(
+            _append(live.first, live.game_id, first.event.event_id), 10
+        )  # would hang behind the lock if a duplicate needed it
+        assert isinstance(again, Appended)
+        assert again.duplicate
+        assert again.event.seq == 1
+        await holder.rollback()
+
+
+async def test_the_game_lock_does_not_block_a_key_share_but_does_block_another_append_lock(
+    live: Live,
+) -> None:
+    async with live.second() as holder:
+        assert await repository.lock_game(holder, live.game_id) is not None
+        async with live.probe.connect() as conn:
+            # What an insert into a table referencing games takes: allowed under FOR NO KEY UPDATE.
+            key_share = await conn.execute(
+                text("SELECT 1 FROM games WHERE id = :g FOR KEY SHARE NOWAIT"), {"g": live.game_id}
+            )
+            assert key_share.scalar_one() == 1
+            await conn.rollback()
+            with pytest.raises(DBAPIError, match="could not obtain lock"):
+                await conn.execute(
+                    text("SELECT 1 FROM games WHERE id = :g FOR NO KEY UPDATE NOWAIT"),
+                    {"g": live.game_id},
+                )
+        await holder.rollback()

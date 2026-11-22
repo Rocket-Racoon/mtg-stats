@@ -1,4 +1,5 @@
 import { CanonicalJsonError, canonicalJson } from './canonical-json';
+import type { Handler } from './handler-utils';
 import { lifeChanged, playerConceded, playerEliminated } from './life';
 import {
   commandersSet,
@@ -11,7 +12,6 @@ import {
   settingsChanged,
   turnPassed,
 } from './lobby';
-import type { Handler } from './lobby';
 import { hasLoneSurrogate } from './unicode';
 import { EVENT_TYPES, MAX_SEATS, SUPPORTED_VERSIONS } from './types';
 import type {

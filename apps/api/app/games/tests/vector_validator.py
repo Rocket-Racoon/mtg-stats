@@ -5,11 +5,13 @@ loader that reads files elsewhere. It is test tooling and lives with the games t
 ``app/games/core`` (the shipped, purity-guarded reducer package). The TypeScript twin is
 ``packages/game-core/src/vector-validator.ts``; both are written from the contract text.
 
-How raw text is inspected: ``json.loads`` first (with the non-standard ``NaN``/``Infinity``
-constants refused) gives the parsed value and the ``invalid JSON`` message. A small recursive
-scanner then walks the same text and lists every number token and every duplicate key with its
-path. Python reads integer tokens exactly (``int`` has no size limit), so the scanner only needs
-the token text, which it checks itself: no ``parse_float`` or ``parse_int`` hook is used.
+How raw text is inspected, in this order: an iterative depth prepass (more than 512 levels is the
+single message and nothing else); ``json.loads`` (the non-standard ``NaN``/``Infinity`` constants
+refused, and a ``parse_int`` hook so an over-long integer token never meets the interpreter's
+digit limit) for the parsed value and the ``invalid JSON`` message; then an iterative scanner
+(explicit stack, never recursive) that lists every number token and every repeated key with its
+path. Validation never raises: a failure of the validator itself is one ``$ internal error``
+message.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, Final
@@ -53,12 +56,10 @@ _JSON_NUMBER: Final = re.compile(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[
 _INTEGER_TEXT: Final = re.compile(r"-?[1-9][0-9]*")
 _POSITIVE_INTEGER_TEXT: Final = re.compile(r"[1-9][0-9]*")
 _SURROGATE_HEX: Final = re.compile(r"[0-9a-fA-F]{4}")
-_NUMBER_TOKEN: Final = re.compile(r"-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?")
-_STRING_TOKEN: Final = re.compile(r'"(?:[^"\\]|\\.)*"', re.DOTALL)
-_WHITESPACE: Final = re.compile(r"[ \t\r\n]*")
 
 
-_PARSE_INT_LIMIT: Final = 4000  # below Python's default 4300-digit int(str) limit
+MAX_DEPTH: Final = 512
+MAX_INTEGER_DIGITS: Final = 300
 
 
 class HugeInteger(int):
@@ -78,7 +79,11 @@ class HugeInteger(int):
 
 
 def _parse_int(token: str) -> int:
-    return HugeInteger(token) if len(token) > _PARSE_INT_LIMIT else int(token)
+    """``int(token)``, or a ``HugeInteger`` when the interpreter's digit limit would refuse it."""
+    limit = sys.get_int_max_str_digits()  # 0 means unlimited; read each time, never changed here
+    if limit and len(token.lstrip("-")) > limit:
+        return HugeInteger(token)
+    return int(token)
 
 
 def _outside_safe_range(digits_text: str) -> bool:
@@ -122,98 +127,89 @@ class ValidationResult:
 @dataclass
 class _Scan:
     numbers: list[tuple[str, str]]  # (path, token) in document order
-    duplicates: list[str]  # path of each second occurrence, in document order
+    duplicates: list[str]  # path of every repeated occurrence of a key, in document order
 
 
 def _join(parent: str, key: str) -> str:
     return f"{parent}.{key}" if parent else key
 
 
-class _Scanner:
-    """Walks JSON text that ``json.loads`` already accepted, recording tokens and duplicates."""
+_SCAN_TOKEN: Final = re.compile(
+    r"""[ \t\r\n]*(?:
+        (?P<string>"(?:[^"\\]|\\.)*")
+      | (?P<number>-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)
+      | (?P<punct>[\[\]{}:,])
+      | (?P<word>true|false|null)
+    )""",
+    re.VERBOSE | re.DOTALL,
+)
+_DEPTH_TOKEN: Final = re.compile(r'"[^"\\]*(?:\\.[^"\\]*)*(?:"|\\?\Z)|[\[\]{}]', re.DOTALL)
 
-    def __init__(self, text: str) -> None:
-        self.text = text
-        self.pos = 0
-        self.result = _Scan([], [])
 
-    def _skip(self) -> None:
-        match = _WHITESPACE.match(self.text, self.pos)
-        assert match is not None
-        self.pos = match.end()
+def nesting_depth(text: str) -> int:
+    """Deepest level of ``text`` measured on the raw characters (section 8.3), without recursion.
 
-    def run(self) -> _Scan:
-        self._skip()
-        self._value("")
-        return self.result
+    Strings are skipped (a backslash skips the next character, an unescaped quote ends the string,
+    an unterminated string runs to the end); ``[`` and ``{`` open a level, ``]`` and ``}`` close
+    one, never below 0. The top-level container is level 1.
+    """
+    level = deepest = 0
+    for match in _DEPTH_TOKEN.finditer(text):
+        char = match.group()
+        if char in "[{":
+            level += 1
+            deepest = max(deepest, level)
+        elif char in "]}":
+            level = max(0, level - 1)
+    return deepest
 
-    def _value(self, path: str) -> None:
-        self._skip()
-        char = self.text[self.pos]
-        if char == "{":
-            self._object(path)
-        elif char == "[":
-            self._array(path)
-        elif char == '"':
-            self._string()
-        elif char in "-0123456789":
-            match = _NUMBER_TOKEN.match(self.text, self.pos)
-            assert match is not None
-            self.result.numbers.append((path, match.group()))
-            self.pos = match.end()
-        else:  # true, false, null
-            for literal in ("true", "false", "null"):
-                if self.text.startswith(literal, self.pos):
-                    self.pos += len(literal)
-                    return
-            raise AssertionError(f"unexpected character at {self.pos}")
 
-    def _string(self) -> str:
-        match = _STRING_TOKEN.match(self.text, self.pos)
-        assert match is not None
-        self.pos = match.end()
-        decoded = json.loads(match.group())
-        assert isinstance(decoded, str)
-        return decoded
+def _scan_text(text: str) -> _Scan:
+    """Walk JSON text that ``json.loads`` already accepted, with an explicit stack."""
+    result = _Scan([], [])
+    # frame: ["o", path, seen_keys, child_path or None, expecting_key] or ["a", path, next_index]
+    stack: list[list[Any]] = []
 
-    def _object(self, path: str) -> None:
-        self.pos += 1
-        seen: set[str] = set()
-        self._skip()
-        if self.text[self.pos] == "}":
-            self.pos += 1
-            return
-        while True:
-            self._skip()
-            key = self._string()
-            child = _join(path, key)
-            if key in seen:
-                self.result.duplicates.append(child)
-            seen.add(key)
-            self._skip()
-            self.pos += 1  # the colon
-            self._value(child)
-            self._skip()
-            separator = self.text[self.pos]
-            self.pos += 1
-            if separator == "}":
-                return
+    def value_path() -> str:
+        if not stack:
+            return ""
+        top = stack[-1]
+        if top[0] == "a":
+            index = top[2]
+            top[2] += 1
+            return f"{top[1]}[{index}]"
+        return str(top[3])
 
-    def _array(self, path: str) -> None:
-        self.pos += 1
-        self._skip()
-        if self.text[self.pos] == "]":
-            self.pos += 1
-            return
-        index = 0
-        while True:
-            self._value(f"{path}[{index}]")
-            index += 1
-            self._skip()
-            separator = self.text[self.pos]
-            self.pos += 1
-            if separator == "]":
-                return
+    pos = 0
+    while True:
+        match = _SCAN_TOKEN.match(text, pos)
+        if match is None:
+            break
+        pos = match.end()
+        kind = match.lastgroup
+        token = match.group(kind) if kind else ""
+        if kind == "string":
+            top = stack[-1] if stack else None
+            if top is not None and top[0] == "o" and top[4]:
+                key = json.loads(token)
+                child = _join(top[1], key)
+                if key in top[2]:
+                    result.duplicates.append(child)
+                top[2].add(key)
+                top[3] = child
+                top[4] = False
+        elif kind == "number":
+            result.numbers.append((value_path(), token))
+        elif kind == "punct":
+            if token == "{":
+                stack.append(["o", value_path(), set(), None, True])
+            elif token == "[":
+                stack.append(["a", value_path(), 0])
+            elif token in "]}":
+                stack.pop()
+            elif token == "," and stack and stack[-1][0] == "o":
+                stack[-1][4] = True
+    return result
 
 
 def _reject_constant(name: str) -> Any:
@@ -485,9 +481,11 @@ def _value_problem(kind: str, value: object) -> str | None:
                 return None
         return "must be decimal text of a non-integer number"
     if kind == "integer":
-        if text is not None and _INTEGER_TEXT.fullmatch(text) and _outside_safe_range(text):
-            return None
-        return "must be decimal text of an integer outside the safe range"
+        if text is None or not _INTEGER_TEXT.fullmatch(text) or not _outside_safe_range(text):
+            return "must be decimal text of an integer outside the safe range"
+        if len(text.lstrip("-")) > MAX_INTEGER_DIGITS:
+            return f"must have at most {MAX_INTEGER_DIGITS} digits"
+        return None
     if kind == "lone_surrogate":
         if (
             text is not None
@@ -509,7 +507,7 @@ def _value_problem(kind: str, value: object) -> str | None:
 # ------------------------------------------------------------------------------ entry points
 
 
-def validate_vector_text(file: str, text: str) -> ValidationResult:
+def _validate(file: str, text: str) -> ValidationResult:
     """Validate the raw text of one vector file (sections 8.3 and 8.3.1).
 
     ``file`` is the base name with ``.json``. Every problem is reported, in the contract's check
@@ -534,10 +532,30 @@ def validate_vector_text(file: str, text: str) -> ValidationResult:
         known = None
     if known is not None:
         messages.extend(f"{file}: {key} is not a known key" for key in parsed if key not in known)
-    scan = _Scanner(text).run()
+    scan = _scan_text(text)
     messages.extend(f"{file}: {m}" for m in _number_token_messages(scan.numbers))
     messages.extend(f"{file}: {path} is a duplicate key" for path in scan.duplicates)
     return ValidationResult(tuple(messages), parsed)
+
+
+def validate_vector_text(file: str, text: str) -> ValidationResult:
+    """Validate the raw text of one vector file (sections 8.3 and 8.3.1). Never raises.
+
+    ``file`` is the base name with ``.json``. Every problem is reported, in the contract's check
+    order, each as ``<file>: <path> <message>``. Text nested more than 512 levels gives only
+    ``<file>: $ is nested more than 512 levels deep``; a failure of the validator itself gives
+    only ``<file>: $ internal error: <detail>``.
+    """
+    try:
+        if nesting_depth(text) > MAX_DEPTH:
+            return ValidationResult(
+                (f"{file}: $ is nested more than {MAX_DEPTH} levels deep",), None
+            )
+        return _validate(file, text)
+    except Exception as error:  # the contract: validation never throws
+        return ValidationResult(
+            (f"{file}: $ internal error: {type(error).__name__}: {error}",), None
+        )
 
 
 def exercised_event_types(vectors: Iterable[dict[str, Any]]) -> set[str]:

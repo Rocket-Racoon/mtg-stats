@@ -6,6 +6,7 @@ missing or empty vectors directory fails loudly; event-type coverage (8.4) is on
 
 from __future__ import annotations
 
+import functools
 from pathlib import Path
 
 import pytest
@@ -23,11 +24,21 @@ from app.games.tests.vector_validator import uncovered_event_type_messages
 try:
     FILES = list_vector_files(VECTORS_DIR)
     DIRECTORY_PROBLEM = ""
-except VectorError as _problem:
+except (
+    Exception
+) as _problem:  # VectorError, or an unexpected OS error: it fails a test, not collection
     FILES = []
-    DIRECTORY_PROBLEM = str(_problem)
+    DIRECTORY_PROBLEM = f"{type(_problem).__name__}: {_problem}"
 
-_UNCOVERED = set(uncovered_event_type_messages(valid_reducer_vectors(FILES), EVENT_TYPES))
+
+@functools.cache
+def _uncovered() -> tuple[frozenset[str], str]:
+    """The uncovered-type messages, or the reason they could not be computed (never raises)."""
+    try:
+        messages = uncovered_event_type_messages(valid_reducer_vectors(FILES), EVENT_TYPES)
+    except Exception as error:
+        return frozenset(), f"coverage could not be computed: {type(error).__name__}: {error}"
+    return frozenset(messages), ""
 
 
 def test_vectors_directory_is_available() -> None:
@@ -45,6 +56,9 @@ def test_vector(path: Path) -> None:
 
 @pytest.mark.parametrize("event_type", EVENT_TYPES)
 def test_event_type_is_exercised_by_a_vector(event_type: str) -> None:
+    uncovered, problem = _uncovered()
+    if problem:
+        pytest.fail(problem, pytrace=False)
     message = f"uncovered event type: {event_type}"
-    if message in _UNCOVERED:
+    if message in uncovered:
         pytest.fail(message, pytrace=False)

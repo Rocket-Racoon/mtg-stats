@@ -38,18 +38,33 @@ def list_vector_files(directory: Path) -> list[Path]:
     """
     if not directory.is_dir():
         raise VectorError(f"vectors directory not found: {directory}")
-    files = sorted(p for p in directory.glob("*.json") if p.is_file())
+    files = sorted(
+        (p for p in directory.iterdir() if _is_vector_file(p)),
+        key=lambda p: p.name,
+    )
     if not files:
         raise VectorError(f"vectors directory has no .json files: {directory}")
     return files
 
 
-def validate_file(path: Path) -> ValidationResult:
-    """Read ``path`` as UTF-8 and validate it (section 8.3)."""
+def _is_vector_file(path: Path) -> bool:
+    """A regular file (never a directory or a symbolic link) named ``*.json``, lower case."""
     try:
-        text = path.read_text(encoding="utf-8")
+        return path.name.endswith(".json") and path.is_file() and not path.is_symlink()
+    except OSError:
+        return False
+
+
+def validate_file(path: Path) -> ValidationResult:
+    """Read ``path`` as UTF-8 and validate it (section 8.3). Never raises."""
+    try:
+        text = path.read_text(encoding="utf-8")  # strict; a BOM stays and is invalid JSON
     except UnicodeDecodeError as error:
         return ValidationResult((f"{path.name}: invalid JSON: {error}",), None)
+    except OSError as error:
+        return ValidationResult(
+            (f"{path.name}: $ internal error: cannot read file: {error}",), None
+        )
     return validate_vector_text(path.name, text)
 
 
@@ -57,7 +72,7 @@ def valid_reducer_vectors(files: list[Path]) -> list[dict[str, Any]]:
     """The parsed reducer vectors among ``files`` that pass validation (they feed coverage)."""
     found: list[dict[str, Any]] = []
     for path in files:
-        result = validate_file(path)
+        result = validate_file(path)  # never raises; a failing file contributes nothing
         if result.ok and result.value is not None and result.value["kind"] == "reducer":
             found.append(result.value)
     return found
@@ -82,33 +97,43 @@ def _chain(kind: str, count: int) -> object:
     return node
 
 
-def _run_canonical(file: str, vector: dict[str, Any]) -> None:
-    for case in vector["cases"]:
-        name = case["name"]
-        prefix = f'{file}: case "{name}": '
-        if "input" in case:
-            try:
-                actual = canonical_json(case["input"])
-            except CanonicalJsonError as error:
-                raise VectorError(f"{prefix}expected output but got error {error.code}") from None
-            if actual != case["output"]:
-                raise VectorError(f"{prefix}expected {case['output']!r}, got {actual!r}")
-            continue
-        invalid = case["invalid"]
-        kind = invalid["kind"]
-        if kind in {"deep_array", "deep_object"}:
-            value = _chain(kind, int(invalid["value"]))  # not wrapped in [value]
-        else:
-            value = [_build_invalid(kind, invalid.get("value"))]
+def _case_failure(case: dict[str, Any]) -> str | None:
+    """The detail of a failing case, or None when the case passes."""
+    if "input" in case:
         try:
-            canonical_json(value)
+            actual = canonical_json(case["input"])
         except CanonicalJsonError as error:
-            if error.code != case["error"]:
-                raise VectorError(
-                    f"{prefix}expected error {case['error']}, got error {error.code}"
-                ) from None
-        else:
-            raise VectorError(f"{prefix}expected error {case['error']}, got no error")
+            return f"expected output but got error {error.code}"
+        if actual != case["output"]:
+            return f"expected {case['output']!r}, got {actual!r}"
+        return None
+    invalid = case["invalid"]
+    kind = invalid["kind"]
+    if kind in {"deep_array", "deep_object"}:
+        value = _chain(kind, int(invalid["value"]))  # not wrapped in [value]
+    else:
+        value = [_build_invalid(kind, invalid.get("value"))]
+    try:
+        canonical_json(value)
+    except CanonicalJsonError as error:
+        if error.code != case["error"]:
+            return f"expected error {case['error']}, got error {error.code}"
+        return None
+    return f"expected error {case['error']}, got no error"
+
+
+def _run_canonical(file: str, vector: dict[str, Any]) -> None:
+    """Run every case; report every failing case, one line each, in case order."""
+    lines: list[str] = []
+    for case in vector["cases"]:
+        try:
+            detail = _case_failure(case)
+        except Exception as error:  # one broken case does not hide the others
+            detail = f"unexpected {type(error).__name__}: {error}"
+        if detail is not None:
+            lines.append(f'{file}: case "{case["name"]}": {detail}')
+    if lines:
+        raise VectorError("\n".join(lines))
 
 
 def _final_state(state: GameState) -> str:
@@ -153,9 +178,19 @@ def run_vector_file(path: Path) -> None:
     """Validate and run one vector file.
 
     Raises:
-        VectorError: with every validation message (one per line), or the first mismatch; each
-            line starts with the file name.
+        VectorError: with every validation message (one per line), or every failing case of a
+            canonical file, or the mismatch of a reducer file; each line starts with the file
+            name. Any other unexpected error becomes one such message too.
     """
+    try:
+        _run_vector_file(path)
+    except VectorError:
+        raise
+    except Exception as error:
+        raise VectorError(f"{path.name}: unexpected {type(error).__name__}: {error}") from error
+
+
+def _run_vector_file(path: Path) -> None:
     result = validate_file(path)
     if not result.ok or result.value is None:
         raise VectorError("\n".join(result.messages))

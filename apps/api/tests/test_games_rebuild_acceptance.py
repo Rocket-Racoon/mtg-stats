@@ -1,0 +1,506 @@
+"""Acceptance tests for S-6.3.8 "Rebuild a game's state from its log", on the rolled-back session.
+
+Written from the story's criteria:
+
+1. A damaged ``games.state`` is replaced by the replay of the log, and the mismatch is logged.
+2. A game with 2,000 events is rebuilt in under 500 ms.
+3. The rebuild takes the row lock of ``append_event`` (tested with real commits and two sessions in
+   ``test_games_rebuild_acceptance_db.py``).
+
+The oracle is never the service: every expected snapshot is the reducer's own public ``replay`` of
+the events stored in the database, folded in the test.
+"""
+
+import copy
+import logging
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any
+from uuid import UUID, uuid4
+
+import pytest
+from sqlalchemy import insert
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.errors import NotFoundError
+from app.core.ids import uuid7
+from app.games.models import GameEvent
+from app.games.services import (
+    EventRejectedError,
+    LogGapError,
+    RebuildError,
+    initial_state,
+    rebuild_state,
+)
+from tests.games_rebuild_support import (
+    NINE_HANDLER_TYPES,
+    SECRETS,
+    append_steps,
+    event_rows,
+    fold,
+    independent_state,
+    read_game,
+    real_steps,
+    set_snapshot,
+    shaped_log,
+    sql_log,
+    state_bytes,
+    wire_events,
+    writes,
+)
+from tests.games_support import insert_log, lobby_and_turns, make_game
+
+pytestmark = pytest.mark.usefixtures("app_schema")
+
+APP_LOGGERS = "app."
+MISMATCH = "games.state_rebuild_mismatch"
+MATCH = "games.state_rebuild_match"
+NOW = datetime(2030, 1, 2, 3, 4, 5, tzinfo=UTC)
+LIMIT_SECONDS = 0.5
+
+
+@dataclass
+class Ctx:
+    """A healthy real game and what the oracle says about it."""
+
+    game_id: UUID
+    state: dict[str, Any]
+    count: int
+    wire: list[dict[str, Any]]
+
+    def prefix(self, k: int) -> dict[str, Any]:
+        return fold(self.game_id, self.wire[:k]).to_json_value()
+
+
+async def real_game(session: AsyncSession) -> Ctx:
+    """A game whose log came from ``games.append_event`` and whose snapshot is healthy."""
+    game_id = await make_game(session)
+    await append_steps(session, game_id, real_steps())
+    wire = await wire_events(session, game_id)
+    state, count = await independent_state(session, game_id)
+    row = await read_game(session, game_id)
+    assert row.last_seq == count == len(real_steps())
+    assert state_bytes(row.state) == state_bytes(state.to_json_value())  # healthy to begin with
+    return Ctx(game_id, copy.deepcopy(row.state), count, wire)
+
+
+def app_records(caplog: pytest.LogCaptureFixture, needle: str = "") -> list[logging.LogRecord]:
+    return [
+        r
+        for r in caplog.records
+        if r.name.startswith(APP_LOGGERS) and needle in r.getMessage() + str(r.__dict__.get("msg"))
+    ]
+
+
+def everything_logged(caplog: pytest.LogCaptureFixture) -> str:
+    """The text of every record of the app's loggers, with its fields, args and traceback."""
+    parts: list[str] = []
+    for record in caplog.records:
+        if record.name.startswith(APP_LOGGERS):
+            parts += [record.getMessage(), repr(record.__dict__), caplog.handler.format(record)]
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------------------------
+# Criterion 1: damage of every kind is repaired from the log, and the mismatch is logged
+# ---------------------------------------------------------------------------------------------
+
+Damage = Callable[[Ctx], tuple[Any, int]]
+"""Returns the damaged snapshot and the ``games.last_seq`` column to store with it."""
+
+
+def _edit(change: Callable[[dict[str, Any]], None]) -> Damage:
+    def damage(ctx: Ctx) -> tuple[Any, int]:
+        state = copy.deepcopy(ctx.state)
+        change(state)
+        return state, ctx.count
+
+    return damage
+
+
+def _set(key: str, value: Any) -> Damage:
+    return _edit(lambda s: s.__setitem__(key, value))
+
+
+def _ahead(ctx: Ctx) -> tuple[Any, int]:
+    state = copy.deepcopy(ctx.state)
+    state["last_seq"] = ctx.count + 5
+    state["turn"] += 5
+    return state, ctx.count + 5
+
+
+DAMAGES: dict[str, Damage] = {
+    "wrong_nested_seat_value": _edit(lambda s: s["seats"][0].__setitem__("life", 999)),
+    "wrong_nested_commander_name": _edit(
+        lambda s: s["seats"][1]["commanders"][0].__setitem__("name", "Injected Name")
+    ),
+    "wrong_seat_order": _edit(lambda s: s["order"].reverse()),
+    "missing_top_level_key": _edit(lambda s: s.pop("monarch")),
+    "missing_nested_key": _edit(lambda s: s["seats"][0].pop("poison")),
+    "extra_top_level_key": _set("bogus", {"x": 1}),
+    "extra_nested_key": _edit(lambda s: s["seats"][0].__setitem__("bogus", True)),
+    "game_id_of_another_game": _set("game_id", str(uuid4())),
+    "whole_state_of_another_game": lambda ctx: (initial_state(str(uuid4())).to_json_value(), 0),
+    "stale_prefix_with_matching_column": lambda ctx: (ctx.prefix(ctx.count - 4), ctx.count - 4),
+    "stale_prefix_with_current_column": lambda ctx: (ctx.prefix(ctx.count - 4), ctx.count),
+    "stale_initial_state": lambda ctx: (initial_state(str(ctx.game_id)).to_json_value(), 0),
+    "snapshot_ahead_of_the_log": _ahead,
+    "column_ahead_of_snapshot": lambda ctx: (ctx.state, ctx.count + 3),
+    "column_zero": lambda ctx: (ctx.state, 0),
+    "column_one_behind": lambda ctx: (ctx.state, ctx.count - 1),
+    "schema_version_changed": _set("v", 99),
+    "wrong_type_seats_is_a_string": _set("seats", "not-a-list"),
+    "wrong_type_turn_is_a_string": _set("turn", "three"),
+    "wrong_type_settings_is_null": _set("settings", None),
+    "wrong_type_phase_unknown_value": _set("phase", "bogus"),
+    "wrong_type_seat_life_is_a_string": _edit(lambda s: s["seats"][0].__setitem__("life", "40")),
+    "empty_object": lambda ctx: ({}, ctx.count),
+}
+
+
+@pytest.mark.parametrize("damage", DAMAGES.values(), ids=DAMAGES.keys())
+async def test_a_damaged_snapshot_is_replaced_by_the_replay_of_the_log_and_the_mismatch_is_logged(
+    app_schema: AsyncSession, caplog: pytest.LogCaptureFixture, damage: Damage
+) -> None:
+    ctx = await real_game(app_schema)
+    damaged, column = damage(ctx)
+    await set_snapshot(app_schema, ctx.game_id, damaged, column)
+    assert state_bytes(ctx.prefix(ctx.count)) == state_bytes(ctx.state)
+
+    with caplog.at_level(logging.DEBUG):
+        result = await rebuild_state(app_schema, ctx.game_id, now=NOW)
+
+    expected = state_bytes(ctx.prefix(ctx.count))
+    row = await read_game(app_schema, ctx.game_id)
+    assert state_bytes(row.state) == expected
+    assert row.last_seq == ctx.count
+    assert row.updated_at == NOW
+    assert result.changed
+    assert result.written
+    assert result.event_count == ctx.count
+    assert result.old_last_seq == column
+    assert result.new_last_seq == ctx.count
+    assert state_bytes(result.state.to_json_value()) == expected
+
+    mismatches = app_records(caplog, MISMATCH)
+    assert len(mismatches) == 1
+    assert mismatches[0].levelno == logging.WARNING
+    assert str(ctx.game_id) in mismatches[0].getMessage()
+    assert app_records(caplog, MATCH) == []
+    logged = everything_logged(caplog)
+    for secret in SECRETS:
+        assert secret not in logged, secret
+    assert "Injected Name" not in logged
+
+
+async def test_the_replayed_game_went_through_every_handler_implemented_so_far(
+    app_schema: AsyncSession,
+) -> None:
+    ctx = await real_game(app_schema)
+    assert {e["type"] for e in ctx.wire} >= NINE_HANDLER_TYPES
+    state = ctx.state
+    assert state["phase"] == "active"
+    assert state["settings"]["starting_life"] == 30
+    assert state["first_seat"] == 3
+    assert [s["seat"] for s in state["seats"]] == [1, 2, 3, 4]  # seat 5 joined and left
+    assert state["turn"] == 9
+    assert state["last_seq"] == ctx.count
+
+
+async def test_a_healthy_snapshot_is_left_alone_and_logged_as_a_match(
+    app_schema: AsyncSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    ctx = await real_game(app_schema)
+    before = await read_game(app_schema, ctx.game_id)
+    with caplog.at_level(logging.DEBUG), sql_log(app_schema) as statements:
+        result = await rebuild_state(app_schema, ctx.game_id, now=NOW)
+    after = await read_game(app_schema, ctx.game_id)
+    assert not result.changed
+    assert not result.written
+    assert result.differing_keys == ()
+    assert after.updated_at == before.updated_at != NOW
+    assert state_bytes(after.state) == state_bytes(before.state)
+    assert after.last_seq == before.last_seq == ctx.count
+    assert writes(statements) == []
+    assert app_records(caplog, MISMATCH) == []
+    matches = app_records(caplog, MATCH)
+    assert len(matches) == 1
+    assert matches[0].levelno == logging.INFO
+    assert str(ctx.game_id) in matches[0].getMessage()
+    for secret in SECRETS:
+        assert secret not in everything_logged(caplog), secret
+
+
+async def test_rebuilding_twice_reports_a_match_the_second_time(
+    app_schema: AsyncSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    ctx = await real_game(app_schema)
+    await set_snapshot(app_schema, ctx.game_id, ctx.prefix(5), 5)
+    with caplog.at_level(logging.DEBUG):
+        first = await rebuild_state(app_schema, ctx.game_id, now=NOW)
+        second = await rebuild_state(app_schema, ctx.game_id, now=NOW)
+    assert first.written
+    assert not second.changed
+    assert not second.written
+    assert second.old_last_seq == ctx.count
+    assert len(app_records(caplog, MISMATCH)) == 1
+    assert len(app_records(caplog, MATCH)) == 1
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        DAMAGES["wrong_nested_seat_value"],
+        DAMAGES["column_zero"],
+        DAMAGES["wrong_type_seats_is_a_string"],
+    ],
+    ids=["nested_value", "only_the_column", "wrong_type"],
+)
+async def test_a_dry_run_reports_the_mismatch_and_writes_nothing(
+    app_schema: AsyncSession, caplog: pytest.LogCaptureFixture, damage: Damage
+) -> None:
+    ctx = await real_game(app_schema)
+    damaged, column = damage(ctx)
+    await set_snapshot(app_schema, ctx.game_id, damaged, column)
+    before = await read_game(app_schema, ctx.game_id)
+    with caplog.at_level(logging.DEBUG), sql_log(app_schema) as statements:
+        result = await rebuild_state(app_schema, ctx.game_id, dry_run=True, now=NOW)
+    after = await read_game(app_schema, ctx.game_id)
+    assert result.changed
+    assert not result.written
+    assert result.event_count == ctx.count
+    assert state_bytes(result.state.to_json_value()) == state_bytes(
+        ctx.state
+    )  # what it would write
+    assert state_bytes(after.state) == state_bytes(before.state)
+    assert (after.last_seq, after.updated_at) == (before.last_seq, before.updated_at)
+    assert writes(statements) == []
+    mismatches = app_records(caplog, MISMATCH)
+    assert len(mismatches) == 1
+    assert mismatches[0].levelno == logging.WARNING
+    assert str(ctx.game_id) in mismatches[0].getMessage()
+    # ...and the real run afterwards still repairs it.
+    assert (await rebuild_state(app_schema, ctx.game_id, now=NOW)).written
+    assert state_bytes((await read_game(app_schema, ctx.game_id)).state) == state_bytes(ctx.state)
+
+
+async def test_a_game_with_no_events_gets_the_empty_lobby_back(app_schema: AsyncSession) -> None:
+    game_id = await make_game(app_schema)
+    await set_snapshot(app_schema, game_id, {"damaged": True}, 4)
+    result = await rebuild_state(app_schema, game_id)
+    row = await read_game(app_schema, game_id)
+    assert result.event_count == 0
+    assert state_bytes(row.state) == state_bytes(initial_state(str(game_id)).to_json_value())
+    assert row.last_seq == 0
+
+
+# ---------------------------------------------------------------------------------------------
+# Corrupt logs and unknown games: the documented errors, and nothing is written
+# ---------------------------------------------------------------------------------------------
+
+DAMAGED = {"damaged": True}
+DAMAGED_COLUMN = 5
+
+
+async def _game_with_envelopes(session: AsyncSession, envelopes: list[dict[str, Any]]) -> UUID:
+    game_id = await make_game(session)
+    fixed = [{**e, "game_id": str(game_id)} for e in envelopes]
+    await insert_log(session, game_id, fixed)
+    await set_snapshot(session, game_id, DAMAGED, DAMAGED_COLUMN)
+    return game_id
+
+
+def _lobby(count: int = 12) -> list[dict[str, Any]]:
+    return lobby_and_turns(uuid4(), count)
+
+
+async def _assert_nothing_written(session: AsyncSession, game_id: UUID, rows: list[Any]) -> None:
+    row = await read_game(session, game_id)
+    assert row.state == DAMAGED
+    assert row.last_seq == DAMAGED_COLUMN
+    assert await event_rows(session, game_id) == rows
+
+
+async def test_a_gap_in_the_seqs_raises_log_gap_error_and_writes_nothing(
+    app_schema: AsyncSession,
+) -> None:
+    envelopes = _lobby()
+    del envelopes[5]  # seq 6 is gone
+    game_id = await _game_with_envelopes(app_schema, envelopes)
+    rows = await event_rows(app_schema, game_id)
+    with sql_log(app_schema) as statements, pytest.raises(LogGapError) as caught:
+        await rebuild_state(app_schema, game_id)
+    assert (caught.value.expected, caught.value.found) == (6, 7)
+    assert isinstance(caught.value, RebuildError)
+    assert writes(statements) == []
+    await _assert_nothing_written(app_schema, game_id, rows)
+
+
+async def test_a_log_that_does_not_start_at_seq_1_raises_log_gap_error(
+    app_schema: AsyncSession,
+) -> None:
+    game_id = await _game_with_envelopes(app_schema, _lobby()[1:])
+    rows = await event_rows(app_schema, game_id)
+    with pytest.raises(LogGapError) as caught:
+        await rebuild_state(app_schema, game_id)
+    assert (caught.value.expected, caught.value.found) == (1, 2)
+    await _assert_nothing_written(app_schema, game_id, rows)
+
+
+def _reject_turn_in_lobby(base: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [*base[:3], {**base[8], "seq": 4}]
+
+
+def _reject_unknown_type(base: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [*base[:3], {**base[8], "seq": 4, "type": "bogus_event"}]
+
+
+def _reject_future_version(base: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [*base[:3], {**base[8], "seq": 4, "v": 2}]
+
+
+def _reject_bad_payload(base: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [*base[:3], {**base[2], "seq": 4, "event_id": str(uuid4()), "payload": {"seat": "x"}}]
+
+
+def _reject_taken_seat(base: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [*base[:3], {**base[2], "seq": 4, "event_id": str(uuid4())}]
+
+
+@pytest.mark.parametrize(
+    ("corrupt", "code"),
+    [
+        (_reject_turn_in_lobby, "invalid_phase"),
+        (_reject_unknown_type, "unknown_event_type"),
+        (_reject_future_version, "unsupported_version"),
+        (_reject_bad_payload, "invalid_payload"),
+        (_reject_taken_seat, "seat_taken"),
+    ],
+)
+async def test_an_event_the_reducer_rejects_raises_with_its_seq_and_code_and_writes_nothing(
+    app_schema: AsyncSession,
+    caplog: pytest.LogCaptureFixture,
+    corrupt: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
+    code: str,
+) -> None:
+    game_id = await _game_with_envelopes(app_schema, corrupt(_lobby(9)))
+    rows = await event_rows(app_schema, game_id)
+    with caplog.at_level(logging.DEBUG), pytest.raises(EventRejectedError) as caught:
+        await rebuild_state(app_schema, game_id)
+    assert caught.value.seq == 4
+    assert caught.value.code == code
+    assert isinstance(caught.value, RebuildError)
+    assert "player_id" not in str(caught.value)
+    await _assert_nothing_written(app_schema, game_id, rows)
+    assert app_records(caplog, MATCH) == []
+
+
+async def test_an_unknown_game_raises_not_found(app_schema: AsyncSession) -> None:
+    with pytest.raises(NotFoundError):
+        await rebuild_state(app_schema, uuid4())
+
+
+async def test_a_naive_now_is_refused_before_anything_is_written(app_schema: AsyncSession) -> None:
+    ctx = await real_game(app_schema)
+    await set_snapshot(app_schema, ctx.game_id, DAMAGED, DAMAGED_COLUMN)
+    with pytest.raises(ValueError, match="aware"):
+        await rebuild_state(app_schema, ctx.game_id, now=datetime(2030, 1, 1))  # noqa: DTZ001
+    row = await read_game(app_schema, ctx.game_id)
+    assert (row.state, row.last_seq) == (DAMAGED, DAMAGED_COLUMN)
+
+
+# ---------------------------------------------------------------------------------------------
+# The service never commits and never touches game_events
+# ---------------------------------------------------------------------------------------------
+
+
+async def test_the_service_never_commits_and_never_writes_to_game_events(
+    app_schema: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sqlalchemy.orm import Session  # noqa: PLC0415
+
+    ctx = await real_game(app_schema)
+    await set_snapshot(app_schema, ctx.game_id, ctx.prefix(4), 4)
+    events_before = await event_rows(app_schema, ctx.game_id)
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("rebuild_state committed")
+
+    monkeypatch.setattr(AsyncSession, "commit", forbidden)
+    monkeypatch.setattr(Session, "commit", forbidden)
+    with sql_log(app_schema) as statements:
+        assert (await rebuild_state(app_schema, ctx.game_id)).written
+    monkeypatch.undo()
+
+    assert await event_rows(app_schema, ctx.game_id) == events_before
+    assert len(events_before) == ctx.count
+    touched = [s for s in writes(statements) if "game_events" in s.lower()]
+    assert touched == []
+    assert [s.split()[0].upper() for s in writes(statements)] == ["UPDATE"]  # the snapshot only
+    assert app_schema.in_transaction()
+
+
+async def test_a_failed_rebuild_leaves_the_events_as_they_were(app_schema: AsyncSession) -> None:
+    envelopes = _lobby()
+    del envelopes[5]
+    game_id = await _game_with_envelopes(app_schema, envelopes)
+    rows = await event_rows(app_schema, game_id)
+    with pytest.raises(LogGapError):
+        await rebuild_state(app_schema, game_id)
+    assert await event_rows(app_schema, game_id) == rows
+
+
+# ---------------------------------------------------------------------------------------------
+# Criterion 2: a 2,000-event game in under 500 ms
+# ---------------------------------------------------------------------------------------------
+
+EVENTS = 2000
+RUNS = 5
+
+
+async def test_a_game_with_2000_events_is_rebuilt_in_under_500_ms(
+    app_schema: AsyncSession, capsys: pytest.CaptureFixture[str]
+) -> None:
+    game_id = await make_game(app_schema)
+    envelopes = shaped_log(game_id, EVENTS)
+    await app_schema.execute(
+        insert(GameEvent),
+        [
+            {
+                "id": uuid7(),
+                "game_id": game_id,
+                "seq": e["seq"],
+                "event_id": UUID(e["event_id"]),
+                "type": e["type"],
+                "payload": e["payload"],
+                "actor": e["actor"],
+                "on_behalf_of_seat": None,
+                "ts": datetime(2026, 11, 21, 12, 0, tzinfo=UTC),
+                "v": 1,
+            }
+            for e in envelopes
+        ],
+    )
+    await app_schema.flush()
+    expected = state_bytes(fold(game_id, envelopes).to_json_value())
+    assert {e["type"] for e in envelopes} >= {"turn_passed", "life_changed", "seat_moved"}
+
+    await set_snapshot(app_schema, game_id, DAMAGED, 0)
+    await rebuild_state(app_schema, game_id)  # warm-up: imports, statement cache, first plan
+
+    timings: list[float] = []
+    for _ in range(RUNS):
+        await set_snapshot(app_schema, game_id, DAMAGED, 0)  # every run replaces the snapshot
+        started = time.perf_counter()
+        result = await rebuild_state(app_schema, game_id)
+        timings.append(time.perf_counter() - started)
+        assert result.written
+        assert result.event_count == EVENTS
+    row = await read_game(app_schema, game_id)
+    assert state_bytes(row.state) == expected
+    assert row.last_seq == EVENTS
+    with capsys.disabled():
+        print(f"\nrebuild of {EVENTS} events (s): {[round(t, 4) for t in timings]}")  # noqa: T201
+    assert min(timings) < LIMIT_SECONDS, f"timings: {timings}"

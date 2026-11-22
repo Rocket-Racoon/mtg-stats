@@ -125,3 +125,28 @@ async def lock_active_memberships(session: AsyncSession, playgroup_id: UUID) -> 
         .execution_options(populate_existing=True)
     )
     return list(result.scalars())
+
+
+async def lock_playgroup(session: AsyncSession, playgroup_id: UUID) -> Playgroup | None:
+    """Return the playgroup locked ``SELECT ... FOR UPDATE``, or None.
+
+    The lock serialises guest creation and renaming of one playgroup (S-2.3.1). It also makes a
+    membership insert (a ``FOR KEY SHARE`` on this row) wait until the transaction ends.
+    """
+    result = await session.execute(
+        select(Playgroup)
+        .where(Playgroup.id == playgroup_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    return result.scalar_one_or_none()
+
+
+async def active_member_player_ids(session: AsyncSession, playgroup_id: UUID) -> list[UUID]:
+    """The player ids of the playgroup's active members."""
+    result = await session.execute(
+        select(Membership.player_id).where(
+            Membership.playgroup_id == playgroup_id, Membership.left_at.is_(None)
+        )
+    )
+    return list(result.scalars())

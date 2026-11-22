@@ -65,6 +65,13 @@ PlaygroupDescription = Annotated[
 ]
 
 
+GuestName = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=32),
+    AfterValidator(_reject_control_characters),
+]
+
+
 class InviteCreate(BaseModel):
     """Optional body of ``POST /invites`` and ``POST /playgroups/{id}/invites``."""
 
@@ -201,3 +208,25 @@ class TransferOwnership(BaseModel):
     model_config = ConfigDict(strict=True)
 
     player_id: UUID = Field(strict=False, description="The active member who becomes the owner.")
+
+
+class GuestCreate(BaseModel):
+    """Body of the guest add (``POST``) and rename (``PATCH``) routes."""
+
+    model_config = ConfigDict(strict=True)
+
+    display_name: GuestName = Field(
+        description="1 to 32 characters (surrounding spaces are trimmed); unique in the "
+        "playgroup, ignoring case and accents."
+    )
+
+
+class GuestOut(BaseModel):
+    """A guest player of a playgroup."""
+
+    id: UUID = Field(description="The guest's player id.")
+    playgroup_id: UUID
+    display_name: str
+    avatar_color: str
+    created_by: UUID | None = Field(description="The player who added the guest.")
+    created_at: datetime

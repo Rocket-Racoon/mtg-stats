@@ -12,6 +12,8 @@ from app.core.paging import PageParamsDep
 from app.core.rate_limit import PublicRateLimitDep
 from app.playgroups import services
 from app.playgroups.schemas import (
+    GuestCreate,
+    GuestOut,
     InviteCreate,
     InviteCreated,
     InviteJoinOut,
@@ -285,6 +287,54 @@ async def revoke_playgroup_invite(
     except ValueError:
         raise NotFoundError from None
     return _out(await services.revoke_playgroup_invite(session, access, invite_id=parsed))
+
+
+def _guest_out(info: services.GuestInfo) -> GuestOut:
+    return GuestOut(
+        id=info.player_id,
+        playgroup_id=info.playgroup_id,
+        display_name=info.display_name,
+        avatar_color=info.avatar_color,
+        created_by=info.created_by,
+        created_at=info.created_at,
+    )
+
+
+@playgroups_router.post("/{playgroup_id}/guests", summary="Add a guest player", status_code=201)
+async def add_guest(
+    playgroup_id: str, body: GuestCreate, access: services.MemberDep, session: SessionDep
+) -> GuestOut:
+    """Add a friend as a guest player of this playgroup; any member may. Guests have no login.
+
+    `display_name` is 1-32 characters (trimmed), else 422. A name that matches a member or guest
+    of the playgroup, ignoring case and accents, is 409 `player_name_taken`. A non-member gets 404.
+    """
+    return _guest_out(await services.add_guest(session, access, display_name=body.display_name))
+
+
+@playgroups_router.patch("/{playgroup_id}/guests/{player_id}", summary="Rename a guest player")
+async def rename_guest(
+    playgroup_id: str,
+    player_id: str,
+    body: GuestCreate,
+    access: services.MemberDep,
+    session: SessionDep,
+) -> GuestOut:
+    """Rename a guest. Allowed for the guest's creator, the playgroup's owner and its admins; any
+    other member gets 403 `forbidden`, a non-member 404.
+
+    A guest that does not exist, belongs to another playgroup or was merged is 404. A name that
+    matches another member or guest, ignoring case and accents, is 409 `player_name_taken`.
+    """
+    try:
+        target = UUID(player_id)
+    except ValueError:
+        raise NotFoundError from None
+    return _guest_out(
+        await services.rename_guest(
+            session, access, player_id=target, display_name=body.display_name
+        )
+    )
 
 
 router.include_router(invites_router)

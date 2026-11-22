@@ -408,6 +408,43 @@ export interface paths {
         patch: operations["playgroups_update_playgroup"];
         trace?: never;
     };
+    "/api/v1/playgroups/{playgroup_id}/house-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the house rules
+         * @description The house rules note and who last edited it, for any active member.
+         *
+         *     `text` is plain text, returned exactly as saved: the server never sanitises, strips or
+         *     escapes it, so it may contain HTML or script tags. Clients must render it as text (keeping
+         *     line breaks), never as markup. `edited_by` (player id and current display name) and
+         *     `edited_at` are null until the first save. A non-member, a former member or an unknown id
+         *     gets a 404. Guests have no credentials yet, so they cannot read it.
+         */
+        get: operations["playgroups_get_house_rules"];
+        /**
+         * Save the house rules
+         * @description Replace the house rules. Owner or admin only: a plain member gets 403, a non-member 404.
+         *
+         *     `text` is at most 5,000 characters (code points), otherwise 422 `validation_error`; control
+         *     characters other than newline, carriage return and tab (NUL included) are 422 too. The text
+         *     is stored and returned exactly as sent: never sanitised, stripped, escaped or newline-
+         *     normalised, so HTML or script tags are kept verbatim and clients must render it as plain
+         *     text. An empty or whitespace-only text clears the rules (stored as `""`). The editor and
+         *     time are recorded by the server, also for a clear. Concurrent saves: the last one wins.
+         */
+        put: operations["playgroups_put_house_rules"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/playgroups/{playgroup_id}/invites": {
         parameters: {
             query?: never;
@@ -555,6 +592,48 @@ export interface components {
          */
         ErrorResponse: {
             error: components["schemas"]["ErrorBody"];
+        };
+        /**
+         * HouseRulesEditor
+         * @description Who last edited the house rules, with their current display name.
+         */
+        HouseRulesEditor: {
+            /** Display Name */
+            display_name: string;
+            /**
+             * Player Id
+             * Format: uuid
+             */
+            player_id: string;
+        };
+        /**
+         * HouseRulesOut
+         * @description A playgroup's house rules and when and by whom they were last edited.
+         */
+        HouseRulesOut: {
+            /**
+             * Edited At
+             * @description Null when never edited.
+             */
+            edited_at: string | null;
+            /** @description Null when never edited. */
+            edited_by: components["schemas"]["HouseRulesEditor"] | null;
+            /**
+             * Text
+             * @description Plain text, exactly as saved. Render it as text, never markup.
+             */
+            text: string;
+        };
+        /**
+         * HouseRulesUpdate
+         * @description Body of ``PUT /playgroups/{id}/house-rules``.
+         */
+        HouseRulesUpdate: {
+            /**
+             * Text
+             * @description Up to 5,000 characters, stored exactly as sent. An empty or whitespace-only text clears the house rules.
+             */
+            text: string;
         };
         /**
          * InviteCreate
@@ -2986,6 +3065,216 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlaygroupOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    playgroups_get_house_rules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                playgroup_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Client error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HouseRulesOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    playgroups_put_house_rules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                playgroup_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HouseRulesUpdate"];
+            };
+        };
+        responses: {
+            /** @description Client error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server error */
+            "5XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HouseRulesOut"];
                 };
             };
             /** @description Unauthorized */

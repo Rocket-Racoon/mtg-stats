@@ -76,6 +76,83 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "HouseRulesEditor": {
+        "description": "Who last edited the house rules, with their current display name.",
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "player_id": {
+            "format": "uuid",
+            "title": "Player Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "player_id",
+          "display_name"
+        ],
+        "title": "HouseRulesEditor",
+        "type": "object"
+      },
+      "HouseRulesOut": {
+        "description": "A playgroup's house rules and when and by whom they were last edited.",
+        "properties": {
+          "edited_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when never edited.",
+            "title": "Edited At"
+          },
+          "edited_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HouseRulesEditor"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when never edited."
+          },
+          "text": {
+            "description": "Plain text, exactly as saved. Render it as text, never markup.",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "edited_by",
+          "edited_at"
+        ],
+        "title": "HouseRulesOut",
+        "type": "object"
+      },
+      "HouseRulesUpdate": {
+        "description": "Body of ``PUT /playgroups/{id}/house-rules``.",
+        "properties": {
+          "text": {
+            "description": "Up to 5,000 characters, stored exactly as sent. An empty or whitespace-only text clears the house rules.",
+            "maxLength": 5000,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "HouseRulesUpdate",
+        "type": "object"
+      },
       "InviteCreate": {
         "description": "Optional body of ``POST /invites`` and ``POST /playgroups/{id}/invites``.",
         "properties": {
@@ -3371,6 +3448,270 @@
           }
         ],
         "summary": "Rename or re-describe a playgroup",
+        "tags": [
+          "playgroups"
+        ]
+      }
+    },
+    "/api/v1/playgroups/{playgroup_id}/house-rules": {
+      "get": {
+        "description": "The house rules note and who last edited it, for any active member.\n\n`text` is plain text, returned exactly as saved: the server never sanitises, strips or\nescapes it, so it may contain HTML or script tags. Clients must render it as text (keeping\nline breaks), never as markup. `edited_by` (player id and current display name) and\n`edited_at` are null until the first save. A non-member, a former member or an unknown id\ngets a 404. Guests have no credentials yet, so they cannot read it.",
+        "operationId": "playgroups_get_house_rules",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "playgroup_id",
+            "required": true,
+            "schema": {
+              "title": "Playgroup Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HouseRulesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Client error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get the house rules",
+        "tags": [
+          "playgroups"
+        ]
+      },
+      "put": {
+        "description": "Replace the house rules. Owner or admin only: a plain member gets 403, a non-member 404.\n\n`text` is at most 5,000 characters (code points), otherwise 422 `validation_error`; control\ncharacters other than newline, carriage return and tab (NUL included) are 422 too. The text\nis stored and returned exactly as sent: never sanitised, stripped, escaped or newline-\nnormalised, so HTML or script tags are kept verbatim and clients must render it as plain\ntext. An empty or whitespace-only text clears the rules (stored as `\"\"`). The editor and\ntime are recorded by the server, also for a clear. Concurrent saves: the last one wins.",
+        "operationId": "playgroups_put_house_rules",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "playgroup_id",
+            "required": true,
+            "schema": {
+              "title": "Playgroup Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HouseRulesUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HouseRulesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Client error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Save the house rules",
         "tags": [
           "playgroups"
         ]

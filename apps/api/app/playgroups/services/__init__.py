@@ -10,6 +10,7 @@ from app.playgroups.services.access import (
     require_playgroup_admin,
     require_playgroup_owner,
 )
+from app.playgroups.services.house_rules import HouseRulesInfo, get_house_rules, set_house_rules
 from app.playgroups.services.invites import (
     CreatedInvite,
     InviteInfo,
@@ -51,6 +52,7 @@ from app.playgroups.services.playgroups import (
 __all__ = [
     "AlreadyOwnerError",
     "CreatedInvite",
+    "HouseRulesInfo",
     "InviteInfo",
     "InviteNoLongerValidError",
     "InvitePage",
@@ -70,6 +72,7 @@ __all__ = [
     "create_invite",
     "create_playgroup",
     "create_playgroup_invite",
+    "get_house_rules",
     "get_membership",
     "get_playgroup",
     "hash_invite_token",
@@ -85,6 +88,7 @@ __all__ = [
     "require_playgroup_owner",
     "revoke_invite",
     "revoke_playgroup_invite",
+    "set_house_rules",
     "transfer_ownership",
     "update_playgroup",
     "validate_invite",

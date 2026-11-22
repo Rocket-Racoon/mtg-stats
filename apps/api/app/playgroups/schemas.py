@@ -16,6 +16,7 @@ from pydantic import (
 
 from app.core.paging import Page
 from app.playgroups.models import (
+    HOUSE_RULES_MAX_LENGTH,
     PLAYGROUP_DESCRIPTION_MAX_LENGTH,
     PLAYGROUP_NAME_MAX_LENGTH,
     PLAYGROUP_NAME_MIN_LENGTH,
@@ -61,6 +62,13 @@ PlaygroupName = Annotated[
 PlaygroupDescription = Annotated[
     str,
     StringConstraints(max_length=PLAYGROUP_DESCRIPTION_MAX_LENGTH),
+    AfterValidator(_reject_description_controls),
+]
+
+
+HouseRulesText = Annotated[
+    str,
+    StringConstraints(max_length=HOUSE_RULES_MAX_LENGTH),
     AfterValidator(_reject_description_controls),
 ]
 
@@ -201,3 +209,29 @@ class TransferOwnership(BaseModel):
     model_config = ConfigDict(strict=True)
 
     player_id: UUID = Field(strict=False, description="The active member who becomes the owner.")
+
+
+class HouseRulesUpdate(BaseModel):
+    """Body of ``PUT /playgroups/{id}/house-rules``."""
+
+    model_config = ConfigDict(strict=True)
+
+    text: HouseRulesText = Field(
+        description="Up to 5,000 characters, stored exactly as sent. An empty or whitespace-only "
+        "text clears the house rules."
+    )
+
+
+class HouseRulesEditor(BaseModel):
+    """Who last edited the house rules, with their current display name."""
+
+    player_id: UUID
+    display_name: str
+
+
+class HouseRulesOut(BaseModel):
+    """A playgroup's house rules and when and by whom they were last edited."""
+
+    text: str = Field(description="Plain text, exactly as saved. Render it as text, never markup.")
+    edited_by: HouseRulesEditor | None = Field(description="Null when never edited.")
+    edited_at: datetime | None = Field(description="Null when never edited.")

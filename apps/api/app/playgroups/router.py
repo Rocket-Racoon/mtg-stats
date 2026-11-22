@@ -12,6 +12,9 @@ from app.core.paging import PageParamsDep
 from app.core.rate_limit import PublicRateLimitDep
 from app.playgroups import services
 from app.playgroups.schemas import (
+    HouseRulesEditor,
+    HouseRulesOut,
+    HouseRulesUpdate,
     InviteCreate,
     InviteCreated,
     InviteJoinOut,
@@ -189,6 +192,51 @@ async def update_playgroup(
         session, access, name=body.name, description=body.description
     )
     return _group_out(info)
+
+
+def _rules_out(info: services.HouseRulesInfo) -> HouseRulesOut:
+    editor = (
+        None
+        if info.edited_by_player_id is None or info.edited_by_display_name is None
+        else HouseRulesEditor(
+            player_id=info.edited_by_player_id, display_name=info.edited_by_display_name
+        )
+    )
+    return HouseRulesOut(text=info.text, edited_by=editor, edited_at=info.edited_at)
+
+
+@playgroups_router.get("/{playgroup_id}/house-rules", summary="Get the house rules")
+async def get_house_rules(
+    playgroup_id: str, access: services.MemberDep, session: SessionDep
+) -> HouseRulesOut:
+    """The house rules note and who last edited it, for any active member.
+
+    `text` is plain text, returned exactly as saved: the server never sanitises, strips or
+    escapes it, so it may contain HTML or script tags. Clients must render it as text (keeping
+    line breaks), never as markup. `edited_by` (player id and current display name) and
+    `edited_at` are null until the first save. A non-member, a former member or an unknown id
+    gets a 404. Guests have no credentials yet, so they cannot read it.
+    """
+    return _rules_out(await services.get_house_rules(session, access))
+
+
+@playgroups_router.put("/{playgroup_id}/house-rules", summary="Save the house rules")
+async def put_house_rules(
+    playgroup_id: str,
+    body: HouseRulesUpdate,
+    access: services.PlaygroupAdminDep,
+    session: SessionDep,
+) -> HouseRulesOut:
+    """Replace the house rules. Owner or admin only: a plain member gets 403, a non-member 404.
+
+    `text` is at most 5,000 characters (code points), otherwise 422 `validation_error`; control
+    characters other than newline, carriage return and tab (NUL included) are 422 too. The text
+    is stored and returned exactly as sent: never sanitised, stripped, escaped or newline-
+    normalised, so HTML or script tags are kept verbatim and clients must render it as plain
+    text. An empty or whitespace-only text clears the rules (stored as `""`). The editor and
+    time are recorded by the server, also for a clear. Concurrent saves: the last one wins.
+    """
+    return _rules_out(await services.set_house_rules(session, access, text=body.text))
 
 
 @playgroups_router.patch("/{playgroup_id}/members/{player_id}", summary="Change a member's role")

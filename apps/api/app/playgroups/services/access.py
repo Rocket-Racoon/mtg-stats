@@ -30,6 +30,9 @@ class PlaygroupSnapshot:
 
     name: str
     description: str
+    house_rules_text: str
+    house_rules_edited_by: UUID | None
+    house_rules_edited_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -84,6 +87,9 @@ async def get_membership(
         playgroup=PlaygroupSnapshot(
             name=row.playgroup.name,
             description=row.playgroup.description,
+            house_rules_text=row.playgroup.house_rules_text,
+            house_rules_edited_by=row.playgroup.house_rules_edited_by,
+            house_rules_edited_at=row.playgroup.house_rules_edited_at,
             created_at=row.playgroup.created_at,
             updated_at=row.playgroup.updated_at,
         ),

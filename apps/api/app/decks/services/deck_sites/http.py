@@ -26,7 +26,6 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import TracebackType
 from typing import Self
-from urllib.parse import urlsplit
 
 import httpx
 
@@ -108,6 +107,33 @@ def default_sites(settings: Settings | None = None) -> dict[str, SiteConfig]:
     }
 
 
+def validate_url(config: SiteConfig, url: str) -> httpx.URL:
+    """Parse ``url`` once with httpx and return the object that is then requested.
+
+    Refused with :class:`DeckSiteHostError`: whitespace, control characters or backslashes
+    anywhere; an unparseable URL; a scheme other than ``https``; credentials (user or password);
+    a port other than the default 443; an empty host; and a host that is not one of the site's
+    hosts. The host is compared after httpx's lower-casing and IDNA normalisation, so
+    ``ARCHIDEKT.com`` is accepted. A trailing-dot host (``archidekt.com.``) is refused, not
+    normalised.
+    """
+    if any(ch.isspace() or ch == "\\" or ord(ch) < 32 or ord(ch) == 127 for ch in url):
+        raise DeckSiteHostError("URL contains whitespace, control characters or a backslash")
+    try:
+        parsed = httpx.URL(url)
+    except httpx.InvalidURL as exc:
+        raise DeckSiteHostError("URL is not valid") from exc
+    if parsed.scheme != "https":
+        raise DeckSiteHostError("URL is not https")
+    if parsed.userinfo:
+        raise DeckSiteHostError("URL carries credentials")
+    if parsed.port not in (None, 443):
+        raise DeckSiteHostError("URL has a non-default port")
+    if not parsed.host or parsed.host not in config.hosts:
+        raise DeckSiteHostError(f"not a {config.name} URL: {parsed.host}")
+    return parsed
+
+
 LimiterFactory = Callable[[SiteConfig], SpacingLimiter]
 
 
@@ -175,28 +201,32 @@ class DeckSiteClient:
     ) -> DeckFetchResult:
         """Fetch a deck (``url`` on ``site``'s hosts), from the cache when fresh.
 
+        The cache is keyed by ``site`` and ``deck_id`` only and ignores ``url``: a different path
+        or query string with the same ``deck_id`` is a cache hit. The per-site code must pass a
+        ``deck_id`` that uniquely identifies what is fetched.
+
         Raises:
-            DeckSiteHostError: unregistered site, or a URL outside the site's hosts.
+            DeckSiteHostError: unregistered site, or a URL that is not acceptable (see
+                :func:`validate_url`). This is checked before the cache, the limiter and the
+                network, so a refused URL is never served from the cache either.
         """
         config = self._sites.get(site)
         if config is None:
             raise DeckSiteHostError(f"unknown deck site: {site!r}")
-        parts = urlsplit(url)
-        if parts.scheme != "https" or parts.hostname not in config.hosts:
-            raise DeckSiteHostError(f"not a {site} URL: {parts.hostname}")
+        target = validate_url(config, url)
 
         cached = await self._cache.get(site, deck_id)
         if cached is not None:
             return DeckFetched(site, deck_id, cached.body, cached.content_type, from_cache=True)
 
         async with self._semaphores[site]:
-            result = await self._fetch_with_retries(config, deck_id, url, accept)
+            result = await self._fetch_with_retries(config, deck_id, target, accept)
         if isinstance(result, DeckFetched):
             await self._cache.set(site, deck_id, CachedBody(result.body, result.content_type))
         return result
 
     async def _fetch_with_retries(
-        self, config: SiteConfig, deck_id: str, url: str, accept: str
+        self, config: SiteConfig, deck_id: str, url: httpx.URL, accept: str
     ) -> DeckFetchResult:
         limiter = self._limiters[config.name]
         max_retries = self._settings.deck_site_max_retries
@@ -225,7 +255,7 @@ class DeckSiteClient:
             attempt += 1
             await self._sleep(outcome.retry_after)
 
-    async def _attempt(self, site: str, deck_id: str, url: str, accept: str) -> _Attempt:
+    async def _attempt(self, site: str, deck_id: str, url: httpx.URL, accept: str) -> _Attempt:
         """One request. Never raises for a site problem; the response is always closed."""
         try:
             async with asyncio.timeout(self._settings.deck_site_timeout_seconds):

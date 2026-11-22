@@ -404,3 +404,68 @@ def test_core_retry_after_uses_the_given_default() -> None:
     assert parse_retry_after(None, default=5.0) == 5.0
     assert parse_retry_after("soon", default=5.0) == 5.0
     assert parse_retry_after("7", default=5.0) == 7.0
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        f"https://user:pass@{HOST}/api/decks/1/",
+        f"https://user@{HOST}/api/decks/1/",
+        f"https://{HOST}:8443/api/decks/1/",
+        f"https://{HOST}:22/api/decks/1/",
+        rf"https://evil.test\@{HOST}/api/decks/1/",
+        f"https://{HOST}./api/decks/1/",
+        f"https://{HOST}/api/decks/1/ ",
+        f"https://{HOST}/api/\tdecks/1/",
+        f"https://{HOST}/api/\ndecks/1/",
+        f"https://{HOST}/api/\x00decks/1/",
+        rf"https://{HOST}\.evil.test/",
+        "https:///api/decks/1/",
+        "https://",
+        "",
+    ],
+)
+async def test_url_tricks_are_refused_before_cache_limiter_and_network(url: str) -> None:
+    deck = _deck_id()
+    await DeckCache().set(SITE.name, deck, CachedBody(b"cached", "application/json"))
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200)
+
+    async with _client(handler) as client:
+        with pytest.raises(DeckSiteHostError):
+            await client.fetch(SITE.name, deck, url)
+    assert calls == 0
+
+
+async def test_host_is_compared_case_insensitively_and_default_port_is_allowed() -> None:
+    seen: list[httpx.URL] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url)
+        return httpx.Response(200, content=b"x")
+
+    async with _client(handler) as client:
+        result = await client.fetch(SITE.name, _deck_id(), f"https://{HOST.upper()}:443/api/1/")
+    assert isinstance(result, DeckFetched)
+    assert str(seen[0]) == f"https://{HOST}/api/1/"
+
+
+async def test_cache_ignores_the_url_and_keys_on_site_and_deck_id() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, content=b"x")
+
+    deck = _deck_id()
+    async with _client(handler) as client:
+        await client.fetch(SITE.name, deck, _url("1"))
+        again = await client.fetch(SITE.name, deck, f"https://{HOST}/other/path?q=1")
+    assert calls == 1
+    assert isinstance(again, DeckFetched)
+    assert again.from_cache
